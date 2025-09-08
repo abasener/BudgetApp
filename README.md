@@ -1,2 +1,2 @@
 # BudgetApp
-This is a program in progress to track expenses, bills, saving, and income with fun metrics around tracking metadata.
+This program is a budget app with python. It tracks spending, savings, and bills
