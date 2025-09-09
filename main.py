@@ -4,7 +4,7 @@ Budget App - Desktop application for tracking expenses, bills, savings, and inco
 
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QVBoxLayout, 
-                             QWidget, QMenuBar, QMenu, QToolBar, QPushButton, QDialog)
+                             QWidget, QMenuBar, QMenu, QToolBar, QPushButton, QDialog, QHBoxLayout)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 
@@ -20,13 +20,15 @@ from views.weekly_view import WeeklyView
 from services.transaction_manager import TransactionManager
 from services.analytics import AnalyticsEngine
 from services.paycheck_processor import PaycheckProcessor
+from themes import theme_manager
+from widgets import ThemeSelector
 
 
 class BudgetApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Budget App")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1200, 1000)  # Increased height for taller charts
         
         # Initialize services
         self.transaction_manager = TransactionManager()
@@ -34,6 +36,10 @@ class BudgetApp(QMainWindow):
         self.paycheck_processor = PaycheckProcessor()
         
         self.init_ui()
+        self.apply_theme()
+        
+        # Connect to theme changes
+        theme_manager.theme_changed.connect(self.on_theme_changed)
         
     def init_ui(self):
         # Create central widget with tabs
@@ -69,6 +75,9 @@ class BudgetApp(QMainWindow):
         # Create menu bar and toolbar
         self.create_menu_bar()
         self.create_toolbar()
+        
+        # Create theme assets directory structure
+        theme_manager.create_theme_assets_structure()
         
     def create_menu_bar(self):
         menubar = self.menuBar()
@@ -161,6 +170,13 @@ class BudgetApp(QMainWindow):
         add_bill_btn.setStyleSheet("padding: 3px 8px; font-size: 11px;")
         toolbar.addWidget(add_bill_btn)
         
+        toolbar.addSeparator()
+        
+        # Theme selector
+        self.theme_selector = ThemeSelector()
+        self.theme_selector.theme_changed.connect(self.on_theme_changed)
+        toolbar.addWidget(self.theme_selector)
+        
     def refresh_all_views(self):
         """Refresh all tabs - called after any data change"""
         print("Refreshing all views...")
@@ -217,6 +233,32 @@ class BudgetApp(QMainWindow):
         except Exception as e:
             print(f"Error opening add bill dialog: {e}")
     
+    def apply_theme(self):
+        """Apply the current theme to the application"""
+        stylesheet = theme_manager.get_stylesheet()
+        self.setStyleSheet(stylesheet)
+        
+        # Apply theme-specific fonts
+        title_font = theme_manager.get_font("title")
+        self.setFont(theme_manager.get_font("main"))
+        
+        print(f"Applied theme: {theme_manager.themes[theme_manager.current_theme]['name']}")
+    
+    def on_theme_changed(self, theme_id):
+        """Handle theme change"""
+        self.apply_theme()
+        
+        # Notify all views of theme change
+        try:
+            if hasattr(self.dashboard, 'on_theme_changed'):
+                self.dashboard.on_theme_changed(theme_id)
+            if hasattr(self.bills_view, 'on_theme_changed'):
+                self.bills_view.on_theme_changed(theme_id)
+            if hasattr(self.weekly_view, 'on_theme_changed'):
+                self.weekly_view.on_theme_changed(theme_id)
+        except Exception as e:
+            print(f"Error applying theme to views: {e}")
+    
     def closeEvent(self, event):
         """Clean up resources when closing the application"""
         try:
@@ -236,6 +278,9 @@ def main():
     
     window = BudgetApp()
     window.show()
+    
+    # Refresh all views after startup to ensure data loads properly
+    window.refresh_all_views()
     
     sys.exit(app.exec())
 

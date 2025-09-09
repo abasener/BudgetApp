@@ -1,0 +1,7 @@
+Theme: Excel Blue (Blues & Yellows)
+GIF Assets needed:
+- dashboard_animation: Main dashboard animated element
+- loading: Loading spinner/animation  
+- success: Success confirmation animation
+
+Place your GIF files in this directory with the expected names.

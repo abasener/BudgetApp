@@ -64,38 +64,11 @@ class AddPaycheckDialog(QDialog):
         
         self.preview_text = QTextEdit()
         self.preview_text.setReadOnly(True)
-        self.preview_text.setMaximumHeight(200)
+        self.preview_text.setMaximumHeight(300)  # Increased height for more detail
         preview_layout.addWidget(self.preview_text)
         
         preview_frame.setLayout(preview_layout)
         layout.addWidget(preview_frame)
-        
-        # Explanation section
-        explanation_frame = QFrame()
-        explanation_frame.setFrameStyle(QFrame.Shape.Box)
-        explanation_layout = QVBoxLayout()
-        
-        explanation_title = QLabel("How Paycheck Processing Works")
-        explanation_title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        explanation_layout.addWidget(explanation_title)
-        
-        explanation_text = QLabel("""
-1. Gross paycheck amount is entered
-2. Bills are deducted (bi-weekly savings portion)
-3. Automatic savings deducted (10% of gross)
-4. Remaining amount is split between Week 1 and Week 2
-5. All transactions and account updates are recorded
-6. Bill savings are allocated for upcoming payments
-
-IMPORTANT: This follows strict bi-weekly periods starting on
-Mondays. You can adjust the start date if adding missed
-paychecks or handling schedule changes.
-        """)
-        explanation_text.setStyleSheet("margin: 5px; padding: 5px;")
-        explanation_layout.addWidget(explanation_text)
-        
-        explanation_frame.setLayout(explanation_layout)
-        layout.addWidget(explanation_frame)
         
         # Buttons
         button_layout = QHBoxLayout()
@@ -128,27 +101,31 @@ paychecks or handling schedule changes.
         try:
             paycheck_amount = self.amount_spin.value()
             
-            # Calculate bills deduction
-            bills_deducted = self.paycheck_processor.calculate_bills_deduction()
+            # Calculate bills deduction (including percentage-based)
+            bills_deducted = self.paycheck_processor.calculate_bills_deduction(paycheck_amount)
             
             # Calculate automatic savings (10%)
             automatic_savings = self.paycheck_processor.calculate_automatic_savings(paycheck_amount)
             
+            # Calculate account auto-savings (after bills)
+            account_auto_savings = self.paycheck_processor.calculate_account_auto_savings()
+            
             # Calculate remaining and split
-            remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings
+            remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings - account_auto_savings
             week1_allocation = remaining_for_weeks / 2
             week2_allocation = remaining_for_weeks / 2
             
-            # Format preview text
+            # Format enhanced preview text
             preview = f"""
 PAYCHECK PROCESSING BREAKDOWN:
 
 Gross Paycheck: ${paycheck_amount:.2f}
 
 DEDUCTIONS:
-  Bills (bi-weekly): ${bills_deducted:.2f}
+  Bills (bi-weekly savings): ${bills_deducted:.2f}
   Automatic Savings (10%): ${automatic_savings:.2f}
-  Total Deductions: ${bills_deducted + automatic_savings:.2f}
+  Account Auto-Savings: ${account_auto_savings:.2f}
+  Total Deductions: ${bills_deducted + automatic_savings + account_auto_savings:.2f}
 
 WEEKLY ALLOCATIONS:
   Remaining for weeks: ${remaining_for_weeks:.2f}
@@ -156,14 +133,35 @@ WEEKLY ALLOCATIONS:
   Week 2 allocation: ${week2_allocation:.2f}
 
 TRANSACTIONS TO BE CREATED:
-  • Income transaction: ${paycheck_amount:.2f}
-  • Automatic savings: ${automatic_savings:.2f}
-  • Bill savings allocations: ${bills_deducted:.2f}
-  • Account balance updates
+  1. Income transaction: ${paycheck_amount:.2f}
+  2. Automatic savings transfer: ${automatic_savings:.2f}
+  3. Bill savings allocations: ${bills_deducted:.2f}
+  4. Account auto-savings: ${account_auto_savings:.2f}
+  5. Account balance updates
+  6. Week allocation tracking
+
+BILL SAVINGS BREAKDOWN:
+  (Money set aside for upcoming bills)"""
+            
+            # Add bill breakdown details
+            try:
+                bills = self.paycheck_processor.transaction_manager.get_all_bills()
+                for bill in bills[:5]:  # Show first 5 bills
+                    if bill.amount_to_save > 0:
+                        preview += f"\n  • {bill.name}: ${bill.amount_to_save:.2f}"
+            except:
+                preview += "\n  • (Bill details loading...)"
+            
+            preview += f"""
 
 NET EFFECT:
   Take-home for spending: ${remaining_for_weeks:.2f}
   Split across 2 weeks: ${week1_allocation:.2f} each
+  
+SYSTEM NOTES:
+  • Follows strict bi-weekly periods (Monday starts)
+  • All transactions recorded automatically
+  • Account balances updated in real-time
             """.strip()
             
             self.preview_text.setPlainText(preview)
@@ -226,6 +224,7 @@ SUMMARY:
 • Gross Paycheck: ${split_result.gross_paycheck:.2f}
 • Bills Deducted: ${split_result.bills_deducted:.2f}
 • Automatic Savings: ${split_result.automatic_savings:.2f}
+• Account Auto-Savings: ${split_result.account_auto_savings:.2f}
 • Week 1 Allocation: ${split_result.week1_allocation:.2f}
 • Week 2 Allocation: ${split_result.week2_allocation:.2f}
 
@@ -233,6 +232,7 @@ TRANSACTIONS CREATED:
 • Income transaction recorded
 • Automatic savings allocated
 • Bill savings updated
+• Account auto-savings allocated
 • Account balances updated
 
 The dashboard will refresh to show updated data.

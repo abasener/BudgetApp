@@ -17,6 +17,7 @@ class PaycheckSplit:
     gross_paycheck: float
     bills_deducted: float  
     automatic_savings: float
+    account_auto_savings: float
     remaining_for_weeks: float
     week1_allocation: float
     week2_allocation: float
@@ -53,16 +54,19 @@ class PaycheckProcessor:
         4. Split remainder between Week 1 and Week 2
         """
         
-        # Step 1: Calculate bills to deduct (bi-weekly portion)
-        bills_deducted = self.calculate_bills_deduction()
+        # Step 1: Calculate bills to deduct (bi-weekly portion, including percentage-based)
+        bills_deducted = self.calculate_bills_deduction(paycheck_amount)
         
         # Step 2: Calculate automatic savings (fixed percentage or amount)
         automatic_savings = self.calculate_automatic_savings(paycheck_amount)
         
-        # Step 3: Calculate remaining for weeks
-        remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings
+        # Step 3: Calculate account auto-savings (happens after bills)
+        account_auto_savings = self.calculate_account_auto_savings()
         
-        # Step 4: Split between weeks (default 50/50, but could be customized)
+        # Step 4: Calculate remaining for weeks
+        remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings - account_auto_savings
+        
+        # Step 5: Split between weeks (default 50/50, but could be customized)
         week1_allocation = remaining_for_weeks / 2
         week2_allocation = remaining_for_weeks / 2
         
@@ -71,6 +75,7 @@ class PaycheckProcessor:
             gross_paycheck=paycheck_amount,
             bills_deducted=bills_deducted,
             automatic_savings=automatic_savings,
+            account_auto_savings=account_auto_savings,
             remaining_for_weeks=remaining_for_weeks,
             week1_allocation=week1_allocation,
             week2_allocation=week2_allocation
@@ -81,18 +86,34 @@ class PaycheckProcessor:
         
         return split
     
-    def calculate_bills_deduction(self) -> float:
+    def calculate_bills_deduction(self, paycheck_amount: float = 0.0) -> float:
         """Calculate how much to deduct for bills in this bi-weekly period"""
         bills = self.transaction_manager.get_all_bills()
         total_deduction = 0.0
         
         for bill in bills:
-            # Calculate bi-weekly savings requirement
-            # amount_to_save is typically the per-period amount the user wants to save
-            bi_weekly_savings = bill.amount_to_save
+            # Handle percentage-based vs fixed amount savings
+            if bill.amount_to_save < 1.0 and bill.amount_to_save > 0:
+                # Percentage-based saving (e.g., 0.1 = 10% of paycheck)
+                bi_weekly_savings = bill.amount_to_save * paycheck_amount
+            else:
+                # Fixed dollar amount saving
+                bi_weekly_savings = bill.amount_to_save
+            
             total_deduction += bi_weekly_savings
             
         return total_deduction
+    
+    def calculate_account_auto_savings(self) -> float:
+        """Calculate auto-savings for accounts (happens after bills)"""
+        accounts = self.transaction_manager.get_all_accounts()
+        total_auto_savings = 0.0
+        
+        for account in accounts:
+            if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
+                total_auto_savings += account.auto_save_amount
+                
+        return total_auto_savings
     
     def calculate_automatic_savings(self, paycheck_amount: float) -> float:
         """Calculate automatic savings (could be percentage or fixed amount)"""

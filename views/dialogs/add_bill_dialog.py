@@ -9,6 +9,75 @@ from PyQt6.QtCore import QDate
 from datetime import date, timedelta
 
 
+class SavingsPlanDialog(QDialog):
+    def __init__(self, parent, explanation_text, calculated_amount, current_amount):
+        super().__init__(parent)
+        self.calculated_amount = calculated_amount
+        self.current_amount = current_amount
+        self.setWindowTitle("Savings Plan Analysis")
+        self.setModal(True)
+        self.resize(500, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Title
+        title = QLabel("Savings Plan Analysis")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        layout.addWidget(title)
+        
+        # Current vs calculated info (main content)
+        # Extract the key parts from explanation_text
+        lines = explanation_text.split('\n')
+        payment_line = next((line for line in lines if line.startswith('Payment:')), '')
+        bi_weekly_line = next((line for line in lines if line.startswith('Bi-weekly savings needed:')), '')
+        planned_line = next((line for line in lines if line.startswith('Planned amount:')), '')
+        
+        # Find over/under saving status
+        status_line = ""
+        for line in lines:
+            if 'Over saves by' in line or 'Under saves by' in line or 'Saving the amount expected' in line:
+                status_line = line
+                break
+        
+        comparison_text = f"""
+{payment_line}
+{bi_weekly_line}
+
+{planned_line}
+
+{status_line}
+
+CURRENT VS RECOMMENDED:
+Your current setting: ${current_amount:.2f}
+Calculated recommendation: ${calculated_amount:.2f}
+Difference: ${calculated_amount - current_amount:+.2f}
+
+Note: This is an estimate. Adjust based on your actual payment schedule.
+        """.strip()
+        
+        comparison_area = QTextEdit()
+        comparison_area.setPlainText(comparison_text)
+        comparison_area.setReadOnly(True)
+        comparison_area.setMinimumHeight(200)
+        layout.addWidget(comparison_area)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.reject)  # Just close dialog
+        
+        auto_set_button = QPushButton("Auto Set Calculated Amount")
+        auto_set_button.clicked.connect(self.accept)  # Return 1 to indicate auto set
+        auto_set_button.setStyleSheet("font-weight: bold;")
+        
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(auto_set_button)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+
+
 class AddBillDialog(QDialog):
     def __init__(self, transaction_manager, parent=None):
         super().__init__(parent)
@@ -36,11 +105,12 @@ class AddBillDialog(QDialog):
         self.name_edit.textChanged.connect(self.update_preview)
         form_layout.addRow("Bill Name:", self.name_edit)
         
-        # Bill type/category
-        self.type_edit = QLineEdit()
-        self.type_edit.setPlaceholderText("e.g., Housing, Transportation, Utilities")
-        self.type_edit.textChanged.connect(self.update_preview)
-        form_layout.addRow("Bill Type/Category:", self.type_edit)
+        # Bill type/category (multi-select like spending categories)
+        self.type_combo = QComboBox()
+        self.type_combo.setEditable(True)
+        self.type_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.type_combo.currentTextChanged.connect(self.update_preview)
+        form_layout.addRow("Bill Type/Category:", self.type_combo)
         
         # Payment frequency (dropdown)
         self.frequency_combo = QComboBox()
@@ -62,7 +132,7 @@ class AddBillDialog(QDialog):
         self.variable_checkbox.toggled.connect(self.update_preview)
         form_layout.addRow("", self.variable_checkbox)
         
-        # Amount to save per bi-weekly period
+        # Amount to save per bi-weekly period (dollar amount or percentage)
         self.save_amount_spin = QDoubleSpinBox()
         self.save_amount_spin.setRange(0.00, 99999.99)
         self.save_amount_spin.setDecimals(2)
@@ -70,10 +140,15 @@ class AddBillDialog(QDialog):
         self.save_amount_spin.valueChanged.connect(self.update_preview)
         form_layout.addRow("Amount to Save (bi-weekly):", self.save_amount_spin)
         
-        # Auto-calculate button
-        self.auto_calc_button = QPushButton("Auto-Calculate Savings Amount")
-        self.auto_calc_button.clicked.connect(self.auto_calculate_savings)
-        form_layout.addRow("", self.auto_calc_button)
+        # Percentage savings note
+        percentage_note = QLabel("Tip: Use values < 1.0 for percentage (e.g., 0.1 = 10% of income)")
+        percentage_note.setStyleSheet("color: gray; font-size: 11px;")
+        form_layout.addRow("", percentage_note)
+        
+        # Check savings plan button
+        self.check_plan_button = QPushButton("Check Savings Plan")
+        self.check_plan_button.clicked.connect(self.check_savings_plan)
+        form_layout.addRow("", self.check_plan_button)
         
         # Starting saved amount
         self.saved_amount_spin = QDoubleSpinBox()
@@ -123,10 +198,33 @@ class AddBillDialog(QDialog):
         self.setLayout(layout)
         
         # Initial setup
+        self.load_bill_types()
         self.update_preview()
     
-    def auto_calculate_savings(self):
-        """Auto-calculate bi-weekly savings amount based on payment frequency"""
+    def load_bill_types(self):
+        """Load existing bill types from database"""
+        try:
+            existing_bills = self.transaction_manager.get_all_bills()
+            bill_types = set()
+            for bill in existing_bills:
+                if bill.bill_type:
+                    bill_types.add(bill.bill_type.strip())
+            
+            self.type_combo.clear()
+            if bill_types:
+                self.type_combo.addItems(sorted(bill_types))
+            else:
+                # Default categories if none exist
+                default_types = ["Housing", "Utilities", "Transportation", "Education", "Government", "Healthcare"]
+                self.type_combo.addItems(default_types)
+                
+        except Exception:
+            # Fallback categories
+            default_types = ["Housing", "Utilities", "Transportation", "Education", "Government", "Healthcare"]
+            self.type_combo.addItems(default_types)
+    
+    def check_savings_plan(self):
+        """Check the savings plan and show detailed analysis"""
         payment_amount = self.amount_spin.value()
         frequency = self.frequency_combo.currentText()
         
@@ -145,38 +243,69 @@ class AddBillDialog(QDialog):
         
         # Calculate how much to save per bi-weekly period (14 days)
         bi_weekly_savings = (payment_amount / days_between) * 14
+        current_save_amount = self.save_amount_spin.value()
         
-        self.save_amount_spin.setValue(bi_weekly_savings)
+        # Calculate over/under savings compared to planned amount
+        planned_amount = payment_amount
+        total_saved_over_period = bi_weekly_savings * (days_between / 14)
+        difference = total_saved_over_period - planned_amount
         
         # Show explanation
         explanation = f"""
 Auto-calculated savings amount:
 
 Payment: ${payment_amount:.2f} {frequency}
-Estimated days between payments: {days_between}
 Bi-weekly savings needed: ${bi_weekly_savings:.2f}
 
-Calculation: (${payment_amount:.2f} ÷ {days_between} days) × 14 days = ${bi_weekly_savings:.2f}
+Planned amount: ${planned_amount:.2f}
 
-Note: This is an estimate. Adjust the amount based on your actual payment schedule.
-        """.strip()
+"""
         
-        QMessageBox.information(self, "Auto-Calculate Savings", explanation)
+        if abs(difference) < 1:  # Within $1, consider it accurate
+            explanation += "Saving the amount expected to be taken"
+        elif difference > 0:
+            explanation += f"Over saves by ${difference:.2f}"
+        else:
+            weeks_till_used = abs(difference) / bi_weekly_savings if bi_weekly_savings > 0 else 0
+            explanation += f"Under saves by ${abs(difference):.2f}, {weeks_till_used:.1f} weeks till savings used"
+        
+        explanation += "\n\nNote: This is an estimate. Adjust the amount based on your actual payment schedule."
+        
+        # Show custom savings plan dialog
+        plan_dialog = SavingsPlanDialog(self, explanation, bi_weekly_savings, current_save_amount)
+        result = plan_dialog.exec()
+        
+        # If user clicked "Auto Set", update the spin box and refresh preview
+        if result == 1:  # Auto Set was clicked
+            self.save_amount_spin.setValue(bi_weekly_savings)
+            self.update_preview()
     
     def update_preview(self):
         """Update the preview of the bill to be created"""
         name = self.name_edit.text().strip() or "[Bill Name]"
-        bill_type = self.type_edit.text().strip() or "[Bill Type]"
+        bill_type = self.type_combo.currentText().strip() or "[Bill Type]"
         frequency = self.frequency_combo.currentText()
         amount = self.amount_spin.value()
         save_amount = self.save_amount_spin.value()
         saved_amount = self.saved_amount_spin.value()
         is_variable = self.variable_checkbox.isChecked()
-        last_payment = self.last_payment_edit.date().toPython()
+        qdate = self.last_payment_edit.date()
+        last_payment = date(qdate.year(), qdate.month(), qdate.day())
         notes = self.notes_edit.text().strip()
         
-        # Calculate some helpful info
-        monthly_savings = save_amount * 2.17  # Approximate monthly (26 bi-weekly periods / 12 months)
+        # Handle percentage vs dollar amount savings
+        if save_amount < 1.0 and save_amount > 0:
+            # Percentage-based saving
+            savings_display = f"{save_amount * 100:.1f}% of income"
+            savings_type = "Percentage-based"
+            # For preview, assume $1500 bi-weekly income as example
+            example_dollar_amount = save_amount * 1500
+            monthly_savings = example_dollar_amount * 2.17
+        else:
+            # Dollar amount saving
+            savings_display = f"${save_amount:.2f}"
+            savings_type = "Fixed amount"
+            monthly_savings = save_amount * 2.17
         
         preview_text = f"""
 BILL PREVIEW:
@@ -188,7 +317,7 @@ Typical Amount: ${amount:.2f}
 Variable Amount: {"Yes" if is_variable else "No"}
 
 SAVINGS PLAN:
-Bi-weekly Savings: ${save_amount:.2f}
+Bi-weekly Savings: {savings_display} ({savings_type})
 Approximate Monthly: ${monthly_savings:.2f}
 Currently Saved: ${saved_amount:.2f}
 
@@ -214,7 +343,7 @@ Last Payment: {last_payment} (optional reference)
     def validate_form(self):
         """Validate form data"""
         name = self.name_edit.text().strip()
-        bill_type = self.type_edit.text().strip()
+        bill_type = self.type_combo.currentText().strip()
         
         if not name:
             QMessageBox.warning(self, "Validation Error", "Bill name is required")
@@ -250,7 +379,8 @@ Last Payment: {last_payment} (optional reference)
             return False
         
         # Validate dates
-        last_payment = self.last_payment_edit.date().toPython()
+        qdate = self.last_payment_edit.date()
+        last_payment = date(qdate.year(), qdate.month(), qdate.day())
         
         if last_payment > date.today():
             QMessageBox.warning(self, "Validation Error", "Last payment date cannot be in the future")
@@ -266,13 +396,14 @@ Last Payment: {last_payment} (optional reference)
         try:
             # Collect form data
             name = self.name_edit.text().strip()
-            bill_type = self.type_edit.text().strip()
+            bill_type = self.type_combo.currentText().strip()
             frequency = self.frequency_combo.currentText()
             amount = self.amount_spin.value()
             save_amount = self.save_amount_spin.value()
             saved_amount = self.saved_amount_spin.value()
             is_variable = self.variable_checkbox.isChecked()
-            last_payment = self.last_payment_edit.date().toPython()
+            qdate = self.last_payment_edit.date()
+            last_payment = date(qdate.year(), qdate.month(), qdate.day())
             notes = self.notes_edit.text().strip()
             
             # Create new bill directly in database
@@ -301,7 +432,10 @@ Last Payment: {last_payment} (optional reference)
             success_text += f"Typical Amount: ${amount:.2f}\n"
             success_text += f"Frequency: {frequency}\n"
             success_text += f"Variable Amount: {'Yes' if is_variable else 'No'}\n"
-            success_text += f"Bi-weekly Savings: ${save_amount:.2f}\n"
+            if save_amount < 1.0 and save_amount > 0:
+                success_text += f"Bi-weekly Savings: {save_amount * 100:.1f}% of income\n"
+            else:
+                success_text += f"Bi-weekly Savings: ${save_amount:.2f}\n"
             
             if saved_amount > 0:
                 success_text += f"Starting with ${saved_amount:.2f} already saved\n"

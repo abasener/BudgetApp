@@ -31,6 +31,19 @@ class TransactionManager:
         """Get the default savings account"""
         return self.db.query(Account).filter(Account.is_default_save == True).first()
     
+    def set_default_savings_account(self, account_id: int):
+        """Set an account as the default savings account (removes default from others)"""
+        # First, remove default flag from all accounts
+        self.db.query(Account).update({Account.is_default_save: False})
+        
+        # Then set the specified account as default
+        account = self.get_account_by_id(account_id)
+        if account:
+            account.is_default_save = True
+            self.db.commit()
+            return True
+        return False
+    
     def update_account_balance(self, account_id: int, new_balance: float):
         """Update account balance"""
         account = self.get_account_by_id(account_id)
@@ -89,6 +102,10 @@ class TransactionManager:
         self.db.commit()
         self.db.refresh(transaction)
         return transaction
+    
+    def get_all_transactions(self) -> List[Transaction]:
+        """Get all transactions"""
+        return self.db.query(Transaction).order_by(desc(Transaction.date)).all()
     
     def get_transactions_by_week(self, week_number: int) -> List[Transaction]:
         """Get all transactions for a specific week"""

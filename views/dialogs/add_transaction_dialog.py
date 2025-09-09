@@ -36,8 +36,7 @@ class AddTransactionDialog(QDialog):
         self.type_combo.addItems([
             "Spending",
             "Bill Payment", 
-            "Saving",
-            "Income"
+            "Saving"
         ])
         self.type_combo.currentTextChanged.connect(self.on_type_changed)
         form_layout.addRow("Transaction Type:", self.type_combo)
@@ -54,28 +53,25 @@ class AddTransactionDialog(QDialog):
         self.date_edit.setCalendarPopup(True)
         form_layout.addRow("Date:", self.date_edit)
         
-        self.description_edit = QLineEdit()
-        form_layout.addRow("Description:", self.description_edit)
-        
-        # Week selection
-        self.week_combo = QComboBox()
-        form_layout.addRow("Week:", self.week_combo)
+        self.notes_edit = QLineEdit()
+        self.notes_edit.setPlaceholderText("e.g., 'Paid someone else's gas, will get reimbursed'")
+        form_layout.addRow("Notes:", self.notes_edit)
         
         # Dynamic fields container
         self.dynamic_layout = QFormLayout()
         
         # Spending-specific fields
-        self.category_edit = QLineEdit()
+        self.category_combo = QComboBox()
+        self.category_combo.setEditable(True)  # Allow typing new categories
+        self.category_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)  # Don't auto-add to list
         self.analytics_checkbox = QCheckBox("Include in analytics (uncheck for abnormal transactions)")
         self.analytics_checkbox.setChecked(True)
         
         # Bill-specific fields
         self.bill_combo = QComboBox()
-        self.bill_type_edit = QLineEdit()
         
         # Saving-specific fields
         self.account_combo = QComboBox()
-        self.account_name_edit = QLineEdit()
         
         layout.addLayout(form_layout)
         layout.addLayout(self.dynamic_layout)
@@ -99,24 +95,18 @@ class AddTransactionDialog(QDialog):
         self.on_type_changed("Spending")
     
     def load_data(self):
-        """Load accounts, bills, and weeks from database"""
+        """Load accounts, bills, and categories from database"""
         try:
-            # Load weeks
-            weeks = self.transaction_manager.get_all_weeks()
-            self.week_combo.clear()
-            for week in weeks:
-                self.week_combo.addItem(
-                    f"Week {week.week_number} ({week.start_date} to {week.end_date})",
-                    week.week_number
-                )
-            
-            # Set current week as default
-            current_week = self.transaction_manager.get_current_week()
-            if current_week:
-                for i in range(self.week_combo.count()):
-                    if self.week_combo.itemData(i) == current_week.week_number:
-                        self.week_combo.setCurrentIndex(i)
-                        break
+            # Load existing categories from spending transactions
+            categories = self.get_existing_categories()
+            self.category_combo.clear()
+            if categories:
+                self.category_combo.addItems(sorted(categories))
+            else:
+                # Default categories if none exist
+                default_categories = ["Food", "Transportation", "Entertainment", "Shopping", 
+                                    "Utilities", "Healthcare", "Personal Care", "Miscellaneous"]
+                self.category_combo.addItems(default_categories)
             
             # Load accounts
             accounts = self.transaction_manager.get_all_accounts()
@@ -128,10 +118,27 @@ class AddTransactionDialog(QDialog):
             bills = self.transaction_manager.get_all_bills()
             self.bill_combo.clear()
             for bill in bills:
-                self.bill_combo.addItem(f"{bill.name} (${bill.amount_to_pay:.2f})", bill.id)
+                # Use typical_amount, or show as variable if not set
+                display_amount = bill.typical_amount if bill.typical_amount > 0 else "Variable"
+                if isinstance(display_amount, float):
+                    self.bill_combo.addItem(f"{bill.name} (${display_amount:.2f})", bill.id)
+                else:
+                    self.bill_combo.addItem(f"{bill.name} ({display_amount})", bill.id)
                 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error loading data: {str(e)}")
+    
+    def get_existing_categories(self):
+        """Get list of existing categories from spending transactions"""
+        try:
+            spending_transactions = self.transaction_manager.get_spending_transactions(include_analytics_only=False)
+            categories = set()
+            for transaction in spending_transactions:
+                if transaction.category:
+                    categories.add(transaction.category.strip())
+            return list(categories)
+        except Exception:
+            return []
     
     def clear_dynamic_fields(self):
         """Clear all dynamic fields from layout"""
@@ -145,46 +152,29 @@ class AddTransactionDialog(QDialog):
         self.clear_dynamic_fields()
         
         if transaction_type == "Spending":
-            self.dynamic_layout.addRow("Category:", self.category_edit)
+            self.dynamic_layout.addRow("Category:", self.category_combo)
             self.dynamic_layout.addRow("", self.analytics_checkbox)
             
-            self.category_edit.setVisible(True)
+            self.category_combo.setVisible(True)
             self.analytics_checkbox.setVisible(True)
             self.bill_combo.setVisible(False)
-            self.bill_type_edit.setVisible(False)
             self.account_combo.setVisible(False)
-            self.account_name_edit.setVisible(False)
             
         elif transaction_type == "Bill Payment":
             self.dynamic_layout.addRow("Bill:", self.bill_combo)
-            self.dynamic_layout.addRow("Bill Type:", self.bill_type_edit)
             
-            self.category_edit.setVisible(False)
+            self.category_combo.setVisible(False)
             self.analytics_checkbox.setVisible(False)
             self.bill_combo.setVisible(True)
-            self.bill_type_edit.setVisible(True)
             self.account_combo.setVisible(False)
-            self.account_name_edit.setVisible(False)
             
         elif transaction_type == "Saving":
             self.dynamic_layout.addRow("Account:", self.account_combo)
-            self.dynamic_layout.addRow("Account Name:", self.account_name_edit)
             
-            self.category_edit.setVisible(False)
+            self.category_combo.setVisible(False)
             self.analytics_checkbox.setVisible(False)
             self.bill_combo.setVisible(False)
-            self.bill_type_edit.setVisible(False)
             self.account_combo.setVisible(True)
-            self.account_name_edit.setVisible(True)
-            
-        elif transaction_type == "Income":
-            # Income has no special fields, just basic ones
-            self.category_edit.setVisible(False)
-            self.analytics_checkbox.setVisible(False)
-            self.bill_combo.setVisible(False)
-            self.bill_type_edit.setVisible(False)
-            self.account_combo.setVisible(False)
-            self.account_name_edit.setVisible(False)
     
     def validate_form(self):
         """Validate form data"""
@@ -192,13 +182,9 @@ class AddTransactionDialog(QDialog):
             QMessageBox.warning(self, "Validation Error", "Amount must be greater than 0")
             return False
         
-        if not self.description_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Description is required")
-            return False
-        
         transaction_type = self.type_combo.currentText()
         
-        if transaction_type == "Spending" and not self.category_edit.text().strip():
+        if transaction_type == "Spending" and not self.category_combo.currentText().strip():
             QMessageBox.warning(self, "Validation Error", "Category is required for spending transactions")
             return False
         
@@ -219,33 +205,35 @@ class AddTransactionDialog(QDialog):
         
         try:
             transaction_type = self.type_combo.currentText()
+            transaction_date = self.date_edit.date().toPython()
+            
+            # Calculate week number from date
+            week_number = self.calculate_week_from_date(transaction_date)
             
             # Base transaction data
             self.transaction_data = {
                 "transaction_type": self.get_transaction_type_value(transaction_type),
                 "amount": self.amount_spin.value(),
-                "date": self.date_edit.date().toPython(),
-                "description": self.description_edit.text().strip(),
-                "week_number": self.week_combo.currentData()
+                "date": transaction_date,
+                "description": self.notes_edit.text().strip(),
+                "week_number": week_number
             }
             
             # Add type-specific fields
             if transaction_type == "Spending":
                 self.transaction_data.update({
-                    "category": self.category_edit.text().strip(),
+                    "category": self.category_combo.currentText().strip(),
                     "include_in_analytics": self.analytics_checkbox.isChecked()
                 })
                 
             elif transaction_type == "Bill Payment":
                 self.transaction_data.update({
-                    "bill_id": self.bill_combo.currentData(),
-                    "bill_type": self.bill_type_edit.text().strip()
+                    "bill_id": self.bill_combo.currentData()
                 })
                 
             elif transaction_type == "Saving":
                 self.transaction_data.update({
-                    "account_id": self.account_combo.currentData(),
-                    "account_saved_to": self.account_combo.currentText()
+                    "account_id": self.account_combo.currentData()
                 })
             
             # Save to database
@@ -257,12 +245,31 @@ class AddTransactionDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving transaction: {str(e)}")
     
+    def calculate_week_from_date(self, transaction_date):
+        """Calculate week number from transaction date"""
+        try:
+            # Find the week that contains this date
+            weeks = self.transaction_manager.get_all_weeks()
+            for week in weeks:
+                if week.start_date <= transaction_date <= week.end_date:
+                    return week.week_number
+            
+            # If no week contains this date, use current week or create one
+            current_week = self.transaction_manager.get_current_week()
+            if current_week:
+                return current_week.week_number
+            else:
+                # Fallback to week 1 if no weeks exist
+                return 1
+                
+        except Exception:
+            return 1  # Safe fallback
+    
     def get_transaction_type_value(self, display_name):
         """Convert display name to database enum value"""
         mapping = {
             "Spending": TransactionType.SPENDING.value,
             "Bill Payment": TransactionType.BILL_PAY.value,
-            "Saving": TransactionType.SAVING.value,
-            "Income": TransactionType.INCOME.value
+            "Saving": TransactionType.SAVING.value
         }
         return mapping.get(display_name, TransactionType.SPENDING.value)

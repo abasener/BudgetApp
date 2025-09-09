@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
 from PyQt6.QtCore import QDate
 from datetime import date, timedelta
 
+from models import Transaction
+
 
 class PayBillDialog(QDialog):
     def __init__(self, transaction_manager, parent=None):
@@ -50,28 +52,7 @@ class PayBillDialog(QDialog):
         self.amount_spin.setDecimals(2)
         form_layout.addRow("Payment Amount ($):", self.amount_spin)
         
-        # Week selection
-        self.week_combo = QComboBox()
-        form_layout.addRow("Week:", self.week_combo)
-        
         layout.addLayout(form_layout)
-        
-        # Bill information section
-        info_frame = QFrame()
-        info_frame.setFrameStyle(QFrame.Shape.Box)
-        info_layout = QVBoxLayout()
-        
-        info_title = QLabel("Bill Information")
-        info_title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        info_layout.addWidget(info_title)
-        
-        self.bill_info_text = QTextEdit()
-        self.bill_info_text.setReadOnly(True)
-        self.bill_info_text.setMaximumHeight(150)
-        info_layout.addWidget(self.bill_info_text)
-        
-        info_frame.setLayout(info_layout)
-        layout.addWidget(info_frame)
         
         # Buttons
         button_layout = QHBoxLayout()
@@ -103,30 +84,44 @@ class PayBillDialog(QDialog):
             
             self.bill_combo.addItem("Select a bill...", None)
             for bill in bills:
-                display_text = f"{bill.name} - ${bill.amount_to_pay:.2f}"
-                if bill.next_payment_date:
-                    display_text += f" (Due: {bill.next_payment_date})"
+                # Use typical_amount or calculate from payment history
+                default_amount = self.get_bill_default_amount(bill)
+                display_text = f"{bill.name} - ${default_amount:.2f}"
+                if bill.payment_frequency:
+                    display_text += f" ({bill.payment_frequency})"
                 self.bill_combo.addItem(display_text, bill.id)
             
-            # Load weeks
-            weeks = self.transaction_manager.get_all_weeks()
-            self.week_combo.clear()
-            for week in weeks:
-                self.week_combo.addItem(
-                    f"Week {week.week_number} ({week.start_date} to {week.end_date})",
-                    week.week_number
-                )
-            
-            # Set current week as default
-            current_week = self.transaction_manager.get_current_week()
-            if current_week:
-                for i in range(self.week_combo.count()):
-                    if self.week_combo.itemData(i) == current_week.week_number:
-                        self.week_combo.setCurrentIndex(i)
-                        break
                         
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error loading bills: {str(e)}")
+    
+    def get_bill_default_amount(self, bill):
+        """Get smart default amount for bill - typical_amount or average from payment history"""
+        # If typical_amount is set and > 0, use it
+        if hasattr(bill, 'typical_amount') and bill.typical_amount > 0:
+            return bill.typical_amount
+        
+        # Otherwise, calculate average from payment history
+        try:
+            bill_payments = self.transaction_manager.db.query(Transaction).filter(
+                Transaction.bill_id == bill.id,
+                Transaction.transaction_type == "bill_pay"
+            ).all()
+            
+            if bill_payments:
+                total = sum(payment.amount for payment in bill_payments)
+                average = total / len(bill_payments)
+                return average
+            
+            # Fallback to last_payment_amount if available
+            if hasattr(bill, 'last_payment_amount') and bill.last_payment_amount > 0:
+                return bill.last_payment_amount
+        
+        except Exception:
+            pass  # Ignore errors, use fallback
+        
+        # Final fallback
+        return 100.00
     
     def on_bill_selected(self):
         """Handle bill selection"""
@@ -134,52 +129,24 @@ class PayBillDialog(QDialog):
         
         if bill_id is None:
             self.selected_bill = None
-            self.bill_info_text.setPlainText("Please select a bill to see details.")
             self.pay_button.setEnabled(False)
             return
         
         try:
             bill = self.transaction_manager.get_bill_by_id(bill_id)
             if not bill:
-                self.bill_info_text.setPlainText("Bill not found.")
                 self.pay_button.setEnabled(False)
                 return
             
             self.selected_bill = bill
             
-            # Set default payment amount
-            self.amount_spin.setValue(bill.typical_amount)
+            # Set smart default payment amount
+            default_amount = self.get_bill_default_amount(bill)
+            self.amount_spin.setValue(default_amount)
             
-            # Display bill information
-            info_text = f"""
-BILL DETAILS:
-
-Name: {bill.name}
-Type: {bill.bill_type}
-Typical Payment: ${bill.typical_amount:.2f}
-Payment Frequency: {bill.payment_frequency}
-Variable Amount: {'Yes' if bill.is_variable else 'No'}
-
-SAVINGS STATUS:
-Amount Saved: ${bill.running_total:.2f}
-Amount to Save (bi-weekly): ${bill.amount_to_save:.2f}
-
-PAYMENT HISTORY:
-Last Payment: {bill.last_payment_date if bill.last_payment_date else 'Never'}
-Last Amount: ${bill.last_payment_amount:.2f} {f'on {bill.last_payment_date}' if bill.last_payment_date else ''}
-
-PAYMENT PROCESS:
-• This payment will be deducted from saved amount
-• Payment details recorded for tracking
-• Bill savings total will be reset to $0.00
-• No automatic date calculations (manual system)
-            """.strip()
-            
-            self.bill_info_text.setPlainText(info_text)
             self.pay_button.setEnabled(True)
             
         except Exception as e:
-            self.bill_info_text.setPlainText(f"Error loading bill details: {str(e)}")
             self.pay_button.setEnabled(False)
     
     def validate_form(self):
@@ -218,7 +185,9 @@ PAYMENT PROCESS:
         try:
             payment_amount = self.amount_spin.value()
             payment_date = self.payment_date_edit.date().toPython()
-            week_number = self.week_combo.currentData()
+            
+            # Calculate week number from payment date
+            week_number = self.calculate_week_from_date(payment_date)
             
             # Show confirmation
             response = QMessageBox.question(
@@ -227,7 +196,7 @@ PAYMENT PROCESS:
                 f"Pay {self.selected_bill.name} ${payment_amount:.2f} on {payment_date}?\n\n"
                 f"This will:\n"
                 f"• Create a bill payment transaction\n"
-                f"• Update the bill's payment schedule\n"
+                f"• Update the bill's payment history\n"
                 f"• Reset the bill's saved amount to $0.00",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
@@ -280,3 +249,23 @@ The dashboard will refresh to show updated data.
             QMessageBox.critical(self, "Error", f"Error processing payment: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def calculate_week_from_date(self, payment_date):
+        """Calculate week number from payment date"""
+        try:
+            # Find the week that contains this date
+            weeks = self.transaction_manager.get_all_weeks()
+            for week in weeks:
+                if week.start_date <= payment_date <= week.end_date:
+                    return week.week_number
+            
+            # If no week contains this date, use current week
+            current_week = self.transaction_manager.get_current_week()
+            if current_week:
+                return current_week.week_number
+            else:
+                # Fallback to week 1 if no weeks exist
+                return 1
+                
+        except Exception:
+            return 1  # Safe fallback

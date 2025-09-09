@@ -5,7 +5,8 @@
       "Bash(python test_paycheck_processor.py)",
       "Bash(python test:*)",
       "Bash(python:*)",
-      "Read(//c/Users/arrow/**)"
+      "Read(//c/Users/arrow/**)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []

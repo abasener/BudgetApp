@@ -52,6 +52,18 @@ class AddAccountDialog(QDialog):
         goal_note.setStyleSheet("color: gray; font-size: 11px;")
         form_layout.addRow("", goal_note)
         
+        # Auto-save amount (happens after bills during paycheck processing)
+        self.auto_save_spin = QDoubleSpinBox()
+        self.auto_save_spin.setRange(0.00, 999999.99)
+        self.auto_save_spin.setDecimals(2)
+        self.auto_save_spin.setValue(0.00)
+        form_layout.addRow("Auto-Save Amount ($):", self.auto_save_spin)
+        
+        # Auto-save explanation
+        auto_save_note = QLabel("Amount to auto-save each paycheck (after bills, set to 0.00 to disable)")
+        auto_save_note.setStyleSheet("color: gray; font-size: 11px;")
+        form_layout.addRow("", auto_save_note)
+        
         # Default savings checkbox
         self.default_save_checkbox = QCheckBox("Make this the default savings account")
         form_layout.addRow("", self.default_save_checkbox)
@@ -73,6 +85,7 @@ class AddAccountDialog(QDialog):
         self.name_edit.textChanged.connect(self.update_preview)
         self.balance_spin.valueChanged.connect(self.update_preview)
         self.goal_spin.valueChanged.connect(self.update_preview)
+        self.auto_save_spin.valueChanged.connect(self.update_preview)
         self.default_save_checkbox.toggled.connect(self.update_preview)
         
         # Buttons
@@ -96,6 +109,7 @@ class AddAccountDialog(QDialog):
         name = self.name_edit.text().strip() or "[Account Name]"
         balance = self.balance_spin.value()
         goal = self.goal_spin.value()
+        auto_save = self.auto_save_spin.value()
         is_default = self.default_save_checkbox.isChecked()
         
         preview_text = f"Preview: {name}\n"
@@ -111,8 +125,13 @@ class AddAccountDialog(QDialog):
         else:
             preview_text += "No specific savings goal\n"
         
+        if auto_save > 0:
+            preview_text += f"Auto-Save: ${auto_save:.2f} per paycheck (after bills)\n"
+        else:
+            preview_text += "No automatic savings\n"
+        
         if is_default:
-            preview_text += "✓ Default savings account (will receive automatic paycheck savings)"
+            preview_text += "Default savings account (will receive automatic paycheck savings)"
         
         self.preview_label.setText(preview_text)
     
@@ -179,6 +198,7 @@ class AddAccountDialog(QDialog):
             name = self.name_edit.text().strip()
             balance = self.balance_spin.value()
             goal = self.goal_spin.value()
+            auto_save = self.auto_save_spin.value()
             is_default = self.default_save_checkbox.isChecked()
             
             # If making this default, remove default flag from existing default
@@ -199,6 +219,7 @@ class AddAccountDialog(QDialog):
                 name=name,
                 running_total=balance,
                 goal_amount=goal,
+                auto_save_amount=auto_save,
                 is_default_save=is_default
             )
             
@@ -214,8 +235,11 @@ class AddAccountDialog(QDialog):
             if goal > 0:
                 success_text += f"Savings Goal: ${goal:.2f}\n"
             
+            if auto_save > 0:
+                success_text += f"Auto-Save: ${auto_save:.2f} per paycheck\n"
+            
             if is_default:
-                success_text += "✓ Set as default savings account\n"
+                success_text += "Set as default savings account\n"
             
             success_text += "\nThe dashboard will refresh to show the new account."
             

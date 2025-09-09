@@ -15,6 +15,7 @@ class Account(Base):
     running_total = Column(Float, default=0.0)
     is_default_save = Column(Boolean, default=False)
     goal_amount = Column(Float, default=0.0)  # 0 means no goal set
+    auto_save_amount = Column(Float, default=0.0)  # Amount to auto-save each paycheck (after bills)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
