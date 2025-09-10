@@ -3,11 +3,13 @@ Enhanced Dashboard View - Complete layout matching user diagram
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
-                             QCheckBox, QPushButton, QGridLayout)
+                             QCheckBox, QPushButton, QGridLayout, QDialog)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import (PieChartWidget, LineChartWidget, BarChartWidget, 
-                    ProgressChartWidget, HeatmapWidget, AnimatedGifWidget)
+                    ProgressChartWidget, HeatmapWidget, AnimatedGifWidget, HistogramWidget)
+from views.dialogs.account_selector_dialog import AccountSelectorDialog
+from views.dialogs.hour_calculator_dialog import HourCalculatorDialog
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -21,28 +23,33 @@ class RingChartWidget(QWidget):
         super().__init__(parent)
         self.title = title
         
-        # Create matplotlib figure and canvas
-        self.figure = Figure(figsize=(2, 2), tight_layout=True)
+        # Create matplotlib figure and canvas with transparent background
+        self.figure = Figure(figsize=(1, 1), tight_layout=True)  # Half the size
+        self.figure.patch.set_facecolor('none')  # Transparent figure background
         self.canvas = FigureCanvas(self.figure)
         
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)  # Zero padding around everything
+        layout.setSpacing(0)  # No spacing between elements
         
-        if self.title:
-            title_label = QLabel(self.title)
-            title_label.setFont(theme_manager.get_font("small"))
-            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(title_label)
+        # NO title inside the widget anymore - will be overlaid externally
         
         layout.addWidget(self.canvas)
         self.setLayout(layout)
         
-        self.setFixedSize(100, 120)
+        # Make widget background transparent to match program background
+        self.setStyleSheet("background: transparent; border: none;")
+        
+        # Make rings half the size but square for just the ring: 50x50
+        self.setFixedSize(50, 50)
         
     def update_data(self, percentage: float, label: str = ""):
         """Update ring chart with percentage data"""
         self.figure.clear()
         ax = self.figure.add_subplot(111)
+        
+        # Set transparent background for axes
+        ax.set_facecolor('none')
         
         # Create ring chart (donut)
         colors = theme_manager.get_colors()
@@ -50,15 +57,101 @@ class RingChartWidget(QWidget):
                               colors=[colors['primary'], colors['surface_variant']], 
                               startangle=90, counterclock=False)
         
-        # Add center hole to make it a ring
+        # Add center hole to make it a ring - use program background color
         centre_circle = plt.Circle((0,0), 0.60, fc=colors['surface'])
         ax.add_artist(centre_circle)
         
-        # Add percentage text in center
-        ax.text(0, 0, f'{percentage:.0f}%', ha='center', va='center', 
-               fontsize=12, fontweight='bold', color=colors['text_primary'])
+        # NO percentage text - clean ring display only
+        # ax.text(0, 0, f'{percentage:.0f}%', ha='center', va='center', 
+        #        fontsize=12, fontweight='bold', color=colors['text_primary'])
         
         ax.axis('equal')
+        self.canvas.draw()
+
+
+class SavingsProgressWidget(QWidget):
+    """Horizontal progress bars for savings accounts with goal visualization"""
+    
+    def __init__(self, title: str = "Savings Accounts Progress", parent=None):
+        super().__init__(parent)
+        self.title = title
+        
+        self.figure = Figure(figsize=(6, 4), tight_layout=True)
+        self.canvas = FigureCanvas(self.figure)
+        
+        # Make canvas background transparent
+        self.canvas.setStyleSheet("background: transparent;")
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        if self.title:
+            title_label = QLabel(self.title)
+            title_label.setFont(theme_manager.get_font("subtitle"))
+            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(title_label)
+        
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
+    
+    def update_data(self, accounts_data: list):
+        """Update progress bars with savings account data
+        
+        Args:
+            accounts_data: list of Account objects with running_total and goal attributes
+        """
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        
+        if not accounts_data:
+            ax.text(0.5, 0.5, 'No savings accounts found', 
+                   ha='center', va='center', transform=ax.transAxes,
+                   fontsize=12, color=theme_manager.get_color('text_secondary'))
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis('off')
+        else:
+            colors = theme_manager.get_colors()
+            
+            # Prepare account data
+            account_names = [acc.name for acc in accounts_data]
+            current_amounts = [acc.running_total for acc in accounts_data]
+            goals = [acc.goal_amount for acc in accounts_data]
+            
+            y_positions = range(len(accounts_data))
+            
+            # Find max value for x-axis scaling
+            max_value = max(max(current_amounts), max(goals) if goals else 0, 1)
+            
+            # Draw goal backgrounds (shaded regions) for accounts with goals
+            for i, (current, goal) in enumerate(zip(current_amounts, goals)):
+                if goal > 0:
+                    # Draw goal background as a light shaded rectangle
+                    ax.barh(i, goal, color=colors['surface_variant'], alpha=0.3, height=0.6, 
+                           label='Goal' if i == 0 else "")
+            
+            # Draw current savings bars (on top of goal backgrounds)
+            bars = ax.barh(y_positions, current_amounts, color=colors['primary'], 
+                          height=0.6)
+            
+            
+            # Formatting
+            ax.set_yticks(y_positions)
+            ax.set_yticklabels(account_names)
+            ax.set_xlim(0, max_value * 1.1)  # Add some padding
+            ax.grid(True, alpha=0.3, axis='x')  # Vertical grid lines only
+            
+            # Hide x-axis values but keep grid
+            ax.set_xticks([])
+            ax.set_xlabel('')  # Remove x-axis label
+            
+            # Apply theme colors - make plot background match theme
+            ax.set_facecolor(colors['surface'])
+            self.figure.patch.set_facecolor(colors['surface'])
+            ax.tick_params(colors=colors['text_primary'])
+            ax.xaxis.label.set_color(colors['text_primary'])
+            ax.yaxis.label.set_color(colors['text_primary'])
+        
         self.canvas.draw()
 
 
@@ -172,6 +265,9 @@ class DashboardView(QWidget):
         # Analytics toggle
         self.include_analytics_only = True
         
+        # Track selected accounts for savings rate plots
+        self.selected_accounts = [None, None]  # For the two savings rate charts
+        
         # Chart widgets
         self.total_pie_chart = None
         self.weekly_pie_chart = None
@@ -180,14 +276,15 @@ class DashboardView(QWidget):
         self.ring_charts = []
         self.heatmap_chart = None
         self.gif_widget = None
-        self.histogram_chart = None
+        self.savings_progress_chart = None
+        self.purchase_histogram = None
         
         self.init_ui()
         
     def init_ui(self):
         main_layout = QVBoxLayout()
-        main_layout.setSpacing(5)
-        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(1)  # Ultra minimal spacing for cluttered dashboard feel
+        main_layout.setContentsMargins(2, 2, 2, 2)  # Minimal margins
         
         # Header section
         header_layout = QHBoxLayout()
@@ -266,23 +363,33 @@ class DashboardView(QWidget):
         
         # Right section with calculator and stacked chart areas - smaller
         right_section = QVBoxLayout()
-        right_section.setSpacing(3)
+        right_section.setSpacing(2)  # Tighter spacing to give more room to charts
         
-        # Hour calculator button at top - smaller
-        self.hour_calc_button = QPushButton("💳 Calc")
-        self.hour_calc_button.setMaximumWidth(80)
-        self.hour_calc_button.setMaximumHeight(25)
+        # Hour calculator button at top - full width, accent color
+        self.hour_calc_button = QPushButton("💼 Hour Calculator\nFor $50/h I need 0.0 hours")
+        self.hour_calc_button.setMinimumHeight(50)  # Taller for two-line text
         self.hour_calc_button.clicked.connect(self.open_hour_calculator_popup)
+        self.hour_calc_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Apply accent color styling - will be updated in apply_button_theme()
         right_section.addWidget(self.hour_calc_button)
         
         # Two stacked chart areas under calculator - smaller
         chart_area_2 = self.create_placeholder_chart("Chart Area 2")
-        chart_area_2.setMaximumHeight(60)
+        chart_area_2.setMinimumHeight(50)  # Ensure minimum space
+        chart_area_2.setMaximumHeight(70)  # Give it a bit more room
         right_section.addWidget(chart_area_2)
         
-        chart_area_3 = self.create_placeholder_chart("Chart Area 3")
-        chart_area_3.setMaximumHeight(60)
-        right_section.addWidget(chart_area_3)
+        # Small spacer between chart areas
+        right_section.addSpacing(2)
+        
+        # Purchase size histogram - balanced space
+        self.purchase_histogram = HistogramWidget("")
+        self.purchase_histogram.setMinimumHeight(70)  # Slightly reduced minimum
+        self.purchase_histogram.setMaximumHeight(100)  # Reduced maximum
+        right_section.addWidget(self.purchase_histogram)
+        
+        # Add stretch at bottom to push everything up properly
+        right_section.addStretch()
         
         # Give right section less space (stretch factor 1)
         top_row.addLayout(right_section, 1)
@@ -291,7 +398,7 @@ class DashboardView(QWidget):
         
         # THIRD ROW - Stacked area chart | Two line plots for savings
         middle_row = QHBoxLayout()
-        middle_row.setSpacing(5)
+        middle_row.setSpacing(0)  # Remove spacing between stacked and savings charts
         
         # Stacked percentage plot
         self.stacked_area_chart = StackedAreaWidget("Category % per Week")
@@ -300,10 +407,16 @@ class DashboardView(QWidget):
         
         # Savings tracking line plots
         savings_container = QVBoxLayout()
+        savings_container.setSpacing(0)  # Remove spacing between savings charts
+        savings_container.setContentsMargins(0, 0, 0, 0)  # Remove margins
         for i in range(2):
             line_chart = LineChartWidget(f"Savings Rate {i+1}")
             line_chart.setMinimumHeight(142)  # Increased by 50%
             line_chart.setMaximumHeight(142)  # Increased by 50%
+            
+            # Connect title click signal
+            line_chart.title_clicked.connect(lambda idx=i: self.on_savings_chart_clicked(idx))
+            
             self.savings_line_charts.append(line_chart)
             savings_container.addWidget(line_chart)
         
@@ -311,39 +424,56 @@ class DashboardView(QWidget):
         
         main_layout.addLayout(middle_row)
         
-        # BOTTOM ROW - Ring charts | GIF | Heatmap | Histogram
+        # BOTTOM ROW - Ring charts above heatmap | GIF | Histogram
         bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(5)
+        bottom_row.setSpacing(2)  # Tighter spacing for cluttered dashboard feel
         
-        # Three ring charts for account progress
-        rings_container = QHBoxLayout()
-        rings_container.setSpacing(3)
-        for i in range(3):
-            ring_chart = RingChartWidget(f"Account {i+1}")
-            self.ring_charts.append(ring_chart)
-            rings_container.addWidget(ring_chart)
+        # Left section: Rings above heatmap
+        rings_heatmap_container = QVBoxLayout()
+        rings_heatmap_container.setSpacing(0)  # Ultra tight spacing between rings and heatmap
+        rings_heatmap_container.setContentsMargins(0, 0, 0, 0)  # Remove all margins
         
-        bottom_row.addLayout(rings_container)
+        # Dynamic ring charts based on bills (max 4, show available bills)
+        self.rings_section = QWidget()
+        self.rings_section.setFixedHeight(65)  # Fixed height for title + ring
+        self.rings_section.setStyleSheet("background: transparent;")
+        rings_heatmap_container.addWidget(self.rings_section)
+        
+        # Store references for updating
+        self.ring_titles = []
+        
+        # Initialize with bill data
+        self.setup_bill_rings()
+        
+        # Day/Category heatmap (bottom, wider to span under all 3 rings)
+        self.heatmap_chart = HeatmapWidget("")  # No title
+        self.heatmap_chart.setMinimumWidth(300)  # Wider to span under rings
+        self.heatmap_chart.setMinimumHeight(200)  # Taller to show all categories
+        self.heatmap_chart.setMaximumHeight(300)  # Allow it to be even taller
+        rings_heatmap_container.addWidget(self.heatmap_chart)
+        
+        bottom_row.addLayout(rings_heatmap_container)
         
         # Central GIF holder
         self.gif_widget = AnimatedGifWidget("dashboard", (150, 100))
         bottom_row.addWidget(self.gif_widget)
         
-        # Day/Category heatmap
-        self.heatmap_chart = HeatmapWidget("Spending by Day/Category")
-        self.heatmap_chart.setMinimumWidth(200)
-        self.heatmap_chart.setMaximumHeight(150)
-        bottom_row.addWidget(self.heatmap_chart)
-        
-        # Histogram for savings values
-        self.histogram_chart = BarChartWidget("Savings Distribution")
-        self.histogram_chart.setMinimumWidth(150)
-        self.histogram_chart.setMaximumHeight(150)
-        bottom_row.addWidget(self.histogram_chart)
+        # Savings progress bars
+        self.savings_progress_chart = SavingsProgressWidget("Savings Goals")
+        self.savings_progress_chart.setMinimumWidth(150)
+        self.savings_progress_chart.setMaximumHeight(200)  # Increased for more space
+        bottom_row.addWidget(self.savings_progress_chart)
         
         main_layout.addLayout(bottom_row)
         
         self.setLayout(main_layout)
+        
+        # Initial refresh to populate data and auto-select for line charts
+        if self.transaction_manager and self.analytics_engine:
+            self.refresh()
+        
+        # Apply theme to hour calculator button
+        self.apply_hour_calc_button_theme()
         
     def create_category_key(self):
         """Create category color key frame"""
@@ -467,10 +597,91 @@ class DashboardView(QWidget):
         self.include_analytics_only = checked
         self.refresh()
     
+    def apply_hour_calc_button_theme(self):
+        """Apply accent color theme to hour calculator button"""
+        colors = theme_manager.get_colors()
+        accent_color = colors.get('primary', '#4CAF50')  # Use primary as accent
+        text_color = colors.get('surface', '#FFFFFF')  # Contrasting text color
+        
+        self.hour_calc_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {accent_color};
+                color: {text_color};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 8px;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                background-color: {self.lighten_color(accent_color, 1.1)};
+            }}
+            QPushButton:pressed {{
+                background-color: {self.lighten_color(accent_color, 0.9)};
+            }}
+        """)
+    
+    def lighten_color(self, color: str, factor: float) -> str:
+        """Lighten or darken a hex color by a factor"""
+        try:
+            # Remove '#' if present
+            color = color.lstrip('#')
+            
+            # Convert to RGB
+            rgb = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+            
+            # Apply factor
+            new_rgb = tuple(min(255, max(0, int(c * factor))) for c in rgb)
+            
+            # Convert back to hex
+            return f"#{new_rgb[0]:02x}{new_rgb[1]:02x}{new_rgb[2]:02x}"
+        except:
+            return color  # Return original if conversion fails
+    
+    def update_hour_calc_display(self, target_amount: float = None, hourly_rate: float = 50.0):
+        """Update hour calculator button display with calculation"""
+        if target_amount is None:
+            # Calculate target amount based on remaining weekly budget
+            try:
+                from datetime import datetime, timedelta
+                today = datetime.now()
+                week_start = today - timedelta(days=today.weekday())
+                days_left_in_week = 7 - (today.weekday() + 1)
+                
+                # Get current week spending
+                all_transactions = self.transaction_manager.get_all_transactions()
+                current_week_spending = [
+                    t for t in all_transactions 
+                    if t.transaction_type == "spending" and 
+                       t.date >= week_start.date() and
+                       (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                ]
+                
+                week_spent = sum(t.amount for t in current_week_spending)
+                
+                # Estimate weekly budget
+                income_summary = self.transaction_manager.get_income_vs_spending_summary()
+                estimated_weekly_budget = income_summary.get('total_income', 400) / 4
+                week_remaining = max(0, estimated_weekly_budget - week_spent)
+                
+                target_amount = week_remaining
+            except:
+                target_amount = 100.0  # Default target
+        
+        # Calculate hours needed
+        hours_needed = target_amount / hourly_rate if hourly_rate > 0 else 0
+        
+        # Update button text
+        self.hour_calc_button.setText(f"💼 Hour Calculator\nFor ${hourly_rate:.0f}/h I need {hours_needed:.1f} hours")
+    
     def open_hour_calculator_popup(self):
-        """Open hour calculator dialog (placeholder)"""
-        # TODO: Implement hour calculator dialog
-        print("Hour calculator clicked - dialog not implemented yet")
+        """Open hour calculator dialog"""
+        try:
+            dialog = HourCalculatorDialog(self.transaction_manager, self)
+            dialog.exec()
+        except Exception as e:
+            print(f"Error opening hour calculator dialog: {e}")
     
     def refresh(self):
         """Refresh all dashboard data and charts"""
@@ -489,7 +700,9 @@ class DashboardView(QWidget):
             self.update_savings_line_charts()
             self.update_ring_charts()
             self.update_heatmap()
-            self.update_histogram()
+            self.update_savings_progress()
+            self.update_purchase_histogram()
+            self.update_hour_calc_display()
             
         except Exception as e:
             error_msg = f"Error refreshing dashboard: {str(e)}"
@@ -662,17 +875,9 @@ class DashboardView(QWidget):
                     print(f"Current week spending data: {weekly_category_spending}")
                     self.weekly_pie_chart.update_data(weekly_category_spending, "This Week Spending")
                 else:
-                    # No spending this week - show sample data so user can see the chart works
+                    # No spending this week - show greyed out empty chart
                     print(f"No current week spending found. Week start: {week_start.date()}, Today: {today.date()}")
-                    # Add some sample data for demonstration
-                    sample_data = {
-                        "Food": 45.0,
-                        "Transport": 25.0, 
-                        "Entertainment": 30.0,
-                        "Shopping": 60.0
-                    }
-                    print(f"Using sample data for current week: {sample_data}")
-                    self.weekly_pie_chart.update_data(sample_data, "This Week Spending")
+                    self.weekly_pie_chart.update_data({}, "This Week Spending")
                 
         except Exception as e:
             print(f"Error updating pie charts: {e}")
@@ -725,12 +930,19 @@ class DashboardView(QWidget):
     def update_savings_line_charts(self):
         """Update savings tracking line charts"""
         try:
-            # Generate sample savings data
+            # These charts are clickable and show account/bill running totals when selected
+            # Default to showing random accounts/bills if nothing selected
+            import random
+            
             for i, chart in enumerate(self.savings_line_charts):
                 if chart:
-                    # Sample data showing savings rate over weeks
-                    savings_data = {f"Savings Rate": [(j, 0.05 + 0.01*j + i*0.01) for j in range(25)]}
-                    chart.update_data(savings_data, "Month", "Savings Rate %")
+                    # Check if an account/bill has been selected for this chart
+                    if i < len(self.selected_accounts) and self.selected_accounts[i] is not None:
+                        # Chart will be updated by update_single_savings_chart when account is selected
+                        self.update_single_savings_chart(i)
+                    else:
+                        # No account selected - auto-select a random account or bill
+                        self.auto_select_random_for_chart(i)
                     
         except Exception as e:
             print(f"Error updating savings line charts: {e}")
@@ -738,60 +950,348 @@ class DashboardView(QWidget):
     def update_ring_charts(self):
         """Update ring charts showing account progress"""
         try:
-            accounts = self.transaction_manager.get_all_accounts()
+            # Get all bills from database (rings now represent bills)
+            bills = self.transaction_manager.get_all_bills()
             
+            # Update each ring with bill progress (running_total / typical_amount)
             for i, ring_chart in enumerate(self.ring_charts):
-                if i < len(accounts):
-                    account = accounts[i]
-                    if account.goal_amount > 0:
-                        percentage = min(100, (account.running_total / account.goal_amount) * 100)
+                if i < len(bills):
+                    bill = bills[i]
+                    
+                    if bill.typical_amount > 0:
+                        # Calculate bill progress: current running total / typical payment amount
+                        percentage = min(100, (bill.running_total / bill.typical_amount) * 100)
                     else:
-                        percentage = 22  # Default display value
-                    ring_chart.update_data(percentage, account.name)
+                        percentage = 0  # No typical amount set
+                    
+                    ring_chart.update_data(percentage, bill.name)
                 else:
-                    ring_chart.update_data(22, f"Account {i+1}")
+                    # This shouldn't happen with our dynamic setup, but just in case
+                    ring_chart.update_data(0, f"Bill {i+1}")
                     
         except Exception as e:
-            print(f"Error updating ring charts: {e}")
+            print(f"Error updating bill ring charts: {e}")
     
     def update_heatmap(self):
-        """Update day/category heatmap"""
+        """Update day/category heatmap with real data - average spending by day of week and category"""
         try:
-            # Generate sample heatmap data
-            heatmap_data = {
-                "Food": [50, 30, 40, 60, 80, 90, 70],
-                "Transport": [20, 25, 15, 30, 35, 40, 25],
-                "Shopping": [10, 45, 20, 25, 15, 60, 35],
-                "Entertainment": [5, 10, 80, 15, 20, 100, 90]
-            }
+            # Get all spending transactions from the database
+            spending_transactions = self.transaction_manager.get_spending_transactions(include_analytics_only=True)
             
-            if self.heatmap_chart:
+            # Initialize data structure for day/category averages
+            from collections import defaultdict
+            import calendar
+            
+            # Dict structure: {category: {day_of_week: [amounts]}}
+            category_day_amounts = defaultdict(lambda: defaultdict(list))
+            
+            # Process all spending transactions
+            for transaction in spending_transactions:
+                if transaction.category and transaction.date:
+                    category = transaction.category.strip()
+                    day_of_week = transaction.date.weekday()  # 0=Monday, 6=Sunday
+                    amount = float(transaction.amount)
+                    
+                    category_day_amounts[category][day_of_week].append(amount)
+            
+            # Calculate averages for each category and day
+            heatmap_data = {}
+            days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+            
+            for category, day_data in category_day_amounts.items():
+                daily_averages = []
+                for day_idx in range(7):  # Monday=0 to Sunday=6
+                    amounts = day_data.get(day_idx, [])
+                    if amounts:
+                        avg_amount = sum(amounts) / len(amounts)
+                        daily_averages.append(avg_amount)
+                    else:
+                        daily_averages.append(0.0)  # No data for this day
+                
+                heatmap_data[category] = daily_averages
+            
+            # Only show data if we have any transactions
+            if heatmap_data and self.heatmap_chart:
                 self.heatmap_chart.update_data(heatmap_data, "Day", "Category")
+            elif self.heatmap_chart:
+                # Show empty state message if no data
+                self.heatmap_chart.update_data({}, "Day", "Category")
                 
         except Exception as e:
             print(f"Error updating heatmap: {e}")
     
-    def update_histogram(self):
-        """Update histogram of savings account values"""
+    def update_savings_progress(self):
+        """Update savings progress chart with real account data"""
         try:
-            # Generate sample histogram data
-            histogram_data = {
-                "$0-500": 2,
-                "$500-1K": 3,
-                "$1K-2K": 5,
-                "$2K-5K": 2,
-                "$5K+": 1
-            }
+            # Get all savings accounts from database
+            accounts = self.transaction_manager.get_all_accounts()
             
-            if self.histogram_chart:
-                self.histogram_chart.update_data(histogram_data, "Range", "Count")
+            if self.savings_progress_chart:
+                self.savings_progress_chart.update_data(accounts)
                 
         except Exception as e:
-            print(f"Error updating histogram: {e}")
+            print(f"Error updating savings progress: {e}")
+    
+    def update_purchase_histogram(self):
+        """Update purchase size histogram with spending transaction amounts"""
+        try:
+            # Get all spending transactions
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_transactions = [
+                t for t in all_transactions 
+                if t.transaction_type == "spending" and
+                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+            ]
+            
+            if not spending_transactions:
+                # No spending data - show empty histogram
+                if self.purchase_histogram:
+                    self.purchase_histogram.update_data([])
+                return
+            
+            # Extract purchase amounts
+            purchase_amounts = [float(t.amount) for t in spending_transactions if t.amount > 0]
+            
+            if purchase_amounts and self.purchase_histogram:
+                # Update histogram with 10 buckets by default
+                self.purchase_histogram.update_data(purchase_amounts, num_buckets=10)
+            elif self.purchase_histogram:
+                # No valid amounts - show empty
+                self.purchase_histogram.update_data([])
+                
+        except Exception as e:
+            print(f"Error updating purchase histogram: {e}")
     
     def on_theme_changed(self, theme_id):
         """Handle theme change for dashboard"""
         try:
+            self.apply_hour_calc_button_theme()
             self.refresh()
         except Exception as e:
             print(f"Error applying theme to dashboard: {e}")
+    
+    def setup_bill_rings(self):
+        """Setup dynamic bill rings based on available bills"""
+        try:
+            # Get all bills from database
+            bills = self.transaction_manager.get_all_bills()
+            
+            # Limit to max 7 rings to better utilize space
+            max_rings = 7
+            bills_to_show = bills[:max_rings]
+            
+            # Clear existing rings
+            self.ring_charts = []
+            self.ring_titles = []
+            
+            # Clear the rings section
+            if hasattr(self.rings_section, 'layout') and self.rings_section.layout():
+                QWidget().setLayout(self.rings_section.layout())
+            
+            # Create new layout for rings section
+            rings_layout = QHBoxLayout(self.rings_section)
+            rings_layout.setContentsMargins(0, 0, 0, 0)
+            rings_layout.setSpacing(5)  # Small spacing between ring groups
+            
+            # Create rings for each bill
+            for bill in bills_to_show:
+                # Create container for title + ring
+                ring_container = QWidget()
+                ring_container.setFixedSize(70, 65)  # Width for title, height for title + ring
+                ring_container.setStyleSheet("background: transparent;")
+                
+                # Create absolute positioning layout
+                ring_container_layout = QVBoxLayout(ring_container)
+                ring_container_layout.setContentsMargins(0, 0, 0, 0)
+                ring_container_layout.setSpacing(0)
+                
+                # Add title label (above ring, can be as wide as needed)
+                title_label = QLabel(bill.name)
+                title_label.setFont(theme_manager.get_font("small"))
+                title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                title_label.setStyleSheet("color: #ffffff; background: transparent;")
+                title_label.setWordWrap(True)  # Allow text wrapping
+                title_label.setFixedHeight(15)  # Fixed height for title
+                ring_container_layout.addWidget(title_label)
+                
+                # Add ring chart (no internal title)
+                ring_chart = RingChartWidget("")  # Empty title since we handle it externally
+                ring_container_layout.addWidget(ring_chart)
+                
+                # Store references
+                self.ring_charts.append(ring_chart)
+                self.ring_titles.append(title_label)
+                
+                # Add to main layout
+                rings_layout.addWidget(ring_container)
+            
+            # Add stretch to center the rings
+            rings_layout.addStretch()
+            
+        except Exception as e:
+            print(f"Error setting up bill rings: {e}")
+    
+    def on_savings_chart_clicked(self, chart_index):
+        """Handle savings chart title click"""
+        try:
+            # Store chart index for the signal handler
+            self.current_chart_index = chart_index
+            
+            # Create and show dialog
+            dialog = AccountSelectorDialog(self.transaction_manager, self)
+            dialog.account_selected.connect(self.on_account_selected)
+            dialog.show()
+                    
+        except Exception as e:
+            print(f"Error handling savings chart click: {e}")
+    
+    def on_account_selected(self, account_type, account_obj, account_name):
+        """Handle account selection from dialog (keeps dialog open)"""
+        try:
+            chart_index = self.current_chart_index
+            self.selected_accounts[chart_index] = (account_type, account_obj)
+            
+            # Update chart title
+            if chart_index < len(self.savings_line_charts):
+                self.savings_line_charts[chart_index].update_title(account_name)
+            
+            # Update chart data
+            self.update_single_savings_chart(chart_index)
+            
+        except Exception as e:
+            print(f"Error handling account selection: {e}")
+    
+    def update_single_savings_chart(self, chart_index):
+        """Update a single savings chart with selected account data"""
+        try:
+            if chart_index >= len(self.savings_line_charts):
+                return
+                
+            chart = self.savings_line_charts[chart_index]
+            selected_account = self.selected_accounts[chart_index]
+            
+            if not selected_account or not chart:
+                return
+            
+            account_type, account_obj = selected_account
+            running_total_data = self.get_account_running_totals(account_type, account_obj)
+            
+            if running_total_data:
+                # Don't pass xlabel/ylabel to keep savings rate styling
+                chart.update_data({"Running Total": running_total_data})
+            
+        except Exception as e:
+            print(f"Error updating single savings chart: {e}")
+    
+    def get_account_running_totals(self, account_type, account_obj):
+        """Get running totals for an account over time"""
+        try:
+            from datetime import datetime, timedelta
+            
+            # Get transactions for this account
+            all_transactions = self.transaction_manager.get_all_transactions()
+            
+            if account_type == 'account':
+                # Filter saving transactions for this account
+                account_transactions = [
+                    t for t in all_transactions 
+                    if t.transaction_type == "saving" and 
+                       (t.account_id == account_obj.id or t.account_saved_to == account_obj.name)
+                ]
+            else:  # bill
+                # For bills, we need to look at both bill_pay transactions AND savings transactions
+                # that might be allocated to this bill
+                account_transactions = []
+                
+                # Get bill_pay transactions for this bill
+                bill_pay_transactions = [
+                    t for t in all_transactions 
+                    if t.transaction_type == "bill_pay" and 
+                       (t.bill_id == account_obj.id or t.bill_type == account_obj.name)
+                ]
+                
+                # Also get savings transactions that mention this bill in description
+                savings_for_bill = [
+                    t for t in all_transactions
+                    if t.transaction_type == "saving" and
+                       hasattr(t, 'description') and t.description and
+                       account_obj.name.lower() in t.description.lower()
+                ]
+                
+                # Combine both types
+                account_transactions = bill_pay_transactions + savings_for_bill
+            
+            # Sort by date for both account types
+            if account_transactions:
+                account_transactions.sort(key=lambda t: t.date)
+            
+            # Calculate running totals over time
+            data_points = []
+            running_total = 0
+            
+            if account_type == 'account':
+                # For savings accounts: start at 0, add deposits, subtract withdrawals
+                for i, transaction in enumerate(account_transactions):
+                    running_total += transaction.amount  # Positive for deposits, negative for withdrawals
+                    data_points.append((i, running_total))
+            else:
+                # For bills: show accumulation then spending pattern
+                # This tracks how much has been saved/allocated for this bill over time
+                if not account_transactions:
+                    # If no transactions, show the current bill running total as a flat line
+                    current_total = getattr(account_obj, 'running_total', 0)
+                    data_points = [(0, current_total), (1, current_total)]
+                else:
+                    for i, transaction in enumerate(account_transactions):
+                        if transaction.transaction_type == "bill_pay":
+                            running_total -= transaction.amount  # Money spent on bill
+                        elif transaction.transaction_type == "saving":
+                            running_total += transaction.amount  # Money saved for bill
+                        data_points.append((i, running_total))
+            
+            return data_points
+            
+        except Exception as e:
+            print(f"Error getting account running totals: {e}")
+            return []
+    
+    def auto_select_random_for_chart(self, chart_index):
+        """Automatically select a random account or bill for a savings chart"""
+        try:
+            import random
+            
+            # Get available accounts and bills
+            accounts = self.transaction_manager.get_all_accounts()
+            bills = self.transaction_manager.get_all_bills()
+            
+            # Combine accounts and bills into options
+            options = []
+            for account in accounts:
+                options.append(('account', account, account.name))
+            for bill in bills:
+                options.append(('bill', bill, bill.name))
+            
+            if not options:
+                # No accounts or bills available
+                if chart_index < len(self.savings_line_charts):
+                    self.savings_line_charts[chart_index].clear_chart()
+                return
+            
+            # Select a random option
+            selected_option = random.choice(options)
+            account_type, account_obj, account_name = selected_option
+            
+            # Ensure selected_accounts list is large enough
+            while len(self.selected_accounts) <= chart_index:
+                self.selected_accounts.append(None)
+            
+            # Set the selection
+            self.selected_accounts[chart_index] = (account_type, account_obj)
+            
+            # Update chart title and data - remove "(auto)" text
+            if chart_index < len(self.savings_line_charts):
+                self.savings_line_charts[chart_index].update_title(account_name)
+                self.update_single_savings_chart(chart_index)
+            
+        except Exception as e:
+            print(f"Error auto-selecting random account for chart {chart_index}: {e}")

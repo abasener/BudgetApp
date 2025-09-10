@@ -5,8 +5,8 @@ Chart Widget - Matplotlib integration with PyQt6 and theme support
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+from PyQt6.QtCore import Qt, pyqtSignal
 from themes import theme_manager
 import numpy as np
 
@@ -14,13 +14,22 @@ import numpy as np
 class BaseChartWidget(QWidget):
     """Base class for matplotlib chart widgets with theme support"""
     
+    # Signal emitted when title is clicked (for savings rate charts)
+    title_clicked = pyqtSignal()
+    
     def __init__(self, title: str = "", parent=None):
         super().__init__(parent)
         self.title = title
+        self.title_label = None
+        self.is_savings_rate_chart = "Savings Rate" in title  # Track savings rate charts permanently
         
         # Create matplotlib figure and canvas
         self.figure = Figure(figsize=(8, 6), tight_layout=True)
-        self.figure.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
+        # Extra tight margins for heatmap, normal for others
+        if "Spending Heatmap" in title or title == "":
+            self.figure.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.01)
+        else:
+            self.figure.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
         self.canvas = FigureCanvas(self.figure)
         
         self.init_ui()
@@ -36,17 +45,55 @@ class BaseChartWidget(QWidget):
         
         # Add title if provided
         if self.title:
-            title_label = QLabel(self.title)
-            title_label.setFont(theme_manager.get_font("subtitle"))
-            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(title_label)
+            # For savings rate charts, use a clickable button
+            if self.is_savings_rate_chart:
+                self.title_label = QPushButton(self.title)
+                self.title_label.setFont(theme_manager.get_font("subtitle"))
+                self.title_label.setCursor(Qt.CursorShape.PointingHandCursor)
+                self.title_label.clicked.connect(self.on_title_clicked)
+            else:
+                # For other charts, use a regular label
+                self.title_label = QLabel(self.title)
+                self.title_label.setFont(theme_manager.get_font("subtitle"))
+                self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # Apply simple styling to both labels and buttons
+            colors = theme_manager.get_colors()
+            if self.is_savings_rate_chart:
+                # Simple button styling for clickable headers
+                self.title_label.setStyleSheet(f"""
+                    QPushButton {{
+                        background: transparent;
+                        border: 1px solid {colors['border']};
+                        border-radius: 4px;
+                        padding: 2px 4px;
+                        margin: 1px;
+                        color: {colors['text_primary']};
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['border']};
+                    }}
+                """)
+            else:
+                # Regular label styling
+                self.title_label.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {colors['surface']};
+                        border: 1px solid {colors['border']};
+                        border-radius: 4px;
+                        padding: 2px 4px;
+                        margin: 1px;
+                        color: {colors['text_primary']};
+                    }}
+                """)
+            layout.addWidget(self.title_label)
         
         # Add canvas
         layout.addWidget(self.canvas)
         
         self.setLayout(layout)
         
-        # Remove widget border/frame styling
+        # Remove widget border/frame styling but keep chart backgrounds
         self.setStyleSheet("border: none; background: transparent;")
     
     def apply_theme(self):
@@ -83,6 +130,19 @@ class BaseChartWidget(QWidget):
         """Handle theme change"""
         self.apply_theme()
     
+    def on_title_clicked(self):
+        """Handle title click for savings rate charts"""
+        self.title_clicked.emit()
+    
+    def update_title(self, new_title: str):
+        """Update the chart title"""
+        self.title = new_title
+        if self.title_label:
+            self.title_label.setText(new_title)
+            # For buttons, also update the text
+            if hasattr(self.title_label, 'setText'):
+                self.title_label.setText(new_title)
+    
     def clear_chart(self):
         """Clear the chart"""
         self.figure.clear()
@@ -100,11 +160,8 @@ class PieChartWidget(BaseChartWidget):
         self.figure.clear()
         
         if not data or not any(data.values()):
-            # Show "No data" message
+            # Show completely blank chart - no text
             ax = self.figure.add_subplot(111)
-            ax.text(0.5, 0.5, 'No spending data available', 
-                   ha='center', va='center', transform=ax.transAxes,
-                   fontsize=14, color=theme_manager.get_color('text_secondary'))
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
             ax.axis('off')
@@ -172,15 +229,17 @@ class LineChartWidget(BaseChartWidget):
                            color=color, linewidth=2, markersize=4)
             
             # Clean formatting - no labels for savings charts
-            if "Savings Rate" in self.title:
+            if self.is_savings_rate_chart:
                 # Remove axis labels and legends for savings charts
-                ax.grid(True, alpha=0.3)
                 
-                # Remove x-axis ticks for top savings chart
+                # Remove x-axis ticks for top savings chart but add vertical grid lines
                 if "1" in self.title:
                     ax.set_xticks([])
+                    ax.grid(True, alpha=0.3, axis='y')  # Only horizontal grid lines
+                    ax.grid(True, alpha=0.2, axis='x')  # Light vertical grid lines
                 else:
                     # Bottom chart keeps x-axis labels
+                    ax.grid(True, alpha=0.3)
                     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
             else:
                 # Keep formatting for other line charts
@@ -348,6 +407,8 @@ class HeatmapWidget(BaseChartWidget):
             
             # Create matrix (categories x days)
             import numpy as np
+            from matplotlib.colors import LinearSegmentedColormap
+            
             matrix = np.zeros((len(categories), len(days)))
             
             for i, category in enumerate(categories):
@@ -355,26 +416,90 @@ class HeatmapWidget(BaseChartWidget):
                 for j, amount in enumerate(amounts[:len(days)]):
                     matrix[i, j] = amount
             
-            # Create heatmap
+            # Create custom colormap using accent color (primary)
             colors = theme_manager.get_colors()
-            im = ax.imshow(matrix, cmap='viridis', aspect='auto')
+            primary_color = colors['primary']
+            surface_color = colors['surface']
             
-            # Set ticks and labels
-            ax.set_xticks(range(len(days)))
-            ax.set_xticklabels(days)
+            # Create colormap from surface color to primary color
+            custom_colors = [surface_color, primary_color]
+            custom_cmap = LinearSegmentedColormap.from_list('custom', custom_colors)
+            
+            # Create heatmap with custom colormap
+            im = ax.imshow(matrix, cmap=custom_cmap, aspect='auto')
+            
+            # Set ticks and labels - NO x-axis labels for cleaner look
+            ax.set_xticks([])  # Remove x-axis ticks completely
             ax.set_yticks(range(len(categories)))
-            ax.set_yticklabels(categories)
+            ax.set_yticklabels(categories, fontsize=9)
             
-            # Add colorbar
-            cbar = plt.colorbar(im, ax=ax)
-            cbar.set_label('Amount ($)', color=colors['text_primary'])
+            # NO colorbar/legend - removed for cleaner look
             
-            # Style text
-            ax.set_xlabel(xlabel, color=colors['text_primary'])
-            ax.set_ylabel(ylabel, color=colors['text_primary'])
+            # NO axis labels - removed for cleaner look
             
-            # Rotate x labels
-            plt.setp(ax.get_xticklabels(), rotation=0, ha='center')
+            # Style tick labels
+            ax.tick_params(colors=colors['text_primary'])
+        
+        self.apply_theme()
+        self.canvas.draw()
+
+
+class HistogramWidget(BaseChartWidget):
+    """Histogram widget for purchase size distribution"""
+    
+    def __init__(self, title: str = "", parent=None):
+        super().__init__(title, parent)
+        # Override figure settings for better histogram display with minimal padding
+        self.figure.subplots_adjust(left=0.05, right=0.95, top=0.90, bottom=0.20)
+    
+    def update_data(self, purchase_amounts: list, num_buckets: int = 10):
+        """Update histogram with purchase amounts
+        
+        Args:
+            purchase_amounts: list of purchase amounts (floats)
+            num_buckets: number of histogram buckets
+        """
+        self.figure.clear()
+        
+        if not purchase_amounts or len(purchase_amounts) == 0:
+            # Show empty chart with just axes
+            ax = self.figure.add_subplot(111)
+            ax.set_xlim(0, 100)  # Default range
+            ax.set_ylim(0, 1)
+            ax.grid(True, alpha=0.3)
+            ax.set_xticks([])  # No x-axis labels for empty chart
+            ax.set_yticks([])  # No y-axis
+        else:
+            ax = self.figure.add_subplot(111)
+            
+            # Calculate histogram
+            import numpy as np
+            max_amount = max(purchase_amounts)
+            min_amount = 0  # Start from 0
+            
+            # Create evenly spaced bins
+            bins = np.linspace(min_amount, max_amount, num_buckets + 1)
+            
+            # Create histogram
+            counts, bin_edges, patches = ax.hist(purchase_amounts, bins=bins, 
+                                               color=theme_manager.get_color('primary'), 
+                                               alpha=0.7, edgecolor='none')
+            
+            # Clean formatting - minimal labels
+            ax.grid(True, alpha=0.3, axis='both')
+            
+            # X-axis with dollar amounts - only show a few key values
+            x_ticks = [min_amount, max_amount/2, max_amount]
+            x_labels = [f"${int(x)}" for x in x_ticks]
+            ax.set_xticks(x_ticks)
+            ax.set_xticklabels(x_labels, fontsize=9)
+            
+            # No y-axis labels or ticks
+            ax.set_yticks([])
+            
+            # Set limits with small padding
+            ax.set_xlim(min_amount - max_amount*0.02, max_amount + max_amount*0.02)
+            ax.set_ylim(0, max(counts) * 1.05 if len(counts) > 0 else 1)
         
         self.apply_theme()
         self.canvas.draw()
