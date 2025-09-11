@@ -28,7 +28,7 @@ class SampleDataGenerator:
             ("Car Insurance", "Transportation", 180, 120.00),
             ("Phone", "Utilities", 30, 65.00),
             ("Internet", "Utilities", 30, 45.00),
-            ("Taxes", "Government", 90, 300.00)
+            ("Taxes", "Government", 90, 0.3)  # 30% of income for testing
         ]
         
     def generate_all_sample_data(self, weeks_back=12):
@@ -69,16 +69,28 @@ class SampleDataGenerator:
     def create_bills(self):
         """Create sample bills"""
         for name, bill_type, days_between, amount in self.bill_types:
-            bill = Bill(
-                name=name,
-                bill_type=bill_type,
-                days_between_payments=days_between,
-                amount_to_save=amount / (days_between / 14),  # Save per bi-weekly period
-                amount_to_pay=amount,
-                running_total=random.uniform(0, amount * 0.8),  # Partial savings
-                last_payment_date=date.today() - timedelta(days=random.randint(1, days_between)),
-                next_payment_date=date.today() + timedelta(days=random.randint(1, days_between))
-            )
+            if amount < 1.0:  # Percentage-based bill
+                bill = Bill(
+                    name=name,
+                    bill_type=bill_type,
+                    days_between_payments=days_between,
+                    amount_to_save=amount,  # Store as percentage (0.3 = 30%)
+                    amount_to_pay=0,  # Variable based on income
+                    running_total=random.uniform(0, 200),  # Some accumulated amount
+                    last_payment_date=date.today() - timedelta(days=random.randint(1, days_between)),
+                    next_payment_date=date.today() + timedelta(days=random.randint(1, days_between))
+                )
+            else:  # Fixed amount bill
+                bill = Bill(
+                    name=name,
+                    bill_type=bill_type,
+                    days_between_payments=days_between,
+                    amount_to_save=amount / (days_between / 14),  # Save per bi-weekly period
+                    amount_to_pay=amount,
+                    running_total=random.uniform(0, amount * 0.8),  # Partial savings
+                    last_payment_date=date.today() - timedelta(days=random.randint(1, days_between)),
+                    next_payment_date=date.today() + timedelta(days=random.randint(1, days_between))
+                )
             self.db.add(bill)
         self.db.commit()
         

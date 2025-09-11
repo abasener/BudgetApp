@@ -6,7 +6,8 @@
       "Bash(python test:*)",
       "Bash(python:*)",
       "Read(//c/Users/arrow/**)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

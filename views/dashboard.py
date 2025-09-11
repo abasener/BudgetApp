@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import (PieChartWidget, LineChartWidget, BarChartWidget, 
-                    ProgressChartWidget, HeatmapWidget, AnimatedGifWidget, HistogramWidget)
+                    ProgressChartWidget, HeatmapWidget, AnimatedGifWidget, HistogramWidget, WeeklySpendingTrendWidget, BoxPlotWidget)
 from views.dialogs.account_selector_dialog import AccountSelectorDialog
 from views.dialogs.hour_calculator_dialog import HourCalculatorDialog
 import matplotlib.pyplot as plt
@@ -278,6 +278,8 @@ class DashboardView(QWidget):
         self.gif_widget = None
         self.savings_progress_chart = None
         self.purchase_histogram = None
+        self.weekly_trend_chart = None
+        self.category_boxplot = None
         
         self.init_ui()
         
@@ -321,7 +323,7 @@ class DashboardView(QWidget):
         self.total_pie_chart.setGeometry(50, 0, 110, 110)  # x, y, w, h
         
         # Weekly spending pie chart (smaller, positioned lower-left) 
-        self.weekly_pie_chart = PieChartWidget("")
+        self.weekly_pie_chart = PieChartWidget("", transparent_background=True)
         self.weekly_pie_chart.setParent(pie_charts_container)
         self.weekly_pie_chart.setGeometry(0, 70, 80, 80)  # x, y, w, h
         
@@ -353,10 +355,11 @@ class DashboardView(QWidget):
         
         middle_section.addLayout(cards_row)
         
-        # Chart area under the cards - smaller to give room for taller cards
-        chart_area_1 = self.create_placeholder_chart("Chart Area 1")
-        chart_area_1.setMaximumHeight(60)  # Shrink chart area
-        middle_section.addWidget(chart_area_1)
+        # Category box plot chart area - expand to fill available space
+        self.category_boxplot = BoxPlotWidget("")
+        self.category_boxplot.setMinimumHeight(80)  # Larger minimum to fill space
+        self.category_boxplot.setMaximumHeight(120)  # Allow more expansion
+        middle_section.addWidget(self.category_boxplot, 1)  # Give it stretch to fill space
         
         # Give middle section more space (stretch factor 3)
         top_row.addLayout(middle_section, 3)
@@ -373,23 +376,17 @@ class DashboardView(QWidget):
         # Apply accent color styling - will be updated in apply_button_theme()
         right_section.addWidget(self.hour_calc_button)
         
-        # Two stacked chart areas under calculator - smaller
-        chart_area_2 = self.create_placeholder_chart("Chart Area 2")
-        chart_area_2.setMinimumHeight(50)  # Ensure minimum space
-        chart_area_2.setMaximumHeight(70)  # Give it a bit more room
-        right_section.addWidget(chart_area_2)
+        # Weekly spending trend chart - match histogram height
+        self.weekly_trend_chart = WeeklySpendingTrendWidget("")
+        self.weekly_trend_chart.setMinimumHeight(80)  # Same as histogram
+        self.weekly_trend_chart.setMaximumHeight(120)  # Same as histogram
+        right_section.addWidget(self.weekly_trend_chart)
         
-        # Small spacer between chart areas
-        right_section.addSpacing(2)
-        
-        # Purchase size histogram - balanced space
+        # Purchase size histogram - give it more space
         self.purchase_histogram = HistogramWidget("")
-        self.purchase_histogram.setMinimumHeight(70)  # Slightly reduced minimum
-        self.purchase_histogram.setMaximumHeight(100)  # Reduced maximum
-        right_section.addWidget(self.purchase_histogram)
-        
-        # Add stretch at bottom to push everything up properly
-        right_section.addStretch()
+        self.purchase_histogram.setMinimumHeight(80)  # Ensure minimum height
+        self.purchase_histogram.setMaximumHeight(120)  # Allow more height
+        right_section.addWidget(self.purchase_histogram, 1)  # Give it stretch priority
         
         # Give right section less space (stretch factor 1)
         top_row.addLayout(right_section, 1)
@@ -702,6 +699,8 @@ class DashboardView(QWidget):
             self.update_heatmap()
             self.update_savings_progress()
             self.update_purchase_histogram()
+            self.update_weekly_spending_trends()
+            self.update_category_boxplot()
             self.update_hour_calc_display()
             
         except Exception as e:
@@ -1061,6 +1060,90 @@ class DashboardView(QWidget):
                 
         except Exception as e:
             print(f"Error updating purchase histogram: {e}")
+    
+    def update_weekly_spending_trends(self):
+        """Update weekly spending trend chart with daily spending by week"""
+        try:
+            # Get all spending transactions
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_transactions = [
+                t for t in all_transactions 
+                if t.transaction_type == "spending" and
+                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+            ]
+            
+            if not spending_transactions:
+                if self.weekly_trend_chart:
+                    self.weekly_trend_chart.update_data({})
+                return
+            
+            # Group transactions by week
+            from datetime import datetime, timedelta
+            from collections import defaultdict
+            
+            weekly_daily_totals = defaultdict(lambda: [0.0] * 7)  # 7 days per week
+            
+            for transaction in spending_transactions:
+                # Get the transaction date
+                if hasattr(transaction.date, 'weekday'):
+                    trans_date = transaction.date
+                else:
+                    trans_date = datetime.strptime(str(transaction.date), "%Y-%m-%d").date()
+                
+                # Get Monday of this transaction's week
+                monday = trans_date - timedelta(days=trans_date.weekday())
+                week_key = monday.strftime("%Y-%m-%d")
+                
+                # Get day of week (0=Monday, 6=Sunday)
+                day_of_week = trans_date.weekday()
+                
+                # Add amount to the appropriate day
+                weekly_daily_totals[week_key][day_of_week] += float(transaction.amount)
+            
+            # Keep only recent weeks (last 8-12 weeks for good cloud effect)
+            sorted_weeks = sorted(weekly_daily_totals.keys())[-10:]  # Last 10 weeks
+            recent_weekly_data = {week: weekly_daily_totals[week] for week in sorted_weeks}
+            
+            if self.weekly_trend_chart:
+                self.weekly_trend_chart.update_data(recent_weekly_data)
+                
+        except Exception as e:
+            print(f"Error updating weekly spending trends: {e}")
+    
+    def update_category_boxplot(self):
+        """Update category box plot with spending distributions by category"""
+        try:
+            # Get all spending transactions
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_transactions = [
+                t for t in all_transactions 
+                if t.transaction_type == "spending" and
+                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+            ]
+            
+            if not spending_transactions:
+                if self.category_boxplot:
+                    self.category_boxplot.update_data({})
+                return
+            
+            # Group spending amounts by category
+            from collections import defaultdict
+            category_amounts = defaultdict(list)
+            
+            for transaction in spending_transactions:
+                category = getattr(transaction, 'category', 'Miscellaneous') or 'Miscellaneous'
+                amount = float(transaction.amount)
+                if amount > 0:  # Only positive amounts
+                    category_amounts[category].append(amount)
+            
+            # Convert to dict for the widget
+            category_data = dict(category_amounts)
+            
+            if self.category_boxplot:
+                self.category_boxplot.update_data(category_data)
+                
+        except Exception as e:
+            print(f"Error updating category box plot: {e}")
     
     def on_theme_changed(self, theme_id):
         """Handle theme change for dashboard"""

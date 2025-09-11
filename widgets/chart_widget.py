@@ -152,7 +152,8 @@ class BaseChartWidget(QWidget):
 class PieChartWidget(BaseChartWidget):
     """Pie chart widget for category breakdowns"""
     
-    def __init__(self, title: str = "Spending by Category", parent=None):
+    def __init__(self, title: str = "Spending by Category", transparent_background: bool = False, parent=None):
+        self.transparent_background = transparent_background
         super().__init__(title, parent)
     
     def update_data(self, data: dict, total_label: str = "Total"):
@@ -191,6 +192,24 @@ class PieChartWidget(BaseChartWidget):
         
         self.apply_theme()
         self.canvas.draw()
+    
+    def apply_theme(self):
+        """Apply current theme to the chart, with optional transparency"""
+        if self.transparent_background:
+            # Set transparent backgrounds
+            self.figure.patch.set_facecolor('none')  # Transparent figure background
+            self.canvas.setStyleSheet("background: transparent;")  # Transparent canvas
+            
+            # Make axes transparent too
+            for ax in self.figure.get_axes():
+                ax.set_facecolor('none')  # Transparent axes background
+                ax.tick_params(colors=theme_manager.get_color('text_primary'))
+                # Hide spines for cleaner transparent look
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
+        else:
+            # Use the default theme application from BaseChartWidget
+            super().apply_theme()
 
 
 class LineChartWidget(BaseChartWidget):
@@ -220,13 +239,55 @@ class LineChartWidget(BaseChartWidget):
             ax = self.figure.add_subplot(111)
             colors = theme_manager.get_chart_colors()
             
-            # Plot each series
+            # Plot each series with different styles for secondary lines
             for i, (series_name, series_data) in enumerate(data.items()):
                 if series_data:
                     x_vals, y_vals = zip(*series_data)
                     color = colors[i % len(colors)]
-                    ax.plot(x_vals, y_vals, marker='o', label=series_name, 
-                           color=color, linewidth=2, markersize=4)
+                    
+                    # Check if x-axis contains dates (for bill charts)
+                    import datetime
+                    has_dates = len(x_vals) > 0 and isinstance(x_vals[0], (datetime.date, datetime.datetime))
+                    
+                    # Main "Running Total" line gets full styling
+                    if series_name == "Running Total":
+                        ax.plot(x_vals, y_vals, marker='o', label=series_name, 
+                               color=color, linewidth=2, markersize=4)
+                    else:
+                        # Secondary lines (Weekly Saved, Weekly Paycheck) get thinner, different colors
+                        secondary_colors = [colors[3], colors[4]]  # Use different colors from chart palette
+                        secondary_color = secondary_colors[(i-1) % len(secondary_colors)]
+                        ax.plot(x_vals, y_vals, marker='', label=series_name, 
+                               color=secondary_color, linewidth=1, alpha=0.7)
+                    
+                    # Format x-axis for dates (only for Running Total to control ticks)
+                    if has_dates and series_name == "Running Total":
+                        import matplotlib.dates as mdates
+                        
+                        # Only show ticks where running total actually changes
+                        if len(x_vals) > 1:
+                            # Find points where the running total changes
+                            change_points = []
+                            change_dates = []
+                            
+                            for j in range(len(y_vals)):
+                                if j == 0 or y_vals[j] != y_vals[j-1]:  # First point or value changed
+                                    change_points.append(j)
+                                    change_dates.append(x_vals[j])
+                            
+                            # Limit to max 100 ticks
+                            if len(change_dates) > 100:
+                                step = len(change_dates) // 100
+                                change_dates = change_dates[::step]
+                            
+                            # Set custom tick locations
+                            ax.set_xticks(change_dates)
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+                            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+                        else:
+                            # Single point - just show that date
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+                            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
             
             # Clean formatting - no labels for savings charts
             if self.is_savings_rate_chart:
@@ -246,7 +307,11 @@ class LineChartWidget(BaseChartWidget):
                 ax.set_xlabel(xlabel)
                 ax.set_ylabel(ylabel)
                 ax.grid(True, alpha=0.3)
-                ax.legend()
+                
+                # Only show legend if we have axis labels (bill charts have empty labels)
+                if xlabel and ylabel:
+                    ax.legend()
+                
                 plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
         
         self.apply_theme()
@@ -500,6 +565,199 @@ class HistogramWidget(BaseChartWidget):
             # Set limits with small padding
             ax.set_xlim(min_amount - max_amount*0.02, max_amount + max_amount*0.02)
             ax.set_ylim(0, max(counts) * 1.05 if len(counts) > 0 else 1)
+        
+        self.apply_theme()
+        self.canvas.draw()
+
+
+class WeeklySpendingTrendWidget(BaseChartWidget):
+    """Weekly spending trend widget showing daily spending patterns across weeks"""
+    
+    def __init__(self, title: str = "", parent=None):
+        super().__init__(title, parent)
+        # Override figure settings for clean trend display
+        self.figure.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.10)
+    
+    def update_data(self, weekly_spending_data: dict):
+        """Update with weekly spending data
+        
+        Args:
+            weekly_spending_data: dict where keys are week identifiers and 
+                                values are lists of 7 daily amounts [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+        """
+        self.figure.clear()
+        
+        if not weekly_spending_data:
+            # Show empty chart with grid
+            ax = self.figure.add_subplot(111)
+            ax.set_xlim(0, 6)  # 0-6 for 7 days
+            ax.set_ylim(0, 100)  # Default range
+            ax.grid(True, alpha=0.3)
+            ax.set_xticks(range(7))
+            ax.set_xticklabels(['M', 'T', 'W', 'T', 'F', 'S', 'S'], fontsize=8)
+            ax.set_yticks([])  # No y-axis labels
+        else:
+            ax = self.figure.add_subplot(111)
+            
+            # Get color for all lines
+            line_color = theme_manager.get_color('primary')
+            
+            # Plot each week as a semi-transparent line
+            all_amounts = []  # To calculate y-axis range
+            daily_totals = [0.0] * 7  # Sum for average calculation
+            week_count = 0
+            
+            for week_id, daily_amounts in weekly_spending_data.items():
+                if len(daily_amounts) == 7:  # Ensure we have all 7 days
+                    x_values = list(range(7))  # 0-6 for Mon-Sun
+                    y_values = [float(amount) for amount in daily_amounts]
+                    
+                    # Plot line with 30% alpha
+                    ax.plot(x_values, y_values, color=line_color, alpha=0.3, 
+                           linewidth=1.5, marker='o', markersize=2)
+                    
+                    all_amounts.extend(y_values)
+                    
+                    # Add to daily totals for average
+                    for i, amount in enumerate(y_values):
+                        daily_totals[i] += amount
+                    week_count += 1
+            
+            # Calculate and plot average line if we have data
+            if week_count > 0:
+                daily_averages = [total / week_count for total in daily_totals]
+                
+                # Get secondary color (warning/accent color)
+                secondary_color = theme_manager.get_color('warning')  # Usually orange/yellow
+                if not secondary_color or secondary_color == line_color:
+                    # Fallback to a different color if warning not available
+                    secondary_color = theme_manager.get_color('accent')
+                if not secondary_color or secondary_color == line_color:
+                    # Final fallback - use a contrasting color
+                    secondary_color = '#FFA500'  # Orange
+                
+                # Plot average line - thinner, 100% alpha, on top
+                ax.plot(x_values, daily_averages, color=secondary_color, alpha=1.0, 
+                       linewidth=1.0, linestyle='-', zorder=10)  # zorder puts it on top
+            
+            # Set up axes
+            ax.set_xlim(-0.2, 6.2)  # Small padding on x-axis
+            
+            if all_amounts:
+                max_amount = max(all_amounts)
+                ax.set_ylim(0, max_amount * 1.05)  # 5% padding on top
+            else:
+                ax.set_ylim(0, 100)  # Default range
+            
+            # Clean formatting
+            ax.grid(True, alpha=0.3)
+            
+            # X-axis labels (days of week)
+            ax.set_xticks(range(7))
+            ax.set_xticklabels(['M', 'T', 'W', 'T', 'F', 'S', 'S'], fontsize=8)
+            
+            # No y-axis labels
+            ax.set_yticks([])
+        
+        self.apply_theme()
+        self.canvas.draw()
+
+
+class BoxPlotWidget(BaseChartWidget):
+    """Box and whisker plot widget for category spending distributions"""
+    
+    def __init__(self, title: str = "", parent=None):
+        super().__init__(title, parent)
+        # Override figure settings for horizontal box plot
+        self.figure.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.10)
+    
+    def update_data(self, category_spending_data: dict):
+        """Update with category spending distributions
+        
+        Args:
+            category_spending_data: dict where keys are category names and 
+                                  values are lists of spending amounts for that category
+        """
+        self.figure.clear()
+        
+        if not category_spending_data:
+            # Show empty chart
+            ax = self.figure.add_subplot(111)
+            ax.set_xlim(0, 100)  # Default range
+            ax.set_ylim(-1, 1)
+            ax.grid(True, alpha=0.3, axis='x')  # Only vertical grid lines
+            ax.set_xticks([])
+            ax.set_yticks([])
+        else:
+            ax = self.figure.add_subplot(111)
+            
+            # Get categories and their colors (matching pie chart colors)
+            categories = ["Education", "Miscellaneous", "Shopping", "Entertainment", "Utilities", 
+                         "Personal", "Transport", "Healthcare", "Food"]  # Same order as category key
+            chart_colors = theme_manager.get_chart_colors()
+            
+            # Filter to only categories that have data
+            categories_with_data = [cat for cat in categories if cat in category_spending_data and category_spending_data[cat]]
+            
+            if categories_with_data:
+                # Prepare data for box plot
+                data_lists = []
+                colors = []
+                positions = []
+                
+                for i, category in enumerate(categories_with_data):
+                    spending_amounts = [float(amount) for amount in category_spending_data[category] if amount > 0]
+                    if spending_amounts:  # Only add if there's actual data
+                        data_lists.append(spending_amounts)
+                        # Get color for this category (based on original category order)
+                        original_index = categories.index(category) if category in categories else 0
+                        colors.append(chart_colors[original_index % len(chart_colors)])
+                        positions.append(i)
+                
+                if data_lists:
+                    # Create horizontal box plot - no outliers
+                    box_parts = ax.boxplot(data_lists, positions=positions, vert=False, 
+                                         patch_artist=True, widths=0.6, showfliers=False)
+                    
+                    # Color the boxes with category colors
+                    for patch, color in zip(box_parts['boxes'], colors):
+                        patch.set_facecolor(color)
+                        patch.set_alpha(0.7)  # Slight transparency
+                        patch.set_edgecolor(color)
+                    
+                    # Style whiskers, caps, and medians with subtle color
+                    # Use text_secondary or border color for whiskers instead of white
+                    whisker_color = theme_manager.get_color('text_secondary')
+                    if not whisker_color:
+                        whisker_color = theme_manager.get_color('border')
+                    if not whisker_color:
+                        whisker_color = '#808080'  # Fallback gray
+                    
+                    for element in ['whiskers', 'medians', 'caps']:
+                        if element in box_parts:
+                            for item in box_parts[element]:
+                                item.set_color(whisker_color)
+                                item.set_alpha(0.8)
+                    
+                    # Set up axes
+                    if data_lists:
+                        all_amounts = [amount for sublist in data_lists for amount in sublist]
+                        max_amount = max(all_amounts)
+                        ax.set_xlim(0, max_amount * 1.05)  # Small padding
+                    
+                    ax.set_ylim(-0.5, len(positions) - 0.5)
+                    
+                    # Clean formatting
+                    ax.grid(True, alpha=0.3, axis='x')  # Only vertical grid lines
+                    ax.set_yticks([])  # No y-axis labels
+                    ax.set_xticks([])  # No x-axis labels
+            else:
+                # No valid data - show empty
+                ax.set_xlim(0, 100)
+                ax.set_ylim(-1, 1)
+                ax.grid(True, alpha=0.3, axis='x')
+                ax.set_xticks([])
+                ax.set_yticks([])
         
         self.apply_theme()
         self.canvas.draw()

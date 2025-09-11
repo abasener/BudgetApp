@@ -2,6 +2,29 @@
 Budget App - Desktop application for tracking expenses, bills, savings, and income
 """
 
+"""
+● Got it! I've added all the items you mentioned to the todo
+   list for when you return:
+
+  1. Add rollover logic - Handle money carrying over between
+   weeks
+  2. Transaction editing - Add functionality to edit fields
+  in the transaction table
+  3. Move settings button - From Bills tab to top-level
+  buttons
+  4. Persistent settings - Save preferences like theme that     
+  persist after program closes
+  5. Theme color review - Ensure all text and colors
+  properly use theme settings
+  6. Fix new week creation - Test and fix backend logic for     
+  adding new weeks
+  7. Beta testing - Test all existing functionality to
+  identify broken features
+
+  The todo list is ready for your next session. Have a good     
+  time signing off!
+"""
+
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QVBoxLayout, 
                              QWidget, QMenuBar, QMenu, QToolBar, QPushButton, QDialog, QHBoxLayout)
