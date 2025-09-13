@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QTextEdit, QMessageBox, QFrame)
 from PyQt6.QtCore import QDate
 from datetime import date, timedelta
+from themes import theme_manager
 
 
 class AddPaycheckDialog(QDialog):
@@ -19,13 +20,14 @@ class AddPaycheckDialog(QDialog):
         self.resize(500, 600)
         
         self.init_ui()
+        self.apply_theme()
     
     def init_ui(self):
         layout = QVBoxLayout()
         
         # Title
         title = QLabel("Add Bi-weekly Paycheck")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        title.setFont(theme_manager.get_font("title"))
         layout.addWidget(title)
         
         # Input form
@@ -175,8 +177,8 @@ SYSTEM NOTES:
             QMessageBox.warning(self, "Validation Error", "Paycheck amount must be at least $100")
             return False
         
-        paycheck_date = self.paycheck_date_edit.date().toPython()
-        week_start = self.week_start_edit.date().toPython()
+        paycheck_date = self.paycheck_date_edit.date().toPyDate()
+        week_start = self.week_start_edit.date().toPyDate()
         
         if paycheck_date > date.today() + timedelta(days=7):
             QMessageBox.warning(self, "Validation Error", "Paycheck date cannot be more than 1 week in the future")
@@ -185,6 +187,45 @@ SYSTEM NOTES:
         if week_start > paycheck_date:
             QMessageBox.warning(self, "Validation Error", "Week start date cannot be after paycheck date")
             return False
+
+        # Check for overlapping pay periods
+        existing_weeks = self.paycheck_processor.transaction_manager.get_all_weeks()
+        week2_start = week_start + timedelta(days=7)
+
+        for existing_week in existing_weeks:
+            # Check if new week 1 overlaps with existing weeks
+            if (week_start <= existing_week.end_date and
+                week_start + timedelta(days=6) >= existing_week.start_date):
+                response = QMessageBox.question(
+                    self, "Overlapping Pay Period Detected",
+                    f"The new pay period (Week starting {week_start.strftime('%m/%d/%Y')}) "
+                    f"overlaps with existing Week {existing_week.week_number} "
+                    f"({existing_week.start_date.strftime('%m/%d/%Y')} - {existing_week.end_date.strftime('%m/%d/%Y')}).\n\n"
+                    "This might indicate duplicate paycheck entries or incorrect dates.\n\n"
+                    "Are you sure you want to continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if response != QMessageBox.StandardButton.Yes:
+                    return False
+                break
+
+            # Check if new week 2 overlaps with existing weeks
+            if (week2_start <= existing_week.end_date and
+                week2_start + timedelta(days=6) >= existing_week.start_date):
+                response = QMessageBox.question(
+                    self, "Overlapping Pay Period Detected",
+                    f"The new pay period (Week 2 starting {week2_start.strftime('%m/%d/%Y')}) "
+                    f"overlaps with existing Week {existing_week.week_number} "
+                    f"({existing_week.start_date.strftime('%m/%d/%Y')} - {existing_week.end_date.strftime('%m/%d/%Y')}).\n\n"
+                    "This might indicate duplicate paycheck entries or incorrect dates.\n\n"
+                    "Are you sure you want to continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if response != QMessageBox.StandardButton.Yes:
+                    return False
+                break
         
         return True
     
@@ -195,8 +236,8 @@ SYSTEM NOTES:
         
         try:
             paycheck_amount = self.amount_spin.value()
-            paycheck_date = self.paycheck_date_edit.date().toPython()
-            week_start = self.week_start_edit.date().toPython()
+            paycheck_date = self.paycheck_date_edit.date().toPyDate()
+            week_start = self.week_start_edit.date().toPyDate()
             
             # Show confirmation dialog
             response = QMessageBox.question(
@@ -211,9 +252,11 @@ SYSTEM NOTES:
                 return
             
             # Process the paycheck
+            week_start = self.week_start_edit.date().toPyDate()
             split_result = self.paycheck_processor.process_new_paycheck(
-                paycheck_amount, 
-                paycheck_date
+                paycheck_amount,
+                paycheck_date,
+                week_start
             )
             
             # Show success message with details
@@ -245,3 +288,71 @@ The dashboard will refresh to show updated data.
             QMessageBox.critical(self, "Error", f"Error processing paycheck: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def apply_theme(self):
+        """Apply current theme to dialog"""
+        colors = theme_manager.get_colors()
+        
+        # Main dialog styling
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+            }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QDoubleSpinBox, QDateEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+            }}
+            
+            QDoubleSpinBox:hover, QDateEdit:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QDoubleSpinBox:focus, QDateEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QTextEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px;
+                color: {colors['text_primary']};
+            }}
+            
+            QTextEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            
+            QFrame {{
+                background-color: {colors['surface_variant']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+            }}
+        """)

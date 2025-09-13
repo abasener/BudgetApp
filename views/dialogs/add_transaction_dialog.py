@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QCheckBox, QPushButton, QLabel, QTextEdit, QMessageBox)
 from PyQt6.QtCore import QDate
 from datetime import date
+from themes import theme_manager
 
 from models import TransactionType
 
@@ -24,6 +25,7 @@ class AddTransactionDialog(QDialog):
         
         self.init_ui()
         self.load_data()
+        self.apply_theme()
     
     def init_ui(self):
         layout = QVBoxLayout()
@@ -205,7 +207,7 @@ class AddTransactionDialog(QDialog):
         
         try:
             transaction_type = self.type_combo.currentText()
-            transaction_date = self.date_edit.date().toPython()
+            transaction_date = self.date_edit.date().toPyDate()
             
             # Calculate week number from date
             week_number = self.calculate_week_from_date(transaction_date)
@@ -273,3 +275,124 @@ class AddTransactionDialog(QDialog):
             "Saving": TransactionType.SAVING.value
         }
         return mapping.get(display_name, TransactionType.SPENDING.value)
+    
+    def apply_theme(self):
+        """Apply current theme to dialog"""
+        colors = theme_manager.get_colors()
+        
+        # Main dialog styling
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+            }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QComboBox {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+                selection-background-color: {colors['primary']};
+            }}
+            
+            QComboBox:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QComboBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            
+            QComboBox::down-arrow {{
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {colors['text_secondary']};
+                margin-right: 4px;
+            }}
+            
+            QComboBox QAbstractItemView {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                selection-background-color: {colors['primary']};
+                selection-color: {colors['background']};
+            }}
+            
+            QLineEdit, QDoubleSpinBox, QDateEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+            }}
+            
+            QLineEdit:hover, QDoubleSpinBox:hover, QDateEdit:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QLineEdit:focus, QDoubleSpinBox:focus, QDateEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QTextEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px;
+                color: {colors['text_primary']};
+            }}
+            
+            QTextEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QCheckBox {{
+                color: {colors['text_primary']};
+            }}
+            
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {colors['border']};
+                border-radius: 2px;
+                background-color: {colors['surface']};
+            }}
+            
+            QCheckBox::indicator:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+        """)

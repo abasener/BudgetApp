@@ -350,19 +350,132 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
         colors = theme_manager.get_colors()
         self.setStyleSheet(f"""
             QDialog {{
-                background-color: {colors['surface']};
+                background-color: {colors['background']};
                 color: {colors['text_primary']};
             }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QLineEdit, QDoubleSpinBox, QDateEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+            }}
+            
+            QLineEdit:hover, QDoubleSpinBox:hover, QDateEdit:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QLineEdit:focus, QDoubleSpinBox:focus, QDateEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QComboBox {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+                selection-background-color: {colors['primary']};
+            }}
+            
+            QComboBox:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QComboBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            
+            QComboBox::down-arrow {{
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {colors['text_secondary']};
+                margin-right: 4px;
+            }}
+            
+            QComboBox QAbstractItemView {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                selection-background-color: {colors['primary']};
+                selection-color: {colors['background']};
+            }}
+            
+            QTextEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px;
+                color: {colors['text_primary']};
+            }}
+            
+            QTextEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QCheckBox {{
+                color: {colors['text_primary']};
+            }}
+            
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {colors['border']};
+                border-radius: 2px;
+                background-color: {colors['surface']};
+            }}
+            
+            QCheckBox::indicator:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            
             QGroupBox {{
                 font-weight: bold;
                 border: 2px solid {colors['border']};
                 border-radius: 4px;
                 margin-top: 1ex;
                 padding-top: 10px;
+                color: {colors['text_primary']};
             }}
+            
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
+                color: {colors['primary']};
             }}
         """)

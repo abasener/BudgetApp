@@ -1,28 +1,6 @@
 """
 Budget App - Desktop application for tracking expenses, bills, savings, and income
-"""
 
-"""
-● Got it! I've added all the items you mentioned to the todo
-   list for when you return:
-
-  1. Add rollover logic - Handle money carrying over between
-   weeks
-  2. Transaction editing - Add functionality to edit fields
-  in the transaction table
-  3. Move settings button - From Bills tab to top-level
-  buttons
-  4. Persistent settings - Save preferences like theme that     
-  persist after program closes
-  5. Theme color review - Ensure all text and colors
-  properly use theme settings
-  6. Fix new week creation - Test and fix backend logic for     
-  adding new weeks
-  7. Beta testing - Test all existing functionality to
-  identify broken features
-
-  The todo list is ready for your next session. Have a good     
-  time signing off!
 """
 
 import sys
@@ -36,10 +14,13 @@ from views.dialogs.add_paycheck_dialog import AddPaycheckDialog
 from views.dialogs.pay_bill_dialog import PayBillDialog
 from views.dialogs.add_account_dialog import AddAccountDialog
 from views.dialogs.add_bill_dialog import AddBillDialog
+from views.dialogs.settings_dialog import SettingsDialog, load_app_settings
 
 from views.dashboard import DashboardView
 from views.bills_view import BillsView 
 from views.weekly_view import WeeklyView
+from views.savings_view import SavingsView
+from views.categories_view import CategoriesView
 from services.transaction_manager import TransactionManager
 from services.analytics import AnalyticsEngine
 from services.paycheck_processor import PaycheckProcessor
@@ -52,6 +33,11 @@ class BudgetApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Budget App")
         self.setGeometry(100, 100, 1200, 1000)  # Increased height for taller charts
+        
+        # Load settings and apply default theme
+        self.app_settings = load_app_settings()
+        default_theme = self.app_settings.get("default_theme", "dark")
+        theme_manager.set_theme(default_theme)
         
         # Initialize services
         self.transaction_manager = TransactionManager()
@@ -84,11 +70,20 @@ class BudgetApp(QMainWindow):
             transaction_manager=self.transaction_manager,
             paycheck_processor=self.paycheck_processor
         )
+        self.savings_view = SavingsView(
+            transaction_manager=self.transaction_manager
+        )
+        self.categories_view = CategoriesView(
+            transaction_manager=self.transaction_manager,
+            analytics_engine=self.analytics_engine
+        )
         
         # Add tabs
         self.tabs.addTab(self.dashboard, "Dashboard")
         self.tabs.addTab(self.bills_view, "Bills")
+        self.tabs.addTab(self.savings_view, "Savings")
         self.tabs.addTab(self.weekly_view, "Weekly")
+        self.tabs.addTab(self.categories_view, "Categories")
         
         # Layout
         layout = QVBoxLayout()
@@ -154,10 +149,14 @@ class BudgetApp(QMainWindow):
         toolbar = QToolBar()
         self.addToolBar(toolbar)
         
+        # Store button references for theme updates
+        self.toolbar_buttons = []
+        
         # Refresh button
         refresh_btn = QPushButton("Refresh All")
         refresh_btn.clicked.connect(self.refresh_all_views)
-        refresh_btn.setStyleSheet("padding: 5px 10px;")
+        refresh_btn.setFont(theme_manager.get_font("button"))
+        self.toolbar_buttons.append(('normal', refresh_btn))
         toolbar.addWidget(refresh_btn)
         
         toolbar.addSeparator()
@@ -165,19 +164,22 @@ class BudgetApp(QMainWindow):
         # Add transaction button  
         add_transaction_btn = QPushButton("Add Transaction")
         add_transaction_btn.clicked.connect(self.open_add_transaction_dialog)
-        add_transaction_btn.setStyleSheet("padding: 5px 10px; font-weight: bold;")
+        add_transaction_btn.setFont(theme_manager.get_font("button"))
+        self.toolbar_buttons.append(('normal', add_transaction_btn))
         toolbar.addWidget(add_transaction_btn)
         
-        # Add paycheck button
+        # Add paycheck button (primary accent)
         add_paycheck_btn = QPushButton("Add Paycheck")
         add_paycheck_btn.clicked.connect(self.open_add_paycheck_dialog)
-        add_paycheck_btn.setStyleSheet("padding: 5px 10px; background-color: #4CAF50; color: white; font-weight: bold;")
+        add_paycheck_btn.setFont(theme_manager.get_font("button"))
+        self.toolbar_buttons.append(('primary', add_paycheck_btn))
         toolbar.addWidget(add_paycheck_btn)
         
-        # Pay bill button
+        # Pay bill button (secondary accent)
         pay_bill_btn = QPushButton("Pay Bill")
         pay_bill_btn.clicked.connect(self.open_pay_bill_dialog)
-        pay_bill_btn.setStyleSheet("padding: 5px 10px; background-color: #FF9800; color: white; font-weight: bold;")
+        pay_bill_btn.setFont(theme_manager.get_font("button"))
+        self.toolbar_buttons.append(('secondary', pay_bill_btn))
         toolbar.addWidget(pay_bill_btn)
         
         toolbar.addSeparator()
@@ -185,12 +187,14 @@ class BudgetApp(QMainWindow):
         # Admin buttons (less prominent)
         add_account_btn = QPushButton("+ Account")
         add_account_btn.clicked.connect(self.open_add_account_dialog)
-        add_account_btn.setStyleSheet("padding: 3px 8px; font-size: 11px;")
+        add_account_btn.setFont(theme_manager.get_font("button_small"))
+        self.toolbar_buttons.append(('small', add_account_btn))
         toolbar.addWidget(add_account_btn)
         
         add_bill_btn = QPushButton("+ Bill")
         add_bill_btn.clicked.connect(self.open_add_bill_dialog)
-        add_bill_btn.setStyleSheet("padding: 3px 8px; font-size: 11px;")
+        add_bill_btn.setFont(theme_manager.get_font("button_small"))
+        self.toolbar_buttons.append(('small', add_bill_btn))
         toolbar.addWidget(add_bill_btn)
         
         toolbar.addSeparator()
@@ -200,13 +204,97 @@ class BudgetApp(QMainWindow):
         self.theme_selector.theme_changed.connect(self.on_theme_changed)
         toolbar.addWidget(self.theme_selector)
         
+        # Settings button (gear icon only)
+        settings_btn = QPushButton("⚙️")
+        settings_btn.clicked.connect(self.open_settings_dialog)
+        settings_btn.setFont(theme_manager.get_font("button_small"))
+        settings_btn.setToolTip("Settings")
+        self.toolbar_buttons.append(('small', settings_btn))
+        toolbar.addWidget(settings_btn)
+        
+        # Apply initial theme to toolbar buttons
+        self.apply_toolbar_theme()
+        
+    def apply_toolbar_theme(self):
+        """Apply theme colors to toolbar buttons"""
+        if not hasattr(self, 'toolbar_buttons'):
+            return
+            
+        colors = theme_manager.get_colors()
+        
+        for button_type, button in self.toolbar_buttons:
+            if button_type == 'primary':
+                # Primary action button (Add Paycheck)
+                button.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {colors['primary']};
+                        color: {colors['background']};
+                        border: 1px solid {colors['primary_dark']};
+                        border-radius: 4px;
+                        padding: 5px 10px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['primary_dark']};
+                    }}
+                """)
+            elif button_type == 'secondary':
+                # Secondary action button (Pay Bill)
+                button.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {colors['secondary']};
+                        color: {colors['background']};
+                        border: 1px solid {colors['secondary']};
+                        border-radius: 4px;
+                        padding: 5px 10px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['accent']};
+                    }}
+                """)
+            elif button_type == 'small':
+                # Small admin buttons
+                button.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {colors['surface_variant']};
+                        color: {colors['text_secondary']};
+                        border: 1px solid {colors['border']};
+                        border-radius: 3px;
+                        padding: 3px 8px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['hover']};
+                        color: {colors['text_primary']};
+                    }}
+                """)
+            else:  # 'normal'
+                # Regular buttons
+                button.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {colors['surface']};
+                        color: {colors['text_primary']};
+                        border: 1px solid {colors['border']};
+                        border-radius: 4px;
+                        padding: 5px 10px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['hover']};
+                    }}
+                """)
+        
     def refresh_all_views(self):
         """Refresh all tabs - called after any data change"""
         print("Refreshing all views...")
         try:
+            # Check for and process any pending rollovers before refreshing views
+            self.paycheck_processor.check_and_process_rollovers()
+            
             self.dashboard.refresh()
             self.bills_view.refresh()
+            self.savings_view.refresh()
             self.weekly_view.refresh()
+            self.categories_view.refresh()
             print("All views refreshed successfully")
         except Exception as e:
             print(f"Error refreshing views: {e}")
@@ -256,6 +344,22 @@ class BudgetApp(QMainWindow):
         except Exception as e:
             print(f"Error opening add bill dialog: {e}")
     
+    def open_settings_dialog(self):
+        """Open settings dialog"""
+        try:
+            dialog = SettingsDialog(self.transaction_manager, self)
+            dialog.settings_saved.connect(self.on_settings_saved)
+            dialog.exec()
+        except Exception as e:
+            print(f"Error opening settings dialog: {e}")
+    
+    def on_settings_saved(self):
+        """Handle when settings are saved"""
+        # Reload settings
+        self.app_settings = load_app_settings()
+        # Refresh all views to apply new sorting settings
+        self.refresh_all_views()
+    
     def apply_theme(self):
         """Apply the current theme to the application"""
         stylesheet = theme_manager.get_stylesheet()
@@ -271,14 +375,21 @@ class BudgetApp(QMainWindow):
         """Handle theme change"""
         self.apply_theme()
         
+        # Apply theme to toolbar buttons
+        self.apply_toolbar_theme()
+        
         # Notify all views of theme change
         try:
             if hasattr(self.dashboard, 'on_theme_changed'):
                 self.dashboard.on_theme_changed(theme_id)
             if hasattr(self.bills_view, 'on_theme_changed'):
                 self.bills_view.on_theme_changed(theme_id)
+            if hasattr(self.savings_view, 'on_theme_changed'):
+                self.savings_view.on_theme_changed(theme_id)
             if hasattr(self.weekly_view, 'on_theme_changed'):
                 self.weekly_view.on_theme_changed(theme_id)
+            if hasattr(self.categories_view, 'on_theme_changed'):
+                self.categories_view.on_theme_changed(theme_id)
         except Exception as e:
             print(f"Error applying theme to views: {e}")
     

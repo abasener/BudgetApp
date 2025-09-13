@@ -24,16 +24,21 @@ class ThemeSelector(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         
         # Label
-        label = QLabel("Theme:")
-        layout.addWidget(label)
+        self.label = QLabel("Theme:")
+        self.label.setFont(theme_manager.get_font("menu"))
+        layout.addWidget(self.label)
         
         # Theme combo box
         self.theme_combo = QComboBox()
+        self.theme_combo.setFont(theme_manager.get_font("menu"))
         self.populate_themes()
         self.theme_combo.currentTextChanged.connect(self.on_combo_changed)
         layout.addWidget(self.theme_combo)
         
         self.setLayout(layout)
+        
+        # Apply initial theme styling
+        self.apply_dropdown_theme()
     
     def populate_themes(self):
         """Populate the combo box with available themes"""
@@ -66,6 +71,13 @@ class ThemeSelector(QWidget):
     
     def on_theme_changed(self, theme_id):
         """Handle theme change from theme manager"""
+        # Update fonts for new theme
+        self.label.setFont(theme_manager.get_font("menu"))
+        self.theme_combo.setFont(theme_manager.get_font("menu"))
+        
+        # Apply theme styling to dropdown
+        self.apply_dropdown_theme()
+        
         # Update combo box selection
         for i in range(self.theme_combo.count()):
             if self.theme_combo.itemData(i) == theme_id:
@@ -73,3 +85,56 @@ class ThemeSelector(QWidget):
                 self.theme_combo.setCurrentIndex(i)
                 self.theme_combo.blockSignals(False)
                 break
+                
+    def apply_dropdown_theme(self):
+        """Apply current theme styling to the dropdown"""
+        colors = theme_manager.get_colors()
+        
+        # Style the combo box and dropdown
+        self.theme_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {colors['surface']};
+                color: {colors['text_primary']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                padding-right: 20px;
+            }}
+            
+            QComboBox:hover {{
+                background-color: {colors['hover']};
+            }}
+            
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border: none;
+            }}
+            
+            QComboBox::down-arrow {{
+                width: 12px;
+                height: 12px;
+            }}
+            
+            QComboBox QAbstractItemView {{
+                background-color: {colors['surface']};
+                color: {colors['text_primary']};
+                border: 1px solid {colors['border']};
+                selection-background-color: {colors['primary']};
+                selection-color: {colors['background']};
+            }}
+            
+            QComboBox QAbstractItemView::item {{
+                padding: 4px 8px;
+            }}
+            
+            QComboBox QAbstractItemView::item:selected {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {colors['hover']};
+            }}
+        """)

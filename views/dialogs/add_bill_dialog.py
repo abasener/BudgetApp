@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QPushButton, QLabel, QMessageBox, QTextEdit, QComboBox, QCheckBox)
 from PyQt6.QtCore import QDate
 from datetime import date, timedelta
+from themes import theme_manager
 
 
 class SavingsPlanDialog(QDialog):
@@ -19,10 +20,11 @@ class SavingsPlanDialog(QDialog):
         self.resize(500, 400)
         
         layout = QVBoxLayout()
+        self.apply_theme()
         
         # Title
         title = QLabel("Savings Plan Analysis")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        title.setFont(theme_manager.get_font("title"))
         layout.addWidget(title)
         
         # Current vs calculated info (main content)
@@ -69,13 +71,58 @@ Note: This is an estimate. Adjust based on your actual payment schedule.
         
         auto_set_button = QPushButton("Auto Set Calculated Amount")
         auto_set_button.clicked.connect(self.accept)  # Return 1 to indicate auto set
-        auto_set_button.setStyleSheet("font-weight: bold;")
+        auto_set_button.setFont(theme_manager.get_font("button_bold"))
         
         button_layout.addWidget(ok_button)
         button_layout.addWidget(auto_set_button)
         layout.addLayout(button_layout)
         
         self.setLayout(layout)
+    
+    def apply_theme(self):
+        """Apply current theme to dialog"""
+        colors = theme_manager.get_colors()
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+            }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QTextEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px;
+                color: {colors['text_primary']};
+            }}
+            
+            QTextEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+        """)
 
 
 class AddBillDialog(QDialog):
@@ -87,13 +134,14 @@ class AddBillDialog(QDialog):
         self.resize(500, 600)
         
         self.init_ui()
+        self.apply_theme()
     
     def init_ui(self):
         layout = QVBoxLayout()
         
         # Title
         title = QLabel("Create New Recurring Bill")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        title.setFont(theme_manager.get_font("title"))
         layout.addWidget(title)
         
         # Form layout
@@ -142,7 +190,7 @@ class AddBillDialog(QDialog):
         
         # Percentage savings note
         percentage_note = QLabel("Tip: Use values < 1.0 for percentage (e.g., 0.1 = 10% of income)")
-        percentage_note.setStyleSheet("color: gray; font-size: 11px;")
+        percentage_note.setFont(theme_manager.get_font("small"))
         form_layout.addRow("", percentage_note)
         
         # Check savings plan button
@@ -173,7 +221,7 @@ class AddBillDialog(QDialog):
         
         # Preview section
         preview_label = QLabel("Bill Preview:")
-        preview_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        preview_label.setFont(theme_manager.get_font("subtitle"))
         layout.addWidget(preview_label)
         
         self.preview_text = QTextEdit()
@@ -186,7 +234,7 @@ class AddBillDialog(QDialog):
         
         self.create_button = QPushButton("Create Bill")
         self.create_button.clicked.connect(self.create_bill)
-        self.create_button.setStyleSheet("font-weight: bold;")
+        self.create_button.setFont(theme_manager.get_font("button_bold"))
         
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
@@ -453,3 +501,129 @@ Last Payment: {last_payment} (optional reference)
             QMessageBox.critical(self, "Error", f"Error creating bill: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def apply_theme(self):
+        """Apply current theme to dialog"""
+        colors = theme_manager.get_colors()
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+            }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QComboBox {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+                selection-background-color: {colors['primary']};
+            }}
+            
+            QComboBox:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QComboBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            
+            QComboBox::down-arrow {{
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {colors['text_secondary']};
+                margin-right: 4px;
+            }}
+            
+            QComboBox QAbstractItemView {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                selection-background-color: {colors['primary']};
+                selection-color: {colors['background']};
+            }}
+            
+            QLineEdit, QDoubleSpinBox, QDateEdit, QSpinBox {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+            }}
+            
+            QLineEdit:hover, QDoubleSpinBox:hover, QDateEdit:hover, QSpinBox:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QLineEdit:focus, QDoubleSpinBox:focus, QDateEdit:focus, QSpinBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QTextEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px;
+                color: {colors['text_primary']};
+            }}
+            
+            QTextEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QCheckBox {{
+                color: {colors['text_primary']};
+            }}
+            
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {colors['border']};
+                border-radius: 2px;
+                background-color: {colors['surface']};
+            }}
+            
+            QCheckBox::indicator:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            
+            QPushButton:disabled {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                color: {colors['text_secondary']};
+            }}
+        """)

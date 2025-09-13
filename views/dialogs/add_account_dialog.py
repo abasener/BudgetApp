@@ -5,6 +5,7 @@ Add Account Dialog - Create new accounts with goal amounts
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
                              QLineEdit, QDoubleSpinBox, QCheckBox, QPushButton, 
                              QLabel, QMessageBox)
+from themes import theme_manager
 
 
 class AddAccountDialog(QDialog):
@@ -16,13 +17,14 @@ class AddAccountDialog(QDialog):
         self.resize(400, 300)
         
         self.init_ui()
+        self.apply_theme()
     
     def init_ui(self):
         layout = QVBoxLayout()
         
         # Title
         title = QLabel("Create New Account")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        title.setFont(theme_manager.get_font("title"))
         layout.addWidget(title)
         
         # Form layout
@@ -77,7 +79,7 @@ class AddAccountDialog(QDialog):
         
         # Preview section
         self.preview_label = QLabel()
-        self.preview_label.setStyleSheet("background: #f0f0f0; padding: 10px; border: 1px solid #ccc;")
+        # Preview styling will be handled by apply_theme
         self.update_preview()
         layout.addWidget(self.preview_label)
         
@@ -93,7 +95,7 @@ class AddAccountDialog(QDialog):
         
         self.create_button = QPushButton("Create Account")
         self.create_button.clicked.connect(self.create_account)
-        self.create_button.setStyleSheet("font-weight: bold;")
+        self.create_button.setFont(theme_manager.get_font("button"))
         
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
@@ -250,3 +252,86 @@ class AddAccountDialog(QDialog):
             QMessageBox.critical(self, "Error", f"Error creating account: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def apply_theme(self):
+        """Apply current theme to dialog"""
+        colors = theme_manager.get_colors()
+        
+        # Main dialog styling
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+            }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QLineEdit, QDoubleSpinBox {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+            }}
+            
+            QLineEdit:hover, QDoubleSpinBox:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QLineEdit:focus, QDoubleSpinBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QCheckBox {{
+                color: {colors['text_primary']};
+            }}
+            
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {colors['border']};
+                border-radius: 2px;
+                background-color: {colors['surface']};
+            }}
+            
+            QCheckBox::indicator:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+        """)
+        
+        # Preview label special styling
+        if hasattr(self, 'preview_label'):
+            self.preview_label.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {colors['surface_variant']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 10px;
+                    color: {colors['text_primary']};
+                }}
+            """)

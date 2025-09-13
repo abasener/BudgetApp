@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QLabel, QTextEdit, QMessageBox, QFrame)
 from PyQt6.QtCore import QDate
 from datetime import date, timedelta
+from themes import theme_manager
 
 from models import Transaction
 
@@ -23,13 +24,14 @@ class PayBillDialog(QDialog):
         
         self.init_ui()
         self.load_bills()
+        self.apply_theme()
     
     def init_ui(self):
         layout = QVBoxLayout()
         
         # Title
         title = QLabel("Pay Bill")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        title.setFont(theme_manager.get_font("title"))
         layout.addWidget(title)
         
         # Form layout
@@ -59,7 +61,7 @@ class PayBillDialog(QDialog):
         
         self.pay_button = QPushButton("Pay Bill")
         self.pay_button.clicked.connect(self.pay_bill)
-        self.pay_button.setStyleSheet("font-weight: bold;")
+        self.pay_button.setFont(theme_manager.get_font("button"))
         self.pay_button.setEnabled(False)
         
         self.cancel_button = QPushButton("Cancel")
@@ -184,7 +186,7 @@ class PayBillDialog(QDialog):
         
         try:
             payment_amount = self.amount_spin.value()
-            payment_date = self.payment_date_edit.date().toPython()
+            payment_date = self.payment_date_edit.date().toPyDate()
             
             # Calculate week number from payment date
             week_number = self.calculate_week_from_date(payment_date)
@@ -269,3 +271,115 @@ The dashboard will refresh to show updated data.
                 
         except Exception:
             return 1  # Safe fallback
+    
+    def apply_theme(self):
+        """Apply current theme to dialog"""
+        colors = theme_manager.get_colors()
+        
+        # Main dialog styling
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+            }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QComboBox {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+                selection-background-color: {colors['primary']};
+            }}
+            
+            QComboBox:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QComboBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            
+            QComboBox::down-arrow {{
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {colors['text_secondary']};
+                margin-right: 4px;
+            }}
+            
+            QComboBox QAbstractItemView {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                selection-background-color: {colors['primary']};
+                selection-color: {colors['background']};
+            }}
+            
+            QDoubleSpinBox, QDateEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+            }}
+            
+            QDoubleSpinBox:hover, QDateEdit:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QDoubleSpinBox:focus, QDateEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QTextEdit {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px;
+                color: {colors['text_primary']};
+            }}
+            
+            QTextEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            
+            QPushButton:disabled {{
+                background-color: {colors['surface_variant']};
+                color: {colors['text_secondary']};
+                border: 1px solid {colors['border']};
+            }}
+            
+            QFrame {{
+                background-color: {colors['surface_variant']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+            }}
+        """)

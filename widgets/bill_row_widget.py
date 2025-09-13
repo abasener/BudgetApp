@@ -35,6 +35,9 @@ class BillRowWidget(QWidget):
         
         self.init_ui()
         self.update_data()
+        
+        # Connect to theme changes
+        theme_manager.theme_changed.connect(self.on_theme_changed)
     
     def init_ui(self):
         """Initialize the UI layout"""
@@ -264,6 +267,114 @@ class BillRowWidget(QWidget):
             return f"#{new_rgb[0]:02x}{new_rgb[1]:02x}{new_rgb[2]:02x}"
         except:
             return color
+    
+    def on_theme_changed(self, theme_id):
+        """Handle theme change for bill row widget"""
+        try:
+            # Update all styling without recreating UI
+            colors = theme_manager.get_colors()
+            
+            # Update main frame styling
+            frame = self.findChild(QFrame)
+            if frame:
+                frame.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {colors['surface']};
+                        border: 2px solid {colors['border']};
+                        border-radius: 8px;
+                        padding: 5px;
+                    }}
+                """)
+            
+            # Update name label
+            if hasattr(self, 'name_label'):
+                self.name_label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold;")
+            
+            # Update progress bar labels
+            for child in self.findChildren(QLabel):
+                if child.text() in ["Money:", "Time:"]:
+                    child.setStyleSheet(f"color: {colors['text_secondary']};")
+            
+            # Update progress bars
+            if hasattr(self, 'savings_progress_bar'):
+                self.savings_progress_bar.setStyleSheet(f"""
+                    QProgressBar {{
+                        border: 1px solid {colors['border']};
+                        border-radius: 3px;
+                        background-color: {colors['surface_variant']};
+                        height: 20px;
+                    }}
+                    QProgressBar::chunk {{
+                        background-color: {colors['primary']};
+                        border-radius: 3px;
+                    }}
+                """)
+            
+            if hasattr(self, 'time_progress_bar'):
+                self.time_progress_bar.setStyleSheet(f"""
+                    QProgressBar {{
+                        border: 1px solid {colors['border']};
+                        border-radius: 3px;
+                        background-color: {colors['surface_variant']};
+                        height: 20px;
+                    }}
+                    QProgressBar::chunk {{
+                        background-color: {colors['warning']};
+                        border-radius: 3px;
+                    }}
+                """)
+            
+            # Update buttons
+            button_style = f"""
+                QPushButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['surface']};
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 8px 16px;
+                }}
+                QPushButton:hover {{
+                    background-color: {self.lighten_color(colors['primary'], 1.1)};
+                }}
+                QPushButton:pressed {{
+                    background-color: {self.lighten_color(colors['primary'], 0.9)};
+                }}
+            """
+            
+            if hasattr(self, 'see_more_button'):
+                self.see_more_button.setStyleSheet(button_style)
+            if hasattr(self, 'see_history_button'):
+                self.see_history_button.setStyleSheet(button_style)
+            
+            # Update writeup frame
+            writeup_frames = self.findChildren(QFrame)
+            for frame in writeup_frames:
+                if frame.parent() != self:  # Not the main frame
+                    frame.setStyleSheet(f"""
+                        QFrame {{
+                            background-color: {colors['surface_variant']};
+                            border: 1px solid {colors['border']};
+                            border-radius: 4px;
+                            padding: 8px;
+                        }}
+                    """)
+            
+            # Update writeup text labels
+            for label_name, label in self.writeup_labels.items():
+                if ":" in label_name:  # Header labels
+                    label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold;")
+                else:  # Value labels
+                    label.setStyleSheet(f"color: {colors['text_secondary']};")
+            
+            # Force line chart to update its theme colors
+            if hasattr(self, 'running_total_chart') and self.running_total_chart:
+                # The LineChartWidget should auto-update via its theme_changed signal,
+                # but if it's not working, we can force an update by refreshing the chart data
+                self.update_line_chart()
+                    
+        except Exception as e:
+            print(f"Error updating bill row theme: {e}")
     
     def update_data(self):
         """Update all data displays"""

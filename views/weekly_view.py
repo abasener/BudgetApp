@@ -4,7 +4,8 @@ Bi-weekly Tab - Complete bi-weekly budget tracking with historical view
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
                              QScrollArea, QListWidget, QListWidgetItem, QProgressBar,
-                             QSizePolicy, QTableWidget, QTableWidgetItem, QCheckBox)
+                             QSizePolicy, QTableWidget, QTableWidgetItem, QCheckBox,
+                             QPushButton, QMessageBox)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import PieChartWidget
@@ -28,6 +29,9 @@ class WeekDetailWidget(QWidget):
         self.init_ui()
         self.load_week_data()
         
+        # Connect to theme changes
+        theme_manager.theme_changed.connect(self.on_theme_changed)
+        
     def init_ui(self):
         """Initialize the week detail UI"""
         main_layout = QVBoxLayout()
@@ -47,7 +51,9 @@ class WeekDetailWidget(QWidget):
         self.header_label.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
         main_layout.addWidget(self.header_label)
         
-        # First row: Text info, Ring chart, Pie chart
+        # First row: Text info, Ring chart, Pie chart (with fixed height)
+        first_row_frame = QFrame()
+        first_row_frame.setFixedHeight(200)  # Set fixed height to prevent stretching
         first_row = QHBoxLayout()
         first_row.setSpacing(15)
         
@@ -60,7 +66,8 @@ class WeekDetailWidget(QWidget):
         # Column 3: Pie chart for category breakdown  
         self.create_pie_chart_column(first_row)
         
-        main_layout.addLayout(first_row)
+        first_row_frame.setLayout(first_row)
+        main_layout.addWidget(first_row_frame)
         
         # Second row: Progress bars
         self.create_progress_bars_row(main_layout)
@@ -141,26 +148,28 @@ class WeekDetailWidget(QWidget):
         legend_layout.setSpacing(2)
         legend_layout.setContentsMargins(5, 10, 5, 10)  # Add some top/bottom padding
         
-        # Stack all categories vertically
-        savings_legend = QLabel("● Savings")
-        savings_legend.setStyleSheet(f"color: #4CAF50; font-size: 9px;")
-        savings_legend.setFont(theme_manager.get_font("small"))
-        legend_layout.addWidget(savings_legend)
+        # Stack all categories vertically with theme colors
+        chart_colors = theme_manager.get_chart_colors()
         
-        bills_legend = QLabel("● Bills")
-        bills_legend.setStyleSheet(f"color: #FF9800; font-size: 9px;")
-        bills_legend.setFont(theme_manager.get_font("small"))
-        legend_layout.addWidget(bills_legend)
+        self.savings_legend = QLabel("● Savings")
+        self.savings_legend.setStyleSheet(f"color: #4CAF50; font-size: 9px;")  # Keep green universal
+        self.savings_legend.setFont(theme_manager.get_font("small"))
+        legend_layout.addWidget(self.savings_legend)
         
-        spent_legend = QLabel("● Spent")
-        spent_legend.setStyleSheet(f"color: #F44336; font-size: 9px;")
-        spent_legend.setFont(theme_manager.get_font("small"))
-        legend_layout.addWidget(spent_legend)
+        self.bills_legend = QLabel("● Bills")
+        self.bills_legend.setStyleSheet(f"color: #FF9800; font-size: 9px;")  # Keep orange universal
+        self.bills_legend.setFont(theme_manager.get_font("small"))
+        legend_layout.addWidget(self.bills_legend)
         
-        rollover_legend = QLabel("● Rollover")
-        rollover_legend.setStyleSheet(f"color: #2196F3; font-size: 9px;")
-        rollover_legend.setFont(theme_manager.get_font("small"))
-        legend_layout.addWidget(rollover_legend)
+        self.spent_legend = QLabel("● Spent")
+        self.spent_legend.setStyleSheet(f"color: {colors.get('error', '#F44336')}; font-size: 9px;")
+        self.spent_legend.setFont(theme_manager.get_font("small"))
+        legend_layout.addWidget(self.spent_legend)
+        
+        self.rollover_legend = QLabel("● Rollover")
+        self.rollover_legend.setStyleSheet(f"color: {colors['primary']}; font-size: 9px;")
+        self.rollover_legend.setFont(theme_manager.get_font("small"))
+        legend_layout.addWidget(self.rollover_legend)
         
         legend_layout.addStretch()  # Push legend to top
         chart_legend_layout.addLayout(legend_layout)
@@ -291,16 +300,56 @@ class WeekDetailWidget(QWidget):
             }}
         """)
         
+        # Header row with title and buttons
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(15)
+        
         # Table title
         table_title = QLabel("Week Transactions")
         table_title.setFont(theme_manager.get_font("subtitle"))
         table_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
-        table_layout.addWidget(table_title)
+        header_layout.addWidget(table_title)
+        
+        # Buttons on the right side of header
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(10)
+        
+        # Save Changes button
+        self.save_changes_btn = QPushButton("Save Changes")
+        self.save_changes_btn.setStyleSheet("padding: 5px 10px;")
+        buttons_layout.addWidget(self.save_changes_btn)
+        
+        # Delete Row button
+        self.delete_row_btn = QPushButton("Delete Row")
+        self.delete_row_btn.setStyleSheet("padding: 5px 10px;")
+        buttons_layout.addWidget(self.delete_row_btn)
+        
+        # Ignore Changes button
+        self.ignore_changes_btn = QPushButton("Ignore Changes")
+        self.ignore_changes_btn.setStyleSheet("padding: 5px 10px;")
+        buttons_layout.addWidget(self.ignore_changes_btn)
+        
+        # Add buttons to header with stretch to push them right
+        header_layout.addStretch()
+        header_layout.addLayout(buttons_layout)
+        
+        table_layout.addLayout(header_layout)
         
         # Transaction table
         self.transaction_table = QTableWidget()
         self.transaction_table.setColumnCount(5)
         self.transaction_table.setHorizontalHeaderLabels(["Day", "Category", "Amount", "Notes", "Analytics"])
+        
+        # Remove internal scrollbars - let the whole tab scroll instead
+        self.transaction_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.transaction_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        # Resize table to fit all content without scrolling
+        self.transaction_table.setSizeAdjustPolicy(QTableWidget.SizeAdjustPolicy.AdjustToContents)
+        
+        # Enable row selection
+        self.transaction_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.transaction_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         
         # Style the table
         self.transaction_table.setStyleSheet(f"""
@@ -329,9 +378,20 @@ class WeekDetailWidget(QWidget):
         self.transaction_table.setColumnWidth(3, 200)  # Notes
         self.transaction_table.setColumnWidth(4, 80)   # Analytics
         
-        # Give transaction table more space and minimum height
-        self.transaction_table.setMinimumHeight(200)  # Increase table height
+        # Remove minimum height to allow table to expand naturally
+        # Let table show all rows without internal scrolling
         table_layout.addWidget(self.transaction_table)
+        
+        # Add spacer at bottom to absorb extra vertical space
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        table_layout.addWidget(spacer)
+        
+        # Connect button functionality
+        self.save_changes_btn.clicked.connect(self.save_changes)
+        self.delete_row_btn.clicked.connect(self.delete_selected_row)
+        self.ignore_changes_btn.clicked.connect(self.ignore_changes)
+        
         table_frame.setLayout(table_layout)
         parent_layout.addWidget(table_frame)
         
@@ -366,14 +426,18 @@ class WeekDetailWidget(QWidget):
         spending_transactions = [t for t in self.transactions if t.is_spending and t.include_in_analytics]
         total_spent = sum(t.amount for t in spending_transactions)
         
-        # Calculate starting amount: (paycheck - bills - savings) / 2
-        if self.pay_period_data:
-            paycheck = self.pay_period_data.get('paycheck', 0.0)
-            bills = self.pay_period_data.get('bills', 0.0)
-            savings = self.pay_period_data.get('savings', 0.0)
-            starting_amount = (paycheck - bills - savings) / 2
+        # Use actual week running_total from database (includes rollover adjustments)
+        if self.week_data:
+            starting_amount = self.week_data.running_total
         else:
-            starting_amount = 0.0
+            # Fallback to calculated amount if no week data
+            if self.pay_period_data:
+                paycheck = self.pay_period_data.get('paycheck', 0.0)
+                bills = self.pay_period_data.get('bills', 0.0)
+                savings = self.pay_period_data.get('savings', 0.0)
+                starting_amount = (paycheck - bills - savings) / 2
+            else:
+                starting_amount = 0.0
             
         current_amount = max(0, starting_amount - total_spent)
         
@@ -429,7 +493,14 @@ class WeekDetailWidget(QWidget):
             sizes = [0, 0, 0, 100]
             labels = ['Savings', 'Bills', 'Spent', 'Rollover']
         
-        colors_list = ['#4CAF50', '#FF9800', '#F44336', '#2196F3']
+        # Use theme colors for consistency - get fresh colors on each update
+        theme_colors = theme_manager.get_colors()
+        colors_list = [
+            '#4CAF50',  # Savings (keep green as universal)
+            '#FF9800',  # Bills (keep orange as universal) 
+            theme_colors.get('error', '#F44336'),  # Spent (use theme error color)
+            theme_colors['primary']  # Rollover (use theme primary color)
+        ]
         
         # Create ring chart (donut) with transparent background
         ax.set_facecolor('none')  # Transparent axis background
@@ -499,6 +570,9 @@ class WeekDetailWidget(QWidget):
         # Sort transactions by date (oldest to newest)
         sorted_transactions = sorted(self.transactions, key=lambda t: t.date)
         
+        # Store original transaction data for change comparison
+        self.original_transactions = sorted_transactions.copy()
+        
         self.transaction_table.setRowCount(len(sorted_transactions))
         
         for row, transaction in enumerate(sorted_transactions):
@@ -524,6 +598,327 @@ class WeekDetailWidget(QWidget):
             analytics_checkbox = QCheckBox()
             analytics_checkbox.setChecked(transaction.include_in_analytics)
             self.transaction_table.setCellWidget(row, 4, analytics_checkbox)
+        
+        # Resize table to fit all rows without scrolling
+        self.transaction_table.resizeRowsToContents()
+        total_height = self.transaction_table.horizontalHeader().height()
+        total_height += sum(self.transaction_table.rowHeight(i) for i in range(self.transaction_table.rowCount()))
+        total_height += 2  # Border
+        self.transaction_table.setFixedHeight(total_height)
+    
+    def delete_selected_row(self):
+        """Delete the currently selected row from the table (visual only)"""
+        current_row = self.transaction_table.currentRow()
+        if current_row >= 0:
+            self.transaction_table.removeRow(current_row)
+            # Recalculate table height after removing row
+            self.transaction_table.resizeRowsToContents()
+            total_height = self.transaction_table.horizontalHeader().height()
+            total_height += sum(self.transaction_table.rowHeight(i) for i in range(self.transaction_table.rowCount()))
+            total_height += 2  # Border
+            self.transaction_table.setFixedHeight(total_height)
+            print(f"Deleted row {current_row} (visual only)")
+        else:
+            print("No row selected for deletion")
+    
+    def ignore_changes(self):
+        """Reset the table to original database values"""
+        print("Ignoring changes and resetting table...")
+        self.update_transaction_table()  # Reload from database
+    
+    def save_changes(self):
+        """Save changes to database after showing confirmation dialog"""
+        changes = self.detect_changes()
+        
+        if not changes['modified'] and not changes['deleted']:
+            QMessageBox.information(self, "No Changes", "No changes to save.")
+            return
+        
+        # Build confirmation message
+        message = "Are you sure you want to save these changes?\n\n"
+        
+        if changes['modified']:
+            message += f"MODIFIED TRANSACTIONS ({len(changes['modified'])}):\n"
+            for change in changes['modified']:
+                message += f"• {change['description']}\n"
+            message += "\n"
+        
+        if changes['deleted']:
+            message += f"DELETED TRANSACTIONS ({len(changes['deleted'])}):\n"
+            for transaction in changes['deleted']:
+                message += f"• {transaction.date.strftime('%a')} - {transaction.description} (${transaction.amount:.2f})\n"
+        
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self, 
+            "Confirm Changes", 
+            message,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        
+        if reply == QMessageBox.StandardButton.Ok:
+            self.apply_changes(changes)
+            QMessageBox.information(self, "Success", "Changes saved successfully!")
+        # If Cancel, do nothing (don't save, don't ignore)
+    
+    def detect_changes(self):
+        """Detect changes between current table and original database data"""
+        changes = {
+            'modified': [],
+            'deleted': []
+        }
+        
+        # Check for deleted transactions (rows removed from table)
+        current_row_count = self.transaction_table.rowCount()
+        if current_row_count < len(self.original_transactions):
+            # Find which transactions are missing from the table
+            table_transactions = []
+            for row in range(current_row_count):
+                # Try to map back to original transaction by day and amount
+                day_item = self.transaction_table.item(row, 0)
+                amount_item = self.transaction_table.item(row, 2)
+                if day_item and amount_item:
+                    day_text = day_item.text()
+                    amount_text = amount_item.text().replace('$', '')
+                    try:
+                        amount = float(amount_text)
+                        # Find matching original transaction
+                        for orig_trans in self.original_transactions:
+                            if (orig_trans.date.strftime('%a') == day_text and 
+                                abs(orig_trans.amount - amount) < 0.01):
+                                table_transactions.append(orig_trans)
+                                break
+                    except ValueError:
+                        continue
+            
+            # Find deleted transactions
+            for orig_trans in self.original_transactions:
+                if orig_trans not in table_transactions:
+                    changes['deleted'].append(orig_trans)
+        
+        # Check for modified transactions (field changes)
+        for row in range(min(current_row_count, len(self.original_transactions))):
+            if row < len(self.original_transactions):
+                original = self.original_transactions[row]
+                
+                # Get current table values
+                category_item = self.transaction_table.item(row, 1)
+                amount_item = self.transaction_table.item(row, 2)
+                notes_item = self.transaction_table.item(row, 3)
+                analytics_widget = self.transaction_table.cellWidget(row, 4)
+                
+                if category_item and amount_item and notes_item and analytics_widget:
+                    current_category = category_item.text()
+                    current_amount_text = amount_item.text().replace('$', '')
+                    current_notes = notes_item.text()
+                    current_analytics = analytics_widget.isChecked()
+                    
+                    try:
+                        current_amount = float(current_amount_text)
+                    except ValueError:
+                        current_amount = original.amount
+                    
+                    # Compare with original values
+                    changes_found = []
+                    if current_category != (original.category or ""):
+                        changes_found.append(f"Category: '{original.category or ''}' → '{current_category}'")
+                    if abs(current_amount - original.amount) > 0.01:
+                        changes_found.append(f"Amount: ${original.amount:.2f} → ${current_amount:.2f}")
+                    if current_notes != (original.description or ""):
+                        changes_found.append(f"Notes: '{original.description or ''}' → '{current_notes}'")
+                    if current_analytics != original.include_in_analytics:
+                        changes_found.append(f"Analytics: {original.include_in_analytics} → {current_analytics}")
+                    
+                    if changes_found:
+                        changes['modified'].append({
+                            'transaction': original,
+                            'row': row,
+                            'changes': changes_found,
+                            'description': f"{original.date.strftime('%a')} - {original.description} - " + ", ".join(changes_found),
+                            'new_values': {
+                                'category': current_category,
+                                'amount': current_amount,
+                                'description': current_notes,
+                                'include_in_analytics': current_analytics
+                            }
+                        })
+        
+        return changes
+    
+    def apply_changes(self, changes):
+        """Apply the changes to the database"""
+        try:
+            # Apply modifications
+            for change in changes['modified']:
+                transaction = change['transaction']
+                new_values = change['new_values']
+                
+                # Update transaction in database
+                self.transaction_manager.update_transaction(
+                    transaction.id,
+                    {
+                        'category': new_values['category'],
+                        'amount': new_values['amount'], 
+                        'description': new_values['description'],
+                        'include_in_analytics': new_values['include_in_analytics']
+                    }
+                )
+                print(f"Updated transaction {transaction.id}: {change['description']}")
+            
+            # Apply deletions
+            for transaction in changes['deleted']:
+                self.transaction_manager.delete_transaction(transaction.id)
+                print(f"Deleted transaction {transaction.id}: {transaction.description}")
+            
+            # Reload the table and refresh the parent view
+            self.load_week_data()
+            
+            # Also trigger a refresh of the parent WeeklyView to update all data
+            if hasattr(self.parent(), 'update_week_info'):
+                self.parent().update_week_info()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
+            print(f"Error applying changes: {e}")
+    
+    def on_theme_changed(self, theme_id):
+        """Handle theme change for week detail widget"""
+        try:
+            self.update_week_detail_styling(theme_id)
+        except Exception as e:
+            print(f"Error applying theme to week detail widget: {e}")
+    
+    def update_week_detail_styling(self, theme_id=None):
+        """Update styling for week detail widget"""
+        colors = theme_manager.get_colors()
+        
+        # Update header label color
+        if hasattr(self, 'header_label'):
+            self.header_label.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
+        
+        # Update text info labels
+        for label in [getattr(self, 'starting_amount_label', None), 
+                     getattr(self, 'current_amount_label', None),
+                     getattr(self, 'spent_amount_label', None), 
+                     getattr(self, 'daily_amount_label', None)]:
+            if label:
+                label.setStyleSheet(f"color: {colors['text_primary']}; padding: 2px;")
+        
+        # Update ring chart legend colors
+        if hasattr(self, 'spent_legend'):
+            self.spent_legend.setStyleSheet(f"color: {colors.get('error', '#F44336')}; font-size: 9px;")
+        if hasattr(self, 'rollover_legend'):
+            self.rollover_legend.setStyleSheet(f"color: {colors['primary']}; font-size: 9px;")
+        
+        # Update pie chart headers to use theme colors
+        for child in self.findChildren(QLabel):
+            if child.text() in ["Week Money Usage", "Category Spending"]:
+                child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px; background: transparent;")
+        
+        # Force update ring chart and pie chart with new theme colors
+        self.update_ring_chart()
+        if hasattr(self, 'category_pie_chart'):
+            if hasattr(self.category_pie_chart, 'on_theme_changed'):
+                self.category_pie_chart.on_theme_changed(theme_id)
+            # Also force update the pie chart data to refresh colors
+            self.update_category_pie_chart()
+        
+        # Update progress bar styles
+        if hasattr(self, 'week_money_progress_bar'):
+            self.week_money_progress_bar.setStyleSheet(f"""
+                QProgressBar {{
+                    border: 1px solid {colors['border']};
+                    border-radius: 3px;
+                    background-color: {colors['surface']};
+                    height: 20px;
+                    color: {colors['text_primary']};
+                }}
+                QProgressBar::chunk {{
+                    background-color: {colors['primary']};
+                    border-radius: 3px;
+                }}
+            """)
+        
+        if hasattr(self, 'week_time_progress_bar'):
+            self.week_time_progress_bar.setStyleSheet(f"""
+                QProgressBar {{
+                    border: 1px solid {colors['border']};
+                    border-radius: 3px;
+                    background-color: {colors['surface']};
+                    height: 20px;
+                    color: {colors['text_primary']};
+                }}
+                QProgressBar::chunk {{
+                    background-color: {colors['secondary']};
+                    border-radius: 3px;
+                }}
+            """)
+        
+        # Update frame backgrounds
+        for frame in self.findChildren(QFrame):
+            if frame.frameStyle() == QFrame.Shape.Box:
+                frame.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {colors['surface_variant']};
+                        border: 1px solid {colors['border']};
+                        border-radius: 4px;
+                        padding: 5px;
+                    }}
+                """)
+        
+        # Update transaction table styling
+        if hasattr(self, 'transaction_table'):
+            self.transaction_table.setStyleSheet(f"""
+                QTableWidget {{
+                    background-color: {colors['surface']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    gridline-color: {colors['border']};
+                    color: {colors['text_primary']};
+                }}
+                QTableWidget::item {{
+                    padding: 5px;
+                    border-bottom: 1px solid {colors['border']};
+                    color: {colors['text_primary']};
+                }}
+                QTableWidget::item:selected {{
+                    background-color: {colors['primary']};
+                    color: {colors['background']};
+                }}
+                QTableWidget::item:hover {{
+                    background-color: {colors['hover']};
+                }}
+                QHeaderView::section {{
+                    background-color: {colors['surface_variant']};
+                    border: 1px solid {colors['border']};
+                    padding: 5px;
+                    font-weight: bold;
+                    color: {colors['text_primary']};
+                }}
+            """)
+        
+        # Update button styling
+        for button in [getattr(self, 'save_changes_btn', None),
+                      getattr(self, 'delete_row_btn', None),
+                      getattr(self, 'ignore_changes_btn', None)]:
+            if button:
+                button.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {colors['surface']};
+                        color: {colors['text_primary']};
+                        border: 1px solid {colors['border']};
+                        border-radius: 4px;
+                        padding: 5px 10px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['hover']};
+                    }}
+                """)
+        
+        # Update table title color
+        for child in self.findChildren(QLabel):
+            if child.text() == "Week Transactions":
+                child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
 
 
 class WeeklyView(QWidget):
@@ -534,26 +929,63 @@ class WeeklyView(QWidget):
         self.selected_week = None
         self.init_ui()
         
+        # Connect to theme changes
+        theme_manager.theme_changed.connect(self.on_theme_changed)
+        
     def init_ui(self):
+        # Set main widget background
+        colors = theme_manager.get_colors()
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {colors['background']};
+            }}
+        """)
+        
+        # Create main layout for the scroll area
         main_layout = QVBoxLayout()
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Style scroll area
+        scroll_area.setStyleSheet(f"""
+            QScrollArea {{
+                background-color: {colors['background']};
+                border: none;
+            }}
+        """)
+        
+        # Create scrollable content widget
+        content_widget = QWidget()
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(10, 10, 10, 10)
         
         # Title
         title = QLabel("📅 Bi-weekly Tab")
         title.setFont(theme_manager.get_font("title"))
         colors = theme_manager.get_colors()
         title.setStyleSheet(f"color: {colors['text_primary']};")
-        main_layout.addWidget(title)
+        content_layout.addWidget(title)
         
         # TOP ROW (1/4 of screen) - Week selector and info columns
         top_row = self.create_top_row()
-        main_layout.addWidget(top_row)
+        content_layout.addWidget(top_row)
         
         # BOTTOM SECTION (3/4 of screen) - Two week detail blocks
         bottom_section = self.create_bottom_section()
-        main_layout.addWidget(bottom_section)
+        content_layout.addWidget(bottom_section)
         
+        # Set content layout and add to scroll area
+        content_widget.setLayout(content_layout)
+        scroll_area.setWidget(content_widget)
+        
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
         self.setLayout(main_layout)
         
     def create_top_row(self):
@@ -1083,53 +1515,117 @@ class WeeklyView(QWidget):
         
     def populate_week_list(self):
         """Populate the week list with bi-weekly periods (newest first)"""
+        print("=" * 50)
+        print("DEBUG: Starting populate_week_list")
+
         if not self.transaction_manager:
+            print("DEBUG: No transaction manager!")
             return
-            
+
         weeks = self.transaction_manager.get_all_weeks()
+        print(f"DEBUG: populate_week_list found {len(weeks)} weeks")
+        for week in weeks:
+            print(f"DEBUG: Week {week.week_number} - Start: {week.start_date} - End: {week.end_date}")
         self.week_list.clear()
         
-        # Sort weeks by number (newest first)
-        weeks.sort(key=lambda w: w.week_number, reverse=True)
-        
-        # Group weeks into bi-weekly periods (assuming consecutive weeks form pairs)
+        # Group weeks into bi-weekly periods based on consecutive week numbers
         bi_weekly_periods = []
-        
-        # Calculate total number of pay periods first
-        total_periods = (len(weeks) + 1) // 2  # Round up for odd number of weeks
-        
-        for i in range(0, len(weeks), 2):
-            # Calculate pay period number (newest = highest number)
-            pay_period_number = total_periods - (i // 2)
-            
-            if i + 1 < len(weeks):
-                # Bi-weekly period with 2 weeks
-                week1 = weeks[i]
-                week2 = weeks[i + 1]
+
+        # Create a dictionary of weeks by week number for easy lookup
+        weeks_dict = {week.week_number: week for week in weeks}
+
+        # Find the highest week number to work backwards
+        if not weeks:
+            return
+
+        max_week_num = max(week.week_number for week in weeks)
+
+        # Group consecutive pairs starting from highest week number
+        processed_weeks = set()
+        period_counter = 1
+
+        # Start from the highest even-numbered week and work backwards
+        current_week_num = max_week_num if max_week_num % 2 == 0 else max_week_num - 1
+
+        while current_week_num >= 1:
+            week1_num = current_week_num - 1  # Odd week (week 1 of pair)
+            week2_num = current_week_num      # Even week (week 2 of pair)
+
+            week1 = weeks_dict.get(week1_num)
+            week2 = weeks_dict.get(week2_num)
+
+            if week1 and week2 and week1_num not in processed_weeks and week2_num not in processed_weeks:
+                # Both weeks exist - create bi-weekly period
+                print(f"DEBUG: Creating Pay Period {period_counter} with Week {week1_num} and Week {week2_num}")
                 bi_weekly_periods.append({
-                    'period_id': pay_period_number,  # Newest period has highest number
+                    'period_id': period_counter,
                     'week1': week1,
                     'week2': week2,
                     'start_date': min(week1.start_date, week2.start_date),
                     'end_date': max(week1.end_date, week2.end_date)
                 })
-            elif len(weeks) > 0:
-                # Single week period
-                week = weeks[i]
+                processed_weeks.add(week1_num)
+                processed_weeks.add(week2_num)
+                period_counter += 1
+            elif week2 and week2_num not in processed_weeks:
+                # Only week 2 exists - single week period
+                print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week2_num}")
                 bi_weekly_periods.append({
-                    'period_id': pay_period_number,  # Newest period has highest number
+                    'period_id': period_counter,
+                    'week1': week2,
+                    'week2': None,
+                    'start_date': week2.start_date,
+                    'end_date': week2.end_date
+                })
+                processed_weeks.add(week2_num)
+                period_counter += 1
+            elif week1 and week1_num not in processed_weeks:
+                # Only week 1 exists - single week period
+                print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week1_num}")
+                bi_weekly_periods.append({
+                    'period_id': period_counter,
+                    'week1': week1,
+                    'week2': None,
+                    'start_date': week1.start_date,
+                    'end_date': week1.end_date
+                })
+                processed_weeks.add(week1_num)
+                period_counter += 1
+
+            current_week_num -= 2  # Move to next pair
+
+        # Handle any remaining orphaned weeks (weeks that don't have a pair)
+        for week_num, week in weeks_dict.items():
+            if week_num not in processed_weeks:
+                print(f"DEBUG: Creating Pay Period {period_counter} with orphaned Week {week_num}")
+                bi_weekly_periods.append({
+                    'period_id': period_counter,
                     'week1': week,
                     'week2': None,
                     'start_date': week.start_date,
                     'end_date': week.end_date
                 })
-        
+                processed_weeks.add(week_num)
+                period_counter += 1
+
+        # Sort periods by period_id (newest first)
+        bi_weekly_periods.sort(key=lambda p: p['period_id'], reverse=True)
+
+        print(f"DEBUG: Created {len(bi_weekly_periods)} pay periods")
+        for period in bi_weekly_periods:
+            print(f"DEBUG: Pay Period {period['period_id']} - Start: {period['start_date']} - Weeks: {period['week1'].week_number if period['week1'] else 'None'},{period['week2'].week_number if period['week2'] else 'None'}")
+
+        print("DEBUG: Adding periods to QListWidget...")
         for period in bi_weekly_periods:
             start_date = period['start_date']
             item_text = f"Pay Period {period['period_id']}\n{start_date.strftime('%m/%d')}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, period)
             self.week_list.addItem(item)
+            print(f"DEBUG: Added {item_text} to list widget")
+
+        print(f"DEBUG: QListWidget now has {self.week_list.count()} items")
+        print("=" * 50)
             
         # Select first item by default
         if self.week_list.count() > 0:
@@ -1145,15 +1641,122 @@ class WeeklyView(QWidget):
         self.update_week_info()
         
     def on_theme_changed(self, theme_id):
-        """Handle theme changes"""
-        # Reapply styles when theme changes
+        """Handle theme change for weekly view - optimized for performance"""
+        try:
+            # Update UI styling without recalculating data
+            self.update_view_styling()
+            # Week detail widgets will auto-update via their own theme_changed signals
+        except Exception as e:
+            print(f"Error applying theme to weekly view: {e}")
+    
+    def update_view_styling(self):
+        """Update only the visual styling of the weekly view"""
         colors = theme_manager.get_colors()
         
-        # Update header colors to use primary (accent) color
+        # Update main widget background
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {colors['background']};
+            }}
+        """)
+        
+        # Update scroll area background
+        for child in self.findChildren(QScrollArea):
+            child.setStyleSheet(f"""
+                QScrollArea {{
+                    background-color: {colors['background']};
+                    border: none;
+                }}
+            """)
+        
+        # Update title color
+        for child in self.findChildren(QLabel):
+            if "Bi-weekly Tab" in child.text():
+                child.setStyleSheet(f"color: {colors['text_primary']};")
+        
+        # Update week title color
         if hasattr(self, 'week_title'):
             self.week_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
+            
+        # Update paycheck amount label
         if hasattr(self, 'paycheck_amount_label'):
             self.paycheck_amount_label.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
+            
+        # Update column title colors
+        for child in self.findChildren(QLabel):
+            if child.text() in ["Amount paid to Bills", "Starting Saving values", "Final Saving values"]:
+                child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
         
-        # Re-initialize UI for complete theme update
-        self.init_ui()
+        # Update monospace data labels
+        if hasattr(self, 'savings_payments_label'):
+            self.savings_payments_label.setStyleSheet(f"color: {colors['text_primary']}; background-color: {colors['surface_variant']}; padding: 5px; border-radius: 3px;")
+        if hasattr(self, 'bills_payments_label'):
+            self.bills_payments_label.setStyleSheet(f"color: {colors['text_primary']}; background-color: {colors['surface_variant']}; padding: 5px; border-radius: 3px;")
+        if hasattr(self, 'start_savings_label'):
+            self.start_savings_label.setStyleSheet(f"color: {colors['text_primary']}; background-color: {colors['surface_variant']}; padding: 5px; border-radius: 3px;")
+        if hasattr(self, 'final_savings_label'):
+            self.final_savings_label.setStyleSheet(f"color: {colors['text_primary']}; background-color: {colors['surface_variant']}; padding: 5px; border-radius: 3px;")
+        
+        # Update week list styling
+        if hasattr(self, 'week_list'):
+            self.week_list.setStyleSheet(f"""
+                QListWidget {{
+                    background-color: {colors['surface_variant']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                }}
+                QListWidget::item {{
+                    padding: 5px;
+                    border-bottom: 1px solid {colors['border']};
+                    color: {colors['text_primary']};
+                }}
+                QListWidget::item:selected {{
+                    background-color: {colors['primary']};
+                    color: {colors['background']};
+                }}
+            """)
+        
+        # Update progress bar styling
+        if hasattr(self, 'money_progress_bar'):
+            self.money_progress_bar.setStyleSheet(f"""
+                QProgressBar {{
+                    border: 1px solid {colors['border']};
+                    border-radius: 3px;
+                    background-color: {colors['surface']};
+                    height: 20px;
+                    color: {colors['text_primary']};
+                }}
+                QProgressBar::chunk {{
+                    background-color: {colors['primary']};
+                    border-radius: 3px;
+                }}
+            """)
+        
+        if hasattr(self, 'time_progress_bar'):
+            self.time_progress_bar.setStyleSheet(f"""
+                QProgressBar {{
+                    border: 1px solid {colors['border']};
+                    border-radius: 3px;
+                    background-color: {colors['surface']};
+                    height: 20px;
+                    color: {colors['text_primary']};
+                }}
+                QProgressBar::chunk {{
+                    background-color: {colors['secondary']};
+                    border-radius: 3px;
+                }}
+            """)
+        
+        # Update frame background colors
+        for child in self.findChildren(QFrame):
+            if child.frameStyle() == QFrame.Shape.Box:
+                child.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {colors['surface']};
+                        border: 2px solid {colors['border']};
+                        border-radius: 8px;
+                        padding: 5px;
+                    }}
+                """)
+        
+        # Week detail widgets will auto-update via their own theme_changed signals

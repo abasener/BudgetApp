@@ -2,7 +2,7 @@
 Week models for bi-weekly pay periods
 """
 
-from sqlalchemy import Column, Integer, Float, Date, DateTime
+from sqlalchemy import Column, Integer, Float, Date, DateTime, Boolean
 from sqlalchemy.sql import func
 from models.database import Base
 
@@ -15,6 +15,7 @@ class Week(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     running_total = Column(Float, default=0.0)  # Available money for this week
+    rollover_applied = Column(Boolean, default=False)  # Track if rollover has been processed
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     

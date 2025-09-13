@@ -71,7 +71,9 @@ class BaseChartWidget(QWidget):
                         color: {colors['text_primary']};
                     }}
                     QPushButton:hover {{
-                        background-color: {colors['border']};
+                        background-color: {colors['primary']};
+                        color: {colors['background']};
+                        border: 1px solid {colors.get('primary_dark', colors['primary'])};
                     }}
                 """)
             else:
@@ -129,6 +131,44 @@ class BaseChartWidget(QWidget):
     def on_theme_changed(self, theme_id):
         """Handle theme change"""
         self.apply_theme()
+        # Update title label styling with new theme colors
+        self.update_title_styling()
+    
+    def update_title_styling(self):
+        """Update title label styling with current theme colors"""
+        if not self.title_label:
+            return
+            
+        colors = theme_manager.get_colors()
+        if self.is_savings_rate_chart:
+            # Update button styling for clickable headers with fresh theme colors
+            self.title_label.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    margin: 1px;
+                    color: {colors['text_primary']};
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['primary']};
+                    color: {colors['background']};
+                    border: 1px solid {colors.get('primary_dark', colors['primary'])};
+                }}
+            """)
+        else:
+            # Update regular label styling with fresh theme colors
+            self.title_label.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {colors['surface']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    margin: 1px;
+                    color: {colors['text_primary']};
+                }}
+            """)
     
     def on_title_clicked(self):
         """Handle title click for savings rate charts"""
@@ -210,6 +250,17 @@ class PieChartWidget(BaseChartWidget):
         else:
             # Use the default theme application from BaseChartWidget
             super().apply_theme()
+    
+    def on_theme_changed(self, theme_id):
+        """Handle theme change and refresh pie chart colors"""
+        # Call parent theme change
+        super().on_theme_changed(theme_id)
+        
+        # If we have data, redraw with new theme colors
+        if hasattr(self, 'pie_data') and self.pie_data:
+            # Recreate the chart with new colors
+            data = {label: value for label, value in self.pie_data}
+            self.update_data(data)
 
 
 class LineChartWidget(BaseChartWidget):
@@ -249,10 +300,14 @@ class LineChartWidget(BaseChartWidget):
                     import datetime
                     has_dates = len(x_vals) > 0 and isinstance(x_vals[0], (datetime.date, datetime.datetime))
                     
-                    # Main "Running Total" line gets full styling
+                    # Main "Running Total" line gets full styling with markers
                     if series_name == "Running Total":
                         ax.plot(x_vals, y_vals, marker='o', label=series_name, 
                                color=color, linewidth=2, markersize=4)
+                    # Account Balance lines (savings accounts) get clean line style without markers
+                    elif series_name == "Account Balance":
+                        ax.plot(x_vals, y_vals, marker='', label=series_name, 
+                               color=color, linewidth=2)
                     else:
                         # Secondary lines (Weekly Saved, Weekly Paycheck) get thinner, different colors
                         secondary_colors = [colors[3], colors[4]]  # Use different colors from chart palette
@@ -260,28 +315,42 @@ class LineChartWidget(BaseChartWidget):
                         ax.plot(x_vals, y_vals, marker='', label=series_name, 
                                color=secondary_color, linewidth=1, alpha=0.7)
                     
-                    # Format x-axis for dates (only for Running Total to control ticks)
-                    if has_dates and series_name == "Running Total":
+                    # Format x-axis for dates (for Running Total and Account Balance)
+                    if has_dates and (series_name == "Running Total" or series_name == "Account Balance"):
                         import matplotlib.dates as mdates
                         
-                        # Only show ticks where running total actually changes
+                        # Handle date formatting differently for each series type
                         if len(x_vals) > 1:
-                            # Find points where the running total changes
-                            change_points = []
-                            change_dates = []
+                            if series_name == "Running Total":
+                                # Only show ticks where running total actually changes
+                                change_points = []
+                                change_dates = []
+                                
+                                for j in range(len(y_vals)):
+                                    if j == 0 or y_vals[j] != y_vals[j-1]:  # First point or value changed
+                                        change_points.append(j)
+                                        change_dates.append(x_vals[j])
+                                
+                                # Limit to max 100 ticks
+                                if len(change_dates) > 100:
+                                    step = len(change_dates) // 100
+                                    change_dates = change_dates[::step]
+                                
+                                # Set custom tick locations
+                                ax.set_xticks(change_dates)
                             
-                            for j in range(len(y_vals)):
-                                if j == 0 or y_vals[j] != y_vals[j-1]:  # First point or value changed
-                                    change_points.append(j)
-                                    change_dates.append(x_vals[j])
+                            elif series_name == "Account Balance":
+                                # For Account Balance, show evenly spaced dates
+                                # Show at most 20 ticks, evenly spaced
+                                if len(x_vals) > 20:
+                                    step = len(x_vals) // 20
+                                    tick_dates = x_vals[::step]
+                                else:
+                                    tick_dates = x_vals
+                                
+                                ax.set_xticks(tick_dates)
                             
-                            # Limit to max 100 ticks
-                            if len(change_dates) > 100:
-                                step = len(change_dates) // 100
-                                change_dates = change_dates[::step]
-                            
-                            # Set custom tick locations
-                            ax.set_xticks(change_dates)
+                            # Apply date formatting to both
                             ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
                             plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
                         else:
@@ -553,11 +622,24 @@ class HistogramWidget(BaseChartWidget):
             # Clean formatting - minimal labels
             ax.grid(True, alpha=0.3, axis='both')
             
-            # X-axis with dollar amounts - only show a few key values
-            x_ticks = [min_amount, max_amount/2, max_amount]
-            x_labels = [f"${int(x)}" for x in x_ticks]
-            ax.set_xticks(x_ticks)
-            ax.set_xticklabels(x_labels, fontsize=9)
+            # X-axis with ticks at bucket edges (start/end of each bucket)
+            if num_buckets == 20:  # Special handling for 20 buckets to show all edges
+                # Show ticks at every bucket edge
+                ax.set_xticks(bin_edges)
+                # Only label every few ticks to avoid crowding
+                tick_labels = []
+                for i, edge in enumerate(bin_edges):
+                    if i % 4 == 0 or i == len(bin_edges) - 1:  # Show every 4th tick and the last one
+                        tick_labels.append(f"${int(edge)}")
+                    else:
+                        tick_labels.append("")
+                ax.set_xticklabels(tick_labels, fontsize=8, rotation=0)
+            else:
+                # Original behavior for other bucket counts
+                x_ticks = [min_amount, max_amount/2, max_amount]
+                x_labels = [f"${int(x)}" for x in x_ticks]
+                ax.set_xticks(x_ticks)
+                ax.set_xticklabels(x_labels, fontsize=9)
             
             # No y-axis labels or ticks
             ax.set_yticks([])
@@ -691,13 +773,11 @@ class BoxPlotWidget(BaseChartWidget):
         else:
             ax = self.figure.add_subplot(111)
             
-            # Get categories and their colors (matching pie chart colors)
-            categories = ["Education", "Miscellaneous", "Shopping", "Entertainment", "Utilities", 
-                         "Personal", "Transport", "Healthcare", "Food"]  # Same order as category key
+            # Use ALL categories from the data (not hardcoded list)
+            # Sort by total spending to show most important categories first
+            category_totals = {cat: sum(amounts) for cat, amounts in category_spending_data.items()}
+            categories_with_data = sorted(category_totals.keys(), key=lambda x: category_totals[x], reverse=True)
             chart_colors = theme_manager.get_chart_colors()
-            
-            # Filter to only categories that have data
-            categories_with_data = [cat for cat in categories if cat in category_spending_data and category_spending_data[cat]]
             
             if categories_with_data:
                 # Prepare data for box plot
@@ -709,9 +789,8 @@ class BoxPlotWidget(BaseChartWidget):
                     spending_amounts = [float(amount) for amount in category_spending_data[category] if amount > 0]
                     if spending_amounts:  # Only add if there's actual data
                         data_lists.append(spending_amounts)
-                        # Get color for this category (based on original category order)
-                        original_index = categories.index(category) if category in categories else 0
-                        colors.append(chart_colors[original_index % len(chart_colors)])
+                        # Assign colors sequentially to all categories
+                        colors.append(chart_colors[i % len(chart_colors)])
                         positions.append(i)
                 
                 if data_lists:

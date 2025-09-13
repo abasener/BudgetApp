@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from datetime import date, timedelta
+from themes import theme_manager
+from views.dialogs.settings_dialog import get_setting
 
 
 class HourCalculatorDialog(QDialog):
@@ -19,6 +21,7 @@ class HourCalculatorDialog(QDialog):
         self.resize(550, 650)
         
         self.init_ui()
+        self.apply_theme()
         self.calculate_breakdown()  # Initial calculation
     
     def init_ui(self):
@@ -26,17 +29,18 @@ class HourCalculatorDialog(QDialog):
         
         # Title
         title = QLabel("Hour Calculator")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        title.setFont(theme_manager.get_font("title"))
         layout.addWidget(title)
         
         # Input form
         form_layout = QFormLayout()
         
-        # Hourly rate
+        # Hourly rate - load from settings
         self.hourly_rate_spin = QDoubleSpinBox()
         self.hourly_rate_spin.setRange(5.00, 999.99)
         self.hourly_rate_spin.setDecimals(2)
-        self.hourly_rate_spin.setValue(50.00)
+        default_rate = get_setting("default_hourly_rate", 50.00)
+        self.hourly_rate_spin.setValue(default_rate)
         self.hourly_rate_spin.valueChanged.connect(self.calculate_breakdown)
         form_layout.addRow("Hourly Rate ($):", self.hourly_rate_spin)
         
@@ -66,7 +70,7 @@ class HourCalculatorDialog(QDialog):
         
         # Calculation results
         results_label = QLabel("Calculation Results:")
-        results_label.setStyleSheet("font-size: 14px; font-weight: bold; margin: 10px 0px 5px 0px;")
+        results_label.setFont(theme_manager.get_font("subtitle"))
         layout.addWidget(results_label)
         
         # Results text area
@@ -75,10 +79,7 @@ class HourCalculatorDialog(QDialog):
         self.results_text.setMinimumHeight(250)
         self.results_text.setMaximumHeight(350)
         # Use monospace font for better alignment
-        mono_font = QFont("Consolas", 10)
-        if not mono_font.exactMatch():
-            mono_font = QFont("Courier", 10)
-        self.results_text.setFont(mono_font)
+        self.results_text.setFont(theme_manager.get_font("monospace"))
         layout.addWidget(self.results_text)
         
         # Buttons
@@ -233,3 +234,75 @@ class HourCalculatorDialog(QDialog):
         except Exception as e:
             print(f"Error getting auto savings total: {e}")
             return 0.0
+    
+    def apply_theme(self):
+        """Apply current theme to dialog"""
+        colors = theme_manager.get_colors()
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+            }}
+            
+            QLabel {{
+                color: {colors['text_primary']};
+            }}
+            
+            QDoubleSpinBox, QSpinBox {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: {colors['text_primary']};
+            }}
+            
+            QDoubleSpinBox:hover, QSpinBox:hover {{
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QDoubleSpinBox:focus, QSpinBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QTextEdit {{
+                background-color: {colors['background']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 8px;
+                color: {colors['text_primary']};
+                font-family: monospace;
+            }}
+            
+            QTextEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: {colors['text_primary']};
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['hover']};
+                border: 1px solid {colors['primary']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            
+            QPushButton:disabled {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                color: {colors['text_secondary']};
+            }}
+            
+            QFrame {{
+                color: {colors['border']};
+            }}
+        """)

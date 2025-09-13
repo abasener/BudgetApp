@@ -10,6 +10,7 @@ from widgets import (PieChartWidget, LineChartWidget, BarChartWidget,
                     ProgressChartWidget, HeatmapWidget, AnimatedGifWidget, HistogramWidget, WeeklySpendingTrendWidget, BoxPlotWidget)
 from views.dialogs.account_selector_dialog import AccountSelectorDialog
 from views.dialogs.hour_calculator_dialog import HourCalculatorDialog
+from views.dialogs.settings_dialog import get_setting
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -168,14 +169,19 @@ class StackedAreaWidget(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         
+        self.title_label = None
         if self.title:
-            title_label = QLabel(self.title)
-            title_label.setFont(theme_manager.get_font("subtitle"))
-            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(title_label)
+            self.title_label = QLabel(self.title)
+            self.title_label.setFont(theme_manager.get_font("subtitle"))
+            self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(self.title_label)
         
         layout.addWidget(self.canvas)
         self.setLayout(layout)
+        
+        # Apply initial theme and connect to theme changes
+        self.update_title_styling()
+        theme_manager.theme_changed.connect(self.on_theme_changed)
         
     def update_data(self, weekly_data: dict):
         """Update stacked area chart with weekly category percentages"""
@@ -254,6 +260,29 @@ class StackedAreaWidget(QWidget):
             ax.spines['left'].set_color(colors['border'])
             ax.xaxis.label.set_color(colors['text_primary'])
             ax.yaxis.label.set_color(colors['text_primary'])
+    
+    def update_title_styling(self):
+        """Update title label styling with current theme colors"""
+        if not self.title_label:
+            return
+            
+        colors = theme_manager.get_colors()
+        self.title_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 2px 4px;
+                margin: 1px;
+                color: {colors['text_primary']};
+            }}
+        """)
+    
+    def on_theme_changed(self, theme_id):
+        """Handle theme change"""
+        self.apply_theme()
+        self.update_title_styling()
+        self.canvas.draw()
 
 
 class DashboardView(QWidget):
@@ -544,7 +573,7 @@ class DashboardView(QWidget):
         
         # Content label - dynamic height
         content_label = QLabel("Loading...")
-        content_label.setFont(theme_manager.get_font("mono"))
+        content_label.setFont(theme_manager.get_font("monospace"))
         content_label.setWordWrap(True)
         content_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         content_label.setStyleSheet(f"color: {colors['text_primary']}; padding: 2px;")
@@ -597,8 +626,8 @@ class DashboardView(QWidget):
     def apply_hour_calc_button_theme(self):
         """Apply accent color theme to hour calculator button"""
         colors = theme_manager.get_colors()
-        accent_color = colors.get('primary', '#4CAF50')  # Use primary as accent
-        text_color = colors.get('surface', '#FFFFFF')  # Contrasting text color
+        accent_color = colors.get('primary', colors['primary'])  # Use primary as accent
+        text_color = colors.get('background', colors['background'])  # Contrasting background color
         
         self.hour_calc_button.setStyleSheet(f"""
             QPushButton {{
@@ -651,6 +680,8 @@ class DashboardView(QWidget):
                 current_week_spending = [
                     t for t in all_transactions 
                     if t.transaction_type == "spending" and 
+                       t.amount > 0 and  # Exclude placeholder transactions
+                       t.include_in_analytics and  # Only include analytics transactions
                        t.date >= week_start.date() and
                        (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
                 ]
@@ -754,6 +785,8 @@ class DashboardView(QWidget):
             current_week_spending = [
                 t for t in all_transactions 
                 if t.transaction_type == "spending" and 
+                   t.amount > 0 and  # Exclude placeholder transactions
+                   t.include_in_analytics and  # Only include analytics transactions
                    t.date >= week_start.date() and
                    (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
             ]
@@ -828,11 +861,15 @@ class DashboardView(QWidget):
                          "Personal", "Transport", "Healthcare", "Food"]
             colors = theme_manager.get_chart_colors()
             
+            # Get theme colors for proper text display
+            theme_colors = theme_manager.get_colors()
+            
             for i, category in enumerate(categories):  # Show all categories
-                color = colors[i % len(colors)]
+                color = colors[i % len(colors)]  # Chart color for the bullet
                 
-                key_item = QLabel(f"● {category}")
-                key_item.setStyleSheet(f"color: {color}; font-size: 11px; padding: 2px;")
+                text_color = theme_colors['text_primary']
+                key_item = QLabel(f"<span style='color: {color}; font-weight: bold;'>●</span> <span style='color: {text_color}; font-size: 11px;'>{category}</span>")
+                key_item.setStyleSheet(f"padding: 2px; background: transparent;")
                 self.category_key_layout.addWidget(key_item)
                 
         except Exception as e:
@@ -858,6 +895,8 @@ class DashboardView(QWidget):
             current_week_transactions = [
                 t for t in all_transactions 
                 if t.transaction_type == "spending" and 
+                   t.amount > 0 and  # Exclude placeholder transactions
+                   t.include_in_analytics and  # Only include analytics transactions
                    t.date >= week_start.date() and
                    (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
             ]
@@ -891,6 +930,8 @@ class DashboardView(QWidget):
             spending_transactions = [
                 t for t in all_transactions 
                 if t.transaction_type == "spending" and
+                   t.amount > 0 and  # Exclude $0 placeholder transactions
+                   t.include_in_analytics and  # Only include analytics transactions
                    (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
             ]
             
@@ -1039,6 +1080,8 @@ class DashboardView(QWidget):
             spending_transactions = [
                 t for t in all_transactions 
                 if t.transaction_type == "spending" and
+                   t.amount > 0 and  # Exclude placeholder transactions
+                   t.include_in_analytics and  # Only include analytics transactions
                    (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
             ]
             
@@ -1069,6 +1112,8 @@ class DashboardView(QWidget):
             spending_transactions = [
                 t for t in all_transactions 
                 if t.transaction_type == "spending" and
+                   t.amount > 0 and  # Exclude placeholder transactions
+                   t.include_in_analytics and  # Only include analytics transactions
                    (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
             ]
             
@@ -1118,6 +1163,8 @@ class DashboardView(QWidget):
             spending_transactions = [
                 t for t in all_transactions 
                 if t.transaction_type == "spending" and
+                   t.amount > 0 and  # Exclude placeholder transactions
+                   t.include_in_analytics and  # Only include analytics transactions
                    (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
             ]
             
@@ -1146,12 +1193,100 @@ class DashboardView(QWidget):
             print(f"Error updating category box plot: {e}")
     
     def on_theme_changed(self, theme_id):
-        """Handle theme change for dashboard"""
+        """Handle theme change for dashboard - optimized for performance"""
         try:
+            # Update UI element styling (fast)
+            self.update_frame_styling()
             self.apply_hour_calc_button_theme()
-            self.refresh()
+            
+            # Update visual theme elements without recalculating data
+            self.update_category_key()  # Only updates colors, not data
+            
+            # Force chart theme updates - they need to redraw with new colors
+            self.update_chart_themes_only()
+            
         except Exception as e:
             print(f"Error applying theme to dashboard: {e}")
+    
+    def update_chart_themes_only(self):
+        """Update only chart colors/themes without recalculating data - performance optimized"""
+        try:
+            # Force pie charts to update themes (they need explicit refresh)
+            if hasattr(self, 'total_pie_chart') and self.total_pie_chart:
+                self.update_pie_charts()  # This will update both pie charts
+            
+            # Force ring charts to update themes
+            if hasattr(self, 'ring_charts') or hasattr(self, 'rings_section'):
+                self.update_ring_charts()  # Update the bill ring charts
+                
+            # Force matplotlib-based charts to update with current data but new theme colors
+            if hasattr(self, 'stacked_area_chart') and self.stacked_area_chart:
+                self.update_stacked_area_chart()
+                
+            if hasattr(self, 'heatmap_chart') and self.heatmap_chart:
+                self.update_heatmap()
+                
+            if hasattr(self, 'savings_line_charts'):
+                self.update_savings_line_charts()
+                
+            if hasattr(self, 'purchase_histogram') and self.purchase_histogram:
+                self.update_purchase_histogram()
+                
+            if hasattr(self, 'weekly_trend_chart') and self.weekly_trend_chart:
+                self.update_weekly_spending_trends()
+                
+            if hasattr(self, 'savings_progress_chart') and self.savings_progress_chart:
+                self.update_savings_progress()
+                
+            if hasattr(self, 'category_boxplot') and self.category_boxplot:
+                self.update_category_boxplot()
+                
+        except Exception as e:
+            print(f"Error updating chart themes: {e}")
+    
+    def update_frame_styling(self):
+        """Update styling of all UI frames to match current theme"""
+        colors = theme_manager.get_colors()
+        
+        # Update category key frame styling
+        if hasattr(self, 'category_key_frame'):
+            self.category_key_frame.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {colors['surface']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    margin: 2px;
+                }}
+            """)
+            
+            # Update category key header title
+            for child in self.category_key_frame.findChildren(QLabel):
+                if child.text() == "Categories":  # This is the header
+                    child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 3px;")
+        
+        # Update card frames styling - find all dynamic cards
+        for attr_name in ['weekly_status_label', 'account_summary_label', 'bills_status_label']:
+            if hasattr(self, attr_name):
+                label = getattr(self, attr_name)
+                # Get the parent frame (card)
+                card_frame = label.parent()
+                if card_frame:
+                    card_frame.setStyleSheet(f"""
+                        QFrame {{
+                            background-color: {colors['surface']};
+                            border: 1px solid {colors['border']};
+                            border-radius: 4px;
+                            margin: 1px;
+                        }}
+                    """)
+                    
+                    # Update the title label in the card
+                    for child in card_frame.findChildren(type(label)):
+                        if child != label:  # This is likely the title label
+                            child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
+                    
+                    # Update the content label styling
+                    label.setStyleSheet(f"color: {colors['text_primary']}; padding: 2px;")
     
     def setup_bill_rings(self):
         """Setup dynamic bill rings based on available bills"""
@@ -1192,7 +1327,8 @@ class DashboardView(QWidget):
                 title_label = QLabel(bill.name)
                 title_label.setFont(theme_manager.get_font("small"))
                 title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                title_label.setStyleSheet("color: #ffffff; background: transparent;")
+                colors = theme_manager.get_colors()
+                title_label.setStyleSheet(f"color: {colors['text_primary']}; background: transparent;")
                 title_label.setWordWrap(True)  # Allow text wrapping
                 title_label.setFixedHeight(15)  # Fixed height for title
                 ring_container_layout.addWidget(title_label)
@@ -1339,13 +1475,17 @@ class DashboardView(QWidget):
             return []
     
     def auto_select_random_for_chart(self, chart_index):
-        """Automatically select a random account or bill for a savings chart"""
+        """Automatically select account or bill for a savings chart based on settings"""
         try:
             import random
             
             # Get available accounts and bills
             accounts = self.transaction_manager.get_all_accounts()
             bills = self.transaction_manager.get_all_bills()
+            
+            # Get setting for this chart
+            setting_key = f"dashboard_chart{chart_index + 1}_account"
+            preferred_account = get_setting(setting_key, "random")
             
             # Combine accounts and bills into options
             options = []
@@ -1360,8 +1500,23 @@ class DashboardView(QWidget):
                     self.savings_line_charts[chart_index].clear_chart()
                 return
             
-            # Select a random option
-            selected_option = random.choice(options)
+            # Select option based on settings
+            selected_option = None
+            if preferred_account == "random":
+                # Random selection (original behavior)
+                selected_option = random.choice(options)
+            else:
+                # Look for specific account/bill by name
+                for option in options:
+                    account_type, account_obj, account_name = option
+                    if account_name == preferred_account:
+                        selected_option = option
+                        break
+                
+                # If preferred account not found, fall back to random
+                if selected_option is None:
+                    selected_option = random.choice(options)
+            
             account_type, account_obj, account_name = selected_option
             
             # Ensure selected_accounts list is large enough

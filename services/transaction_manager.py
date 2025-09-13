@@ -13,6 +13,8 @@ from models import get_db, Account, Bill, Week, Transaction, TransactionType
 class TransactionManager:
     def __init__(self):
         self.db = get_db()
+        from models.database import DATABASE_URL
+        print(f"DEBUG: TransactionManager using database: {DATABASE_URL}")
     
     def close(self):
         """Close database connection"""
@@ -30,6 +32,32 @@ class TransactionManager:
     def get_default_savings_account(self) -> Optional[Account]:
         """Get the default savings account"""
         return self.db.query(Account).filter(Account.is_default_save == True).first()
+    
+    def add_account(self, name: str, goal_amount: float = 0.0, auto_save_amount: float = 0.0, 
+                    is_default_save: bool = False) -> Account:
+        """Add a new savings account"""
+        # If this is being set as default, remove default from all others first
+        if is_default_save:
+            self.db.query(Account).update({Account.is_default_save: False})
+        
+        # If no accounts exist and this isn't being set as default, make it default
+        existing_accounts = self.get_all_accounts()
+        if not existing_accounts and not is_default_save:
+            is_default_save = True
+        
+        # Create new account
+        account = Account(
+            name=name,
+            running_total=0.0,
+            goal_amount=goal_amount,
+            auto_save_amount=auto_save_amount,
+            is_default_save=is_default_save
+        )
+        
+        self.db.add(account)
+        self.db.commit()
+        self.db.refresh(account)
+        return account
     
     def set_default_savings_account(self, account_id: int):
         """Set an account as the default savings account (removes default from others)"""
@@ -122,8 +150,13 @@ class TransactionManager:
         return query.all()
     
     def get_spending_transactions(self, include_analytics_only: bool = False) -> List[Transaction]:
-        """Get spending transactions, optionally filtered by analytics flag"""
-        query = self.db.query(Transaction).filter(Transaction.transaction_type == TransactionType.SPENDING.value)
+        """Get spending transactions, optionally filtered by analytics flag (excludes placeholder transactions)"""
+        query = self.db.query(Transaction).filter(
+            and_(
+                Transaction.transaction_type == TransactionType.SPENDING.value,
+                Transaction.amount > 0  # Exclude $0 placeholder transactions
+            )
+        )
         
         if include_analytics_only:
             query = query.filter(Transaction.include_in_analytics == True)
@@ -137,13 +170,22 @@ class TransactionManager:
         ).order_by(desc(Transaction.date)).all()
     
     def get_transactions_by_category(self, category: str) -> List[Transaction]:
-        """Get spending transactions by category"""
+        """Get spending transactions by category (excludes placeholder transactions)"""
         return self.db.query(Transaction).filter(
             and_(
                 Transaction.transaction_type == TransactionType.SPENDING.value,
-                Transaction.category == category
+                Transaction.category == category,
+                Transaction.amount > 0,  # Exclude $0 placeholder transactions
+                Transaction.include_in_analytics == True  # Only include analytics transactions
             )
         ).order_by(desc(Transaction.date)).all()
+    
+    def get_transactions_by_account(self, account_id: int, limit: Optional[int] = None) -> List[Transaction]:
+        """Get transactions for a specific account"""
+        query = self.db.query(Transaction).filter(Transaction.account_id == account_id).order_by(Transaction.date.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
     
     def delete_transaction(self, transaction_id: int) -> bool:
         """Delete a transaction"""
@@ -168,8 +210,13 @@ class TransactionManager:
     
     # Analytics and summary methods
     def get_spending_by_category(self, include_analytics_only: bool = True) -> Dict[str, float]:
-        """Get total spending by category"""
-        query = self.db.query(Transaction).filter(Transaction.transaction_type == TransactionType.SPENDING.value)
+        """Get total spending by category (excludes placeholder transactions)"""
+        query = self.db.query(Transaction).filter(
+            and_(
+                Transaction.transaction_type == TransactionType.SPENDING.value,
+                Transaction.amount > 0  # Exclude $0 placeholder transactions
+            )
+        )
         
         if include_analytics_only:
             query = query.filter(Transaction.include_in_analytics == True)
@@ -184,8 +231,13 @@ class TransactionManager:
         return category_totals
     
     def get_spending_by_week(self, include_analytics_only: bool = True) -> Dict[int, float]:
-        """Get total spending by week"""
-        query = self.db.query(Transaction).filter(Transaction.transaction_type == TransactionType.SPENDING.value)
+        """Get total spending by week (excludes placeholder transactions)"""
+        query = self.db.query(Transaction).filter(
+            and_(
+                Transaction.transaction_type == TransactionType.SPENDING.value,
+                Transaction.amount > 0  # Exclude $0 placeholder transactions
+            )
+        )
         
         if include_analytics_only:
             query = query.filter(Transaction.include_in_analytics == True)
@@ -233,3 +285,119 @@ class TransactionManager:
         }
         
         return summary
+    
+    # Category management methods
+    def get_all_categories(self) -> List[str]:
+        """Get all unique categories from transactions"""
+        try:
+            # Query all unique categories from transactions
+            categories = self.db.query(Transaction.category).filter(
+                Transaction.category.isnot(None),
+                Transaction.category != ""
+            ).distinct().all()
+            
+            # Extract category names and sort them
+            category_list = [cat[0] for cat in categories if cat[0]]
+            category_list.sort(key=str.lower)
+            
+            return category_list
+            
+        except Exception as e:
+            print(f"Error getting categories: {e}")
+            return []
+    
+    def add_category(self, category_name: str) -> bool:
+        """Add a new category by creating a placeholder transaction
+        
+        Note: This creates a $0 spending transaction with the new category
+        to register it in the database. This ensures the category appears
+        in all dropdowns and lists throughout the app.
+        """
+        try:
+            if not category_name or not category_name.strip():
+                return False
+            
+            category_name = category_name.strip()
+            
+            # Check if category already exists
+            existing_categories = self.get_all_categories()
+            if category_name.lower() in [cat.lower() for cat in existing_categories]:
+                print(f"Category '{category_name}' already exists")
+                return False
+            
+            # Get current week number for the transaction
+            current_week = self.get_current_week()
+            week_number = current_week.week_number if current_week else 1
+            
+            # Create a placeholder transaction with $0 amount to register the category
+            placeholder_transaction = Transaction(
+                date=datetime.now().date(),
+                amount=0.0,
+                description=f"Category placeholder: {category_name}",
+                category=category_name,
+                transaction_type=TransactionType.SPENDING.value,
+                week_number=week_number,
+                account_id=None,  # No specific account
+                include_in_analytics=False  # Don't include in analytics
+            )
+            
+            self.db.add(placeholder_transaction)
+            self.db.commit()
+            
+            print(f"Successfully added category: {category_name}")
+            return True
+            
+        except Exception as e:
+            print(f"Error adding category: {e}")
+            self.db.rollback()
+            return False
+    
+    def remove_category(self, category_to_remove: str, replacement_category: str) -> bool:
+        """Remove a category and reassign all its transactions to another category
+        
+        Args:
+            category_to_remove: The category to remove
+            replacement_category: The category to reassign transactions to
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if not category_to_remove or not replacement_category:
+                return False
+            
+            if category_to_remove == replacement_category:
+                print("Cannot replace a category with itself")
+                return False
+            
+            # Get all categories to validate inputs
+            existing_categories = self.get_all_categories()
+            if category_to_remove not in existing_categories:
+                print(f"Category '{category_to_remove}' does not exist")
+                return False
+            
+            if replacement_category not in existing_categories:
+                print(f"Replacement category '{replacement_category}' does not exist")
+                return False
+            
+            # Get all transactions with the category to remove
+            transactions_to_update = self.db.query(Transaction).filter(
+                Transaction.category == category_to_remove
+            ).all()
+            
+            print(f"Found {len(transactions_to_update)} transactions to reassign")
+            
+            # Update all transactions to use the replacement category
+            for transaction in transactions_to_update:
+                transaction.category = replacement_category
+            
+            # Commit all changes
+            self.db.commit()
+            
+            print(f"Successfully removed category '{category_to_remove}' and reassigned {len(transactions_to_update)} transactions to '{replacement_category}'")
+            return True
+            
+        except Exception as e:
+            print(f"Error removing category: {e}")
+            self.db.rollback()
+            return False

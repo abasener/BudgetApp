@@ -1,13 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python test_transaction_manager.py)",
-      "Bash(python test_paycheck_processor.py)",
-      "Bash(python test:*)",
-      "Bash(python:*)",
-      "Read(//c/Users/arrow/**)",
-      "Bash(git restore:*)",
-      "Bash(find:*)"
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

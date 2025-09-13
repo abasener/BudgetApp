@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import BillRowWidget
+from views.dialogs.settings_dialog import get_setting
 
 
 class BillsView(QWidget):
@@ -17,8 +18,8 @@ class BillsView(QWidget):
         # Store bill row widgets
         self.bill_rows = []
         
-        # Current sort option
-        self.current_sort = "Alphabetical"
+        # Load sort option from settings
+        self.current_sort = get_setting("bills_sort_order", "Alphabetical")
         
         self.init_ui()
         
@@ -181,29 +182,6 @@ class BillsView(QWidget):
         """)
         toolbar_layout.addWidget(self.sort_combo)
         
-        # Settings button - slim design
-        self.settings_button = QPushButton("⚙️ Settings")
-        self.settings_button.setFixedHeight(30)
-        self.settings_button.setFixedWidth(100)
-        self.settings_button.clicked.connect(self.on_settings_clicked)
-        self.settings_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {colors['accent']};
-                color: {colors['surface']};
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 12px;
-                padding: 2px 8px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.lighten_color(colors['accent'], 1.1)};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.lighten_color(colors['accent'], 0.9)};
-            }}
-        """)
-        toolbar_layout.addWidget(self.settings_button)
         
         # Push everything to the left
         toolbar_layout.addStretch()
@@ -224,16 +202,6 @@ class BillsView(QWidget):
         print(f"Bills sort changed to: {sort_option}")
         self.refresh()  # Refresh with new sort
     
-    def on_settings_clicked(self):
-        """Handle Settings button click"""
-        print("Bills settings clicked - placeholder for future implementation")
-        # TODO: Implement bills-specific settings dialog
-        # Could include:
-        # - Default sort option
-        # - Display preferences (compact vs expanded view)
-        # - Chart settings
-        # - Progress bar display options
-        # - Export settings
     
     def sort_bills(self, bills):
         """Sort bills according to current sort option"""
@@ -302,6 +270,8 @@ class BillsView(QWidget):
             return
         
         try:
+            # Reload sort setting from settings file
+            self.current_sort = get_setting("bills_sort_order", "Alphabetical")
             # Get all bills
             bills = self.transaction_manager.get_all_bills()
             
@@ -403,9 +373,112 @@ class BillsView(QWidget):
             print(f"Error refreshing bills view: {e}")
     
     def on_theme_changed(self, theme_id):
-        """Handle theme change for bills view"""
+        """Handle theme change for bills view - optimized for performance"""
         try:
-            # Refresh to apply new theme
-            self.refresh()
+            # Update UI styling without recalculating data
+            self.update_view_styling()
+            # Bill row widgets will auto-update via their own theme_changed signals
         except Exception as e:
             print(f"Error applying theme to bills view: {e}")
+    
+    def update_view_styling(self):
+        """Update only the visual styling of the bills view"""
+        colors = theme_manager.get_colors()
+        
+        # Update header title color
+        for child in self.findChildren(QLabel):
+            if "Bills Tab" in child.text():
+                child.setStyleSheet(f"color: {colors['text_primary']};")
+        
+        # Update toolbar styling
+        if hasattr(self, 'toolbar'):
+            self.toolbar.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {colors['surface_variant']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 2px;
+                }}
+            """)
+        
+        # Update refresh button
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['surface']};
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 12px;
+                    padding: 2px 8px;
+                }}
+                QPushButton:hover {{
+                    background-color: {self.lighten_color(colors['primary'], 1.1)};
+                }}
+                QPushButton:pressed {{
+                    background-color: {self.lighten_color(colors['primary'], 0.9)};
+                }}
+            """)
+        
+        # Update sort dropdown
+        if hasattr(self, 'sort_combo'):
+            self.sort_combo.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: {colors['surface']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 2px 8px;
+                    font-size: 12px;
+                    color: {colors['text_primary']};
+                }}
+                QComboBox::drop-down {{
+                    border: none;
+                    width: 20px;
+                }}
+                QComboBox::down-arrow {{
+                    image: none;
+                    border-left: 4px solid transparent;
+                    border-right: 4px solid transparent;
+                    border-top: 4px solid {colors['text_secondary']};
+                    margin-right: 6px;
+                }}
+                QComboBox QAbstractItemView {{
+                    background-color: {colors['surface']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    selection-background-color: {colors['primary']};
+                    selection-color: {colors['surface']};
+                }}
+            """)
+        
+        # Update scroll area and its content widget
+        if hasattr(self, 'scroll_area'):
+            self.scroll_area.setStyleSheet(f"""
+                QScrollArea {{
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    background-color: {colors['background']};
+                }}
+                QScrollBar:vertical {{
+                    background-color: {colors['surface_variant']};
+                    width: 12px;
+                    border-radius: 6px;
+                }}
+                QScrollBar::handle:vertical {{
+                    background-color: {colors['primary']};
+                    border-radius: 6px;
+                    min-height: 20px;
+                }}
+                QScrollBar::handle:vertical:hover {{
+                    background-color: {colors.get('accent', colors['primary'])};
+                }}
+            """)
+            
+            # Update scroll content widget background
+            if hasattr(self, 'scroll_content'):
+                self.scroll_content.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {colors['background']};
+                    }}
+                """)

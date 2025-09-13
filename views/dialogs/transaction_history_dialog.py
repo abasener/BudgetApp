@@ -40,7 +40,7 @@ class TransactionEditor(QDialog):
         
         # Warning
         warning = QLabel("⚠️ Changes will rebalance money between bill and current week")
-        warning.setStyleSheet("color: orange; font-weight: bold; padding: 8px; background-color: rgba(255, 165, 0, 0.1); border-radius: 4px;")
+        warning.setStyleSheet(f"color: {theme_manager.get_colors().get('warning', 'orange')}; font-weight: bold; padding: 8px; background-color: rgba(255, 165, 0, 0.1); border-radius: 4px;")
         layout.addWidget(warning)
         
         # Form fields
@@ -85,7 +85,7 @@ class TransactionEditor(QDialog):
         
         self.delete_button = QPushButton("Delete Transaction")
         self.delete_button.clicked.connect(self.delete_transaction)
-        self.delete_button.setStyleSheet("background-color: #dc3545; color: white;")
+        self.delete_button.setStyleSheet(f"background-color: {theme_manager.get_colors().get('error', '#dc3545')}; color: white;")
         button_layout.addWidget(self.delete_button)
         
         button_layout.addStretch()
@@ -341,7 +341,7 @@ class TransactionHistoryDialog(QDialog):
         
         # Info
         info = QLabel("Admin controls for editing and deleting transactions. Changes will rebalance money flows.")
-        info.setStyleSheet("color: orange; padding: 8px; background-color: rgba(255, 165, 0, 0.1); border-radius: 4px;")
+        info.setStyleSheet(f"color: {theme_manager.get_colors().get('warning', 'orange')}; padding: 8px; background-color: rgba(255, 165, 0, 0.1); border-radius: 4px;")
         layout.addWidget(info)
         
         # Transaction table
@@ -467,5 +467,20 @@ class TransactionHistoryDialog(QDialog):
                 background-color: {colors['surface']};
                 alternate-background-color: {colors['surface_variant']};
                 gridline-color: {colors['border']};
+                color: {colors['text_primary']};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            QTableWidget::item:hover {{
+                background-color: {colors['hover']};
+            }}
+            QHeaderView::section {{
+                background-color: {colors['surface_variant']};
+                border: 1px solid {colors['border']};
+                padding: 4px;
+                font-weight: bold;
+                color: {colors['text_primary']};
             }}
         """)

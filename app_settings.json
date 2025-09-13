@@ -1,0 +1,7 @@
+{
+  "default_theme": "coffee",
+  "bills_sort_order": "Amount (High to Low)",
+  "savings_sort_order": "Goal Progress",
+  "dashboard_chart1_account": "Emergency Fund",
+  "dashboard_chart2_account": "random"
+}
