@@ -259,21 +259,23 @@ SYSTEM NOTES:
                 week_start
             )
             
-            # Show success message with details
+            # Show detailed breakdown of where money goes
             success_message = f"""
 Paycheck processed successfully!
 
 SUMMARY:
 • Gross Paycheck: ${split_result.gross_paycheck:.2f}
-• Bills Deducted: ${split_result.bills_deducted:.2f}
-• Automatic Savings: ${split_result.automatic_savings:.2f}
-• Account Auto-Savings: ${split_result.account_auto_savings:.2f}
 • Week 1 Allocation: ${split_result.week1_allocation:.2f}
 • Week 2 Allocation: ${split_result.week2_allocation:.2f}
 
+AMOUNT PAID TO BILLS:
+{self.get_bills_breakdown()}
+
+AMOUNT PAID TO SAVINGS:
+{self.get_savings_breakdown()}
+
 TRANSACTIONS CREATED:
 • Income transaction recorded
-• Automatic savings allocated
 • Bill savings updated
 • Account auto-savings allocated
 • Account balances updated
@@ -288,6 +290,55 @@ The dashboard will refresh to show updated data.
             QMessageBox.critical(self, "Error", f"Error processing paycheck: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def get_bills_breakdown(self):
+        """Get detailed breakdown of money allocated to bills"""
+        bills = self.paycheck_processor.transaction_manager.get_all_bills()
+        paycheck_amount = self.amount_spin.value()
+
+        if not bills:
+            return "• No bills configured"
+
+        breakdown = []
+        total_bills = 0.0
+
+        for bill in bills:
+            if bill.amount_to_save > 0:
+                # Calculate amount based on percentage vs fixed
+                if bill.amount_to_save < 1.0:
+                    amount = bill.amount_to_save * paycheck_amount
+                    breakdown.append(f"• {bill.name}: ${amount:.2f} ({bill.amount_to_save*100:.1f}% of paycheck)")
+                else:
+                    amount = bill.amount_to_save
+                    breakdown.append(f"• {bill.name}: ${amount:.2f}")
+                total_bills += amount
+
+        if not breakdown:
+            return "• No bill auto-savings configured"
+
+        breakdown.append(f"• TOTAL BILLS: ${total_bills:.2f}")
+        return "\n".join(breakdown)
+
+    def get_savings_breakdown(self):
+        """Get detailed breakdown of money allocated to savings accounts"""
+        accounts = self.paycheck_processor.transaction_manager.get_all_accounts()
+
+        if not accounts:
+            return "• No savings accounts configured"
+
+        breakdown = []
+        total_savings = 0.0
+
+        for account in accounts:
+            if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
+                breakdown.append(f"• {account.name}: ${account.auto_save_amount:.2f}")
+                total_savings += account.auto_save_amount
+
+        if not breakdown:
+            return "• No account auto-savings configured"
+
+        breakdown.append(f"• TOTAL SAVINGS: ${total_savings:.2f}")
+        return "\n".join(breakdown)
     
     def apply_theme(self):
         """Apply current theme to dialog"""

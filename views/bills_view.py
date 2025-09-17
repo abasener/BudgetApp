@@ -339,7 +339,12 @@ class BillsView(QWidget):
         """Handle 'See More' button click - open bill editor"""
         try:
             from views.dialogs.bill_editor_dialog import BillEditorDialog
-            
+
+            # Refresh bill data to ensure we have latest running_total values
+            refreshed_bill = self.transaction_manager.get_bill_by_id(bill.id)
+            if refreshed_bill:
+                bill = refreshed_bill
+
             dialog = BillEditorDialog(bill, self.transaction_manager, self)
             dialog.bill_updated.connect(self.on_bill_updated)
             dialog.exec()

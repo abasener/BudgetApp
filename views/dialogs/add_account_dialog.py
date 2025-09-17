@@ -37,7 +37,7 @@ class AddAccountDialog(QDialog):
         
         # Starting balance
         self.balance_spin = QDoubleSpinBox()
-        self.balance_spin.setRange(0.00, 999999.99)
+        self.balance_spin.setRange(-999999.99, 999999.99)
         self.balance_spin.setDecimals(2)
         self.balance_spin.setValue(0.00)
         form_layout.addRow("Starting Balance ($):", self.balance_spin)
@@ -162,11 +162,9 @@ class AddAccountDialog(QDialog):
         
         balance = self.balance_spin.value()
         goal = self.goal_spin.value()
-        
-        if balance < 0:
-            QMessageBox.warning(self, "Validation Error", "Starting balance cannot be negative")
-            return False
-        
+
+        # Note: Starting balance can be negative (for accounts with debt/overdrafts)
+
         if goal < 0:
             QMessageBox.warning(self, "Validation Error", "Goal amount cannot be negative")
             return False
@@ -203,31 +201,14 @@ class AddAccountDialog(QDialog):
             auto_save = self.auto_save_spin.value()
             is_default = self.default_save_checkbox.isChecked()
             
-            # If making this default, remove default flag from existing default
-            if is_default:
-                try:
-                    existing_default = self.transaction_manager.get_default_savings_account()
-                    if existing_default:
-                        # Update existing default to false
-                        existing_default.is_default_save = False
-                        self.transaction_manager.db.commit()
-                except:
-                    pass  # Continue if unable to update
-            
-            # Create new account directly in database
-            from models import Account
-            
-            new_account = Account(
+            # Create new account using transaction manager (handles defaults and balance history)
+            new_account = self.transaction_manager.add_account(
                 name=name,
-                running_total=balance,
                 goal_amount=goal,
                 auto_save_amount=auto_save,
-                is_default_save=is_default
+                is_default_save=is_default,
+                initial_balance=balance
             )
-            
-            self.transaction_manager.db.add(new_account)
-            self.transaction_manager.db.commit()
-            self.transaction_manager.db.refresh(new_account)
             
             # Success message
             success_text = f"Account '{name}' created successfully!\n\n"

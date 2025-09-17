@@ -856,15 +856,22 @@ class DashboardView(QWidget):
             for i in reversed(range(self.category_key_layout.count())):
                 self.category_key_layout.itemAt(i).widget().setParent(None)
             
-            # Get all categories and colors
-            categories = ["Education", "Miscellaneous", "Shopping", "Entertainment", "Utilities", 
-                         "Personal", "Transport", "Healthcare", "Food"]
+            # Get categories from actual transaction data
+            categories = self.analytics_engine.get_all_categories()
             colors = theme_manager.get_chart_colors()
-            
+
             # Get theme colors for proper text display
             theme_colors = theme_manager.get_colors()
-            
-            for i, category in enumerate(categories):  # Show all categories
+
+            # Only show categories if there are actual transactions
+            if not categories:
+                # Show empty state message
+                empty_label = QLabel(f"<span style='color: {theme_colors['text_secondary']}; font-style: italic; font-size: 11px;'>No categories yet</span>")
+                empty_label.setStyleSheet(f"padding: 10px; text-align: center;")
+                self.category_key_layout.addWidget(empty_label)
+                return
+
+            for i, category in enumerate(categories):  # Show actual categories
                 color = colors[i % len(colors)]  # Chart color for the bullet
                 
                 text_color = theme_colors['text_primary']

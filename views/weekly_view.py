@@ -28,9 +28,20 @@ class WeekDetailWidget(QWidget):
         
         self.init_ui()
         self.load_week_data()
-        
+
         # Connect to theme changes
         theme_manager.theme_changed.connect(self.on_theme_changed)
+
+    def update_header(self):
+        """Update the week header with current week data"""
+        if self.week_data:
+            start_date = self.week_data.start_date.strftime('%m/%d')
+            end_date = self.week_data.end_date.strftime('%m/%d')
+            week_title = f"Week {self.week_number}: {start_date} - {end_date}"
+        else:
+            week_title = f"Week {self.week_number}: No Data"
+
+        self.header_label.setText(week_title)
         
     def init_ui(self):
         """Initialize the week detail UI"""
@@ -40,9 +51,11 @@ class WeekDetailWidget(QWidget):
         
         colors = theme_manager.get_colors()
         
-        # Week header with start date (first day of week)
+        # Week header with date range
         if self.week_data:
-            week_title = f"Week {self.week_number}: {self.week_data.start_date.strftime('%A')}"
+            start_date = self.week_data.start_date.strftime('%m/%d')
+            end_date = self.week_data.end_date.strftime('%m/%d')
+            week_title = f"Week {self.week_number}: {start_date} - {end_date}"
         else:
             week_title = f"Week {self.week_number}: No Data"
             
@@ -399,10 +412,15 @@ class WeekDetailWidget(QWidget):
         """Load and display data for this specific week"""
         if not self.transaction_manager or not self.week_data:
             return
-            
+
         try:
             # Get transactions for this week
             self.transactions = self.transaction_manager.get_transactions_by_week(self.week_data.week_number)
+            print(f"DEBUG: Week {self.week_data.week_number} loaded {len(self.transactions)} total transactions")
+
+            # Count spending transactions for debugging
+            spending_count = len([t for t in self.transactions if t.is_spending and t.include_in_analytics])
+            print(f"DEBUG: Week {self.week_data.week_number} has {spending_count} spending transactions")
             
             # Update text display
             self.update_week_text_info()
@@ -423,12 +441,26 @@ class WeekDetailWidget(QWidget):
     def update_week_text_info(self):
         """Update the 4-line text display with week financial info"""
         # Calculate spending for this week
-        spending_transactions = [t for t in self.transactions if t.is_spending and t.include_in_analytics]
+        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        spending_transactions = [
+            t for t in self.transactions
+            if t.is_spending and t.include_in_analytics
+            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not (t.description and "allocation" in t.description.lower())
+        ]
         total_spent = sum(t.amount for t in spending_transactions)
         
-        # Use actual week running_total from database (includes rollover adjustments)
+        # Calculate effective starting amount: base allocation + rollover income - rollover deficits
+        # Note: Bill/savings allocation transactions are already deducted from base_allocation
         if self.week_data:
-            starting_amount = self.week_data.running_total
+            base_allocation = self.week_data.running_total
+            # Add rollover income transactions (positive rollover from previous week)
+            rollover_income = [t for t in self.transactions if t.transaction_type == "income" and "rollover" in t.description.lower()]
+            rollover_income_total = sum(t.amount for t in rollover_income)
+            # Subtract rollover deficit transactions (negative rollover from previous week)
+            rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
+            rollover_deficit_total = sum(t.amount for t in rollover_deficits)
+            starting_amount = base_allocation + rollover_income_total - rollover_deficit_total
         else:
             # Fallback to calculated amount if no week data
             if self.pay_period_data:
@@ -439,7 +471,7 @@ class WeekDetailWidget(QWidget):
             else:
                 starting_amount = 0.0
             
-        current_amount = max(0, starting_amount - total_spent)
+        current_amount = starting_amount - total_spent  # Allow negative values
         
         # Calculate daily amount (current / days left in week)
         today = datetime.now().date()
@@ -470,14 +502,20 @@ class WeekDetailWidget(QWidget):
             total_week_money = paycheck / 2
             week_bills = bills_total / 2
             week_savings = savings_total / 2
-            
+
             # Calculate spent for this week
-            spending_transactions = [t for t in self.transactions if t.is_spending and t.include_in_analytics]
+            # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+            spending_transactions = [
+                t for t in self.transactions
+                if t.is_spending and t.include_in_analytics
+                and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+                and not (t.description and "allocation" in t.description.lower())
+            ]
             week_spent = sum(t.amount for t in spending_transactions)
-            
+
             # Rollover is any amount left
             week_rollover = max(0, total_week_money - week_bills - week_savings - week_spent)
-            
+
             # Debug output
             print(f"Week {self.week_number} Ring Chart Data:")
             print(f"  Total week money: ${total_week_money:.2f}")
@@ -485,7 +523,7 @@ class WeekDetailWidget(QWidget):
             print(f"  Week bills: ${week_bills:.2f}")
             print(f"  Week spent: ${week_spent:.2f}")
             print(f"  Week rollover: ${week_rollover:.2f}")
-            
+
             sizes = [week_savings, week_bills, week_spent, week_rollover]
             labels = ['Savings', 'Bills', 'Spent', 'Rollover']
         else:
@@ -519,7 +557,13 @@ class WeekDetailWidget(QWidget):
         
     def update_category_pie_chart(self):
         """Update category pie chart with spending breakdown"""
-        spending_transactions = [t for t in self.transactions if t.is_spending and t.include_in_analytics]
+        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        spending_transactions = [
+            t for t in self.transactions
+            if t.is_spending and t.include_in_analytics
+            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not (t.description and "allocation" in t.description.lower())
+        ]
         
         if not spending_transactions:
             self.category_pie_chart.update_data({}, "No Spending")
@@ -536,9 +580,27 @@ class WeekDetailWidget(QWidget):
     def update_week_progress_bars(self):
         """Update progress bars for this specific week"""
         # Money progress (similar to bi-weekly but for single week)
-        spending_transactions = [t for t in self.transactions if t.is_spending and t.include_in_analytics]
+        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        spending_transactions = [
+            t for t in self.transactions
+            if t.is_spending and t.include_in_analytics
+            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not (t.description and "allocation" in t.description.lower())
+        ]
         total_spent = sum(t.amount for t in spending_transactions)
-        starting_amount = self.week_data.running_total if self.week_data else 0.0
+        # Calculate effective starting amount: base allocation + rollover income - rollover deficits
+        # Note: Bill/savings allocation transactions are already deducted from base_allocation
+        if self.week_data:
+            base_allocation = self.week_data.running_total
+            # Add rollover income transactions (positive rollover from previous week)
+            rollover_income = [t for t in self.transactions if t.transaction_type == "income" and "rollover" in t.description.lower()]
+            rollover_income_total = sum(t.amount for t in rollover_income)
+            # Subtract rollover deficit transactions (negative rollover from previous week)
+            rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
+            rollover_deficit_total = sum(t.amount for t in rollover_deficits)
+            starting_amount = base_allocation + rollover_income_total - rollover_deficit_total
+        else:
+            starting_amount = 0.0
         
         if starting_amount > 0:
             money_percentage = min(100, (total_spent / starting_amount) * 100)
@@ -566,9 +628,18 @@ class WeekDetailWidget(QWidget):
         self.week_time_progress_bar.setFormat(f"{time_percentage:.0f}% complete")
         
     def update_transaction_table(self):
-        """Update transaction table with week's transactions"""
+        """Update transaction table with week's spending transactions only"""
+        # Filter to only spending transactions (exclude paychecks, bills, savings)
+        # Show ALL spending transactions regardless of analytics flag, exclude rollovers and allocations
+        spending_transactions = [
+            t for t in self.transactions
+            if t.is_spending
+            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not (t.description and "allocation" in t.description.lower())
+        ]
+
         # Sort transactions by date (oldest to newest)
-        sorted_transactions = sorted(self.transactions, key=lambda t: t.date)
+        sorted_transactions = sorted(spending_transactions, key=lambda t: t.date)
         
         # Store original transaction data for change comparison
         self.original_transactions = sorted_transactions.copy()
@@ -1300,18 +1371,18 @@ class WeeklyView(QWidget):
             
             # Update savings payments
             self.update_savings_payments(all_transactions)
-            
+
             # Update bills payments
             self.update_bills_payments(all_transactions)
-            
-            # Update savings account values (start vs end of period)
-            self.update_savings_values()
-            
+
             # Update progress bars
             self.update_progress_bars(all_transactions)
-            
-            # Update week detail widgets
+
+            # Update week detail widgets first so week data is available
             self.update_week_details()
+
+            # Update savings account values (start vs end of period) - must be after week details
+            self.update_savings_values()
             
         except Exception as e:
             print(f"Error updating week info: {e}")
@@ -1357,6 +1428,7 @@ class WeeklyView(QWidget):
             self.week1_detail.week_data = week1
             self.week1_detail.week_number = 1
             self.week1_detail.pay_period_data = pay_period_data
+            self.week1_detail.update_header()  # Update header with new week data
             self.week1_detail.load_week_data()
             
         # Update week 2 detail widget
@@ -1365,48 +1437,67 @@ class WeeklyView(QWidget):
                 self.week2_detail.week_data = week2
                 self.week2_detail.week_number = 2
                 self.week2_detail.pay_period_data = pay_period_data
+                self.week2_detail.update_header()  # Update header with new week data
                 self.week2_detail.load_week_data()
             else:
                 # No second week - show empty state
                 self.week2_detail.week_data = None
                 self.week2_detail.week_number = 2
                 self.week2_detail.pay_period_data = pay_period_data
+                self.week2_detail.update_header()  # Update header (will show "No Data")
                 self.week2_detail.load_week_data()
             
     def update_savings_payments(self, transactions):
-        """Update savings payments display with account-by-account breakdown"""
+        """Update savings payments display with actual balance changes (final - starting)"""
         try:
             # Get all accounts
             accounts = self.transaction_manager.get_all_accounts()
-            
-            # Calculate savings by account
-            savings_by_account = {}
-            for account in accounts:
-                savings_by_account[account.name] = 0.0
-                
-            # Sum up savings transactions by account
-            for transaction in transactions:
-                if transaction.is_saving and transaction.account:
-                    account_name = transaction.account.name
-                    if account_name in savings_by_account:
-                        savings_by_account[account_name] += transaction.amount
-                elif transaction.is_saving and transaction.account_saved_to:
-                    # Handle string-based account references
-                    if transaction.account_saved_to in savings_by_account:
-                        savings_by_account[transaction.account_saved_to] += transaction.amount
-            
-            # Format like dashboard display
+
+            # Calculate actual balance changes for each account
+            # This includes savings transactions + rollovers + auto-allocations
+            current_pay_period_index = self.selected_week_index + 1  # Convert 0-based to 1-based
+
             savings_text = ""
             for account in accounts:
                 name = account.name[:14] + "..." if len(account.name) > 14 else account.name
-                amount = savings_by_account.get(account.name, 0.0)
-                amount_str = f"${amount:.0f}"
+
+                # Get balance history for this account
+                history = account.get_balance_history_copy()
+
+                if not history:
+                    # No history available, assume 0 change
+                    amount_change = 0.0
+                else:
+                    # Use balance history indexing to get starting and final balances
+                    starting_index = current_pay_period_index - 1  # Convert to 0-based
+                    final_index = current_pay_period_index
+
+                    # Get starting balance (beginning of this pay period)
+                    if starting_index < len(history):
+                        starting_balance = history[starting_index]
+                    else:
+                        starting_balance = history[-1] if history else account.running_total
+
+                    # Get final balance (end of this pay period)
+                    if final_index < len(history):
+                        final_balance = history[final_index]
+                    else:
+                        # This pay period hasn't finished yet, use current balance
+                        final_balance = account.running_total
+
+                    # Calculate actual amount added to account (includes transactions + rollovers)
+                    amount_change = final_balance - starting_balance
+
+                # Format amount with proper sign
+                amount_str = f"${amount_change:.0f}"
                 savings_text += f"{name:<16} {amount_str:>10}\n"
-                
-            self.savings_payments_label.setText(savings_text.rstrip() or "No savings payments")
-            
+
+            self.savings_payments_label.setText(savings_text.rstrip() or "No accounts")
+
         except Exception as e:
             print(f"Error updating savings payments: {e}")
+            import traceback
+            traceback.print_exc()
             self.savings_payments_label.setText("Error loading savings data")
             
     def update_bills_payments(self, transactions):
@@ -1420,9 +1511,20 @@ class WeeklyView(QWidget):
             for bill in bills:
                 payments_by_bill[bill.name] = 0.0
                 
-            # Sum up bill payment transactions
+            # Sum up bill savings transactions (TransactionType.SAVING with bill_id)
             for transaction in transactions:
-                if transaction.is_bill_pay:
+                if transaction.is_saving and transaction.bill_id:
+                    # Bill savings allocation transaction
+                    if transaction.bill:
+                        bill_name = transaction.bill.name
+                        if bill_name in payments_by_bill:
+                            payments_by_bill[bill_name] += transaction.amount
+                elif transaction.is_saving and transaction.bill_type:
+                    # Handle string-based bill references for savings
+                    if transaction.bill_type in payments_by_bill:
+                        payments_by_bill[transaction.bill_type] += transaction.amount
+                elif transaction.is_bill_pay:
+                    # Actual bill payment transactions
                     if transaction.bill:
                         bill_name = transaction.bill.name
                         if bill_name in payments_by_bill:
@@ -1447,26 +1549,81 @@ class WeeklyView(QWidget):
             self.bills_payments_label.setText("Error loading bills data")
             
     def update_savings_values(self):
-        """Update starting and ending savings account values"""
+        """Update starting and ending savings account values using balance history arrays"""
         try:
             # Get all accounts
             accounts = self.transaction_manager.get_all_accounts()
-            
-            # For now, show current values (would need historical tracking for true start/end)
-            # This could be enhanced to track account balances over time
-            account_text = ""
+
+            # Determine which pay period we're displaying
+            current_pay_period_index = None
+            if hasattr(self, 'week1_detail') and hasattr(self, 'week2_detail'):
+                if self.week1_detail.week_data and self.week2_detail.week_data:
+                    # Calculate pay period index based on week numbers
+                    # Week 1-2 = period 1, Week 3-4 = period 2, etc.
+                    week1_num = self.week1_detail.week_data.week_number
+                    current_pay_period_index = (week1_num - 1) // 2 + 1  # Convert to 1-based pay period
+
+            # If we can't determine from displayed weeks, use the most recent pay period
+            if current_pay_period_index is None:
+                all_weeks = self.transaction_manager.get_all_weeks()
+                if all_weeks:
+                    max_week = max(week.week_number for week in all_weeks)
+                    current_pay_period_index = (max_week - 1) // 2 + 1  # Most recent pay period
+                else:
+                    current_pay_period_index = 1  # Default to first period
+
+            # Display values for each account using balance history
+            start_account_text = ""
+            final_account_text = ""
+
             for account in accounts:
                 name = account.name[:14] + "..." if len(account.name) > 14 else account.name
-                amount_str = f"${account.running_total:.0f}"
-                account_text += f"{name:<16} {amount_str:>10}\n"
-            
-            # Use current values for both start and end for now
-            display_text = account_text.rstrip() or "No accounts"
-            self.start_savings_label.setText(display_text)
-            self.final_savings_label.setText(display_text)
-            
+
+                # Get balance history for this account
+                history = account.get_balance_history_copy()
+
+                if not history:
+                    # No history available, use current balance
+                    starting_balance = account.running_total
+                    final_balance = account.running_total
+                else:
+                    # Use balance history indexing:
+                    # payweek1: starting = array[0], final = array[1]
+                    # payweek2: starting = array[1], final = array[2]
+                    # etc.
+
+                    starting_index = current_pay_period_index - 1  # Convert to 0-based
+                    final_index = current_pay_period_index
+
+                    # Get starting balance (beginning of this pay period)
+                    if starting_index < len(history):
+                        starting_balance = history[starting_index]
+                    else:
+                        # Not enough history, use last available or current balance
+                        starting_balance = history[-1] if history else account.running_total
+
+                    # Get final balance (end of this pay period)
+                    if final_index < len(history):
+                        final_balance = history[final_index]
+                    else:
+                        # This pay period hasn't finished yet, use current balance
+                        final_balance = account.running_total
+
+                # Format display
+                start_amount_str = f"${starting_balance:.0f}"
+                final_amount_str = f"${final_balance:.0f}"
+
+                start_account_text += f"{name:<16} {start_amount_str:>10}\n"
+                final_account_text += f"{name:<16} {final_amount_str:>10}\n"
+
+            # Set the display text
+            self.start_savings_label.setText(start_account_text.rstrip() or "No accounts")
+            self.final_savings_label.setText(final_account_text.rstrip() or "No accounts")
+
         except Exception as e:
             print(f"Error updating savings values: {e}")
+            import traceback
+            traceback.print_exc()
             self.start_savings_label.setText("Error loading data")
             self.final_savings_label.setText("Error loading data")
             
@@ -1540,9 +1697,12 @@ class WeeklyView(QWidget):
 
         max_week_num = max(week.week_number for week in weeks)
 
+        # Calculate total number of pay periods first
+        total_possible_periods = (max_week_num + 1) // 2
+
         # Group consecutive pairs starting from highest week number
         processed_weeks = set()
-        period_counter = 1
+        period_counter = total_possible_periods  # Start with highest number for newest period
 
         # Start from the highest even-numbered week and work backwards
         current_week_num = max_week_num if max_week_num % 2 == 0 else max_week_num - 1
@@ -1566,7 +1726,7 @@ class WeeklyView(QWidget):
                 })
                 processed_weeks.add(week1_num)
                 processed_weeks.add(week2_num)
-                period_counter += 1
+                period_counter -= 1
             elif week2 and week2_num not in processed_weeks:
                 # Only week 2 exists - single week period
                 print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week2_num}")
@@ -1578,7 +1738,7 @@ class WeeklyView(QWidget):
                     'end_date': week2.end_date
                 })
                 processed_weeks.add(week2_num)
-                period_counter += 1
+                period_counter -= 1
             elif week1 and week1_num not in processed_weeks:
                 # Only week 1 exists - single week period
                 print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week1_num}")
@@ -1590,23 +1750,26 @@ class WeeklyView(QWidget):
                     'end_date': week1.end_date
                 })
                 processed_weeks.add(week1_num)
-                period_counter += 1
+                period_counter -= 1
 
             current_week_num -= 2  # Move to next pair
 
         # Handle any remaining orphaned weeks (weeks that don't have a pair)
-        for week_num, week in weeks_dict.items():
-            if week_num not in processed_weeks:
-                print(f"DEBUG: Creating Pay Period {period_counter} with orphaned Week {week_num}")
-                bi_weekly_periods.append({
-                    'period_id': period_counter,
-                    'week1': week,
-                    'week2': None,
-                    'start_date': week.start_date,
-                    'end_date': week.end_date
-                })
-                processed_weeks.add(week_num)
-                period_counter += 1
+        # Process them in descending order to maintain proper numbering
+        orphaned_weeks = [(week_num, week) for week_num, week in weeks_dict.items() if week_num not in processed_weeks]
+        orphaned_weeks.sort(key=lambda x: x[0], reverse=True)  # Highest week numbers first
+
+        for week_num, week in orphaned_weeks:
+            print(f"DEBUG: Creating Pay Period {period_counter} with orphaned Week {week_num}")
+            bi_weekly_periods.append({
+                'period_id': period_counter,
+                'week1': week,
+                'week2': None,
+                'start_date': week.start_date,
+                'end_date': week.end_date
+            })
+            processed_weeks.add(week_num)
+            period_counter -= 1
 
         # Sort periods by period_id (newest first)
         bi_weekly_periods.sort(key=lambda p: p['period_id'], reverse=True)

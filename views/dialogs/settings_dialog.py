@@ -4,7 +4,7 @@ Settings Dialog - Configure persistent application settings
 
 import json
 import os
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
                              QComboBox, QPushButton, QLabel, QGroupBox, QMessageBox, QDoubleSpinBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from themes import theme_manager
@@ -102,7 +102,51 @@ class SettingsDialog(QDialog):
         
         calculator_group.setLayout(calculator_layout)
         main_layout.addWidget(calculator_group)
-        
+
+        # Data management group
+        data_group = QGroupBox("Data Management")
+        data_layout = QVBoxLayout()
+
+        # Create 2x2 grid for buttons
+        button_grid = QGridLayout()
+
+        # Top row - Testing functions
+        import_test_button = QPushButton("📥 Import Test Data")
+        import_test_button.setStyleSheet("color: blue; font-weight: bold; padding: 8px;")
+        import_test_button.setToolTip("Import test data from TestData/Data2.xlsx if file exists and has expected format")
+        import_test_button.clicked.connect(self.import_test_data)
+        button_grid.addWidget(import_test_button, 0, 0)
+
+        reset_test_button = QPushButton("🧪 Reset Test Data")
+        reset_test_button.setStyleSheet("color: orange; font-weight: bold; padding: 8px;")
+        reset_test_button.setToolTip("Delete transactions and weeks, reset account balances, keep bills and accounts")
+        reset_test_button.clicked.connect(self.confirm_reset_test)
+        button_grid.addWidget(reset_test_button, 0, 1)
+
+        # Bottom row - Data management
+        export_data_button = QPushButton("📊 Export All Data")
+        export_data_button.setStyleSheet("color: green; font-weight: bold; padding: 8px;")
+        export_data_button.setToolTip("Export all data to CSV files for backup or analysis")
+        export_data_button.clicked.connect(self.export_data)
+        button_grid.addWidget(export_data_button, 1, 0)
+
+        reset_data_button = QPushButton("🗑️ Reset All Data")
+        reset_data_button.setStyleSheet("color: red; font-weight: bold; padding: 8px;")
+        reset_data_button.setToolTip("Permanently delete all transactions, accounts, bills, and weeks")
+        reset_data_button.clicked.connect(self.confirm_reset_data)
+        button_grid.addWidget(reset_data_button, 1, 1)
+
+        # Add grid to layout
+        data_layout.addLayout(button_grid)
+
+        # Warning label
+        warning_label = QLabel("⚠️ Warning: Reset will permanently delete ALL your data!")
+        warning_label.setStyleSheet("color: orange; font-style: italic; padding: 5px;")
+        data_layout.addWidget(warning_label)
+
+        data_group.setLayout(data_layout)
+        main_layout.addWidget(data_group)
+
         # Buttons
         button_layout = QHBoxLayout()
         
@@ -431,6 +475,492 @@ class SettingsDialog(QDialog):
             
         except Exception as e:
             print(f"Error applying theme to settings dialog: {e}")
+
+    def confirm_reset_data(self):
+        """Math-based confirmation dialog for data reset"""
+        import random
+        from models import get_db, Week, Transaction, Account, Bill
+
+        # Generate random math problem
+        num1 = random.randint(2, 99)
+        num2 = random.randint(2, 99)
+        correct_answer = num1 * num2
+
+        # Create custom dialog
+        from PyQt6.QtWidgets import QInputDialog
+
+        # First confirmation
+        reply = QMessageBox.question(
+            self,
+            "⚠️ DANGER: Reset All Data",
+            "This will permanently delete ALL your data:\n\n"
+            "• All transactions (spending, income, bills)\n"
+            "• All pay weeks and periods\n"
+            "• All savings accounts\n"
+            "• All bills\n\n"
+            "This action CANNOT be undone!\n\n"
+            "Are you absolutely sure you want to continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Math verification
+        answer, ok = QInputDialog.getInt(
+            self,
+            "Math Verification Required",
+            f"To confirm this dangerous action, solve:\n\n{num1} × {num2} = ?",
+            0, 0, 999999, 1
+        )
+
+        if not ok:
+            return
+
+        if answer != correct_answer:
+            QMessageBox.critical(
+                self,
+                "Incorrect Answer",
+                f"Incorrect! The answer was {correct_answer}.\n\nData reset cancelled for your protection."
+            )
+            return
+
+        # Perform the reset
+        try:
+            db = get_db()
+
+            # Count items before deletion
+            transaction_count = db.query(Transaction).count()
+            week_count = db.query(Week).count()
+            account_count = db.query(Account).count()
+            bill_count = db.query(Bill).count()
+
+            # Delete all data (order matters due to foreign keys)
+            db.query(Transaction).delete()
+            db.query(Week).delete()
+            db.query(Account).delete()
+            db.query(Bill).delete()
+
+            db.commit()
+            db.close()
+
+            QMessageBox.information(
+                self,
+                "✅ Data Reset Complete",
+                f"Successfully deleted:\n\n"
+                f"• {transaction_count} transactions\n"
+                f"• {week_count} weeks\n"
+                f"• {account_count} accounts\n"
+                f"• {bill_count} bills\n\n"
+                f"Your app now has a clean slate!"
+            )
+
+            # Signal that settings changed so main window refreshes
+            self.settings_saved.emit()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Reset Failed", f"Error during data reset: {e}")
+
+    def confirm_reset_test(self):
+        """Math-based confirmation dialog for test data reset"""
+        import random
+        from models import get_db, Week, Transaction
+
+        # Generate random math problem
+        num1 = random.randint(2, 50)
+        num2 = random.randint(2, 50)
+        correct_answer = num1 * num2
+
+        # Create custom dialog
+        from PyQt6.QtWidgets import QInputDialog
+
+        # First confirmation
+        reply = QMessageBox.question(
+            self,
+            "⚠️ Reset Test Data",
+            "This will reset for testing by deleting:\n\n"
+            "• All transactions (spending, income, bills)\n"
+            "• All pay weeks and periods\n"
+            "• Reset all account balances to $0\n\n"
+            "This will keep:\n"
+            "• All savings accounts (structure)\n"
+            "• All bills (structure)\n\n"
+            "This action cannot be undone!\n\n"
+            "Are you sure you want to continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Math verification
+        answer, ok = QInputDialog.getInt(
+            self,
+            "Math Verification Required",
+            f"To confirm this action, solve:\n\n{num1} × {num2} = ?",
+            0, 0, 999999, 1
+        )
+
+        if not ok:
+            return
+
+        if answer != correct_answer:
+            QMessageBox.critical(
+                self,
+                "Incorrect Answer",
+                f"Incorrect! The answer was {correct_answer}.\n\nTest reset cancelled for your protection."
+            )
+            return
+
+        # Perform the test reset
+        try:
+            db = get_db()
+
+            # Count items before deletion
+            transaction_count = db.query(Transaction).count()
+            week_count = db.query(Week).count()
+
+            # Delete transactions and weeks
+            db.query(Transaction).delete()
+            db.query(Week).delete()
+
+            # Reset account balances to 0 and clear balance history
+            from models import Account
+            accounts = db.query(Account).all()
+            account_count = len(accounts)
+            for account in accounts:
+                account.running_total = 0.0
+                account.balance_history = [0.0]  # Reset balance history to start with $0
+
+            # Reset bill balances to 0
+            from models import Bill
+            bills = db.query(Bill).all()
+            bill_count = len(bills)
+            for bill in bills:
+                bill.running_total = 0.0
+
+            db.commit()
+            db.close()
+
+            QMessageBox.information(
+                self,
+                "Test Reset Complete",
+                f"Successfully reset test data:\n\n"
+                f"• Deleted {transaction_count} transactions\n"
+                f"• Deleted {week_count} weeks\n"
+                f"• Reset {account_count} account balances to $0\n"
+                f"• Reset {bill_count} bill balances to $0\n\n"
+                f"Ready for testing!"
+            )
+
+            # Signal that settings changed so main window refreshes
+            self.settings_saved.emit()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Reset Failed", f"Error during test reset: {e}")
+
+    def export_data(self):
+        """Export all data to CSV files"""
+        from PyQt6.QtWidgets import QFileDialog
+        from models import get_db, Week, Transaction, Account, Bill
+        import csv
+        import os
+        from datetime import datetime
+
+        # Let user choose export directory
+        export_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Choose Export Directory",
+            os.path.expanduser("~"),
+            QFileDialog.Option.ShowDirsOnly
+        )
+
+        if not export_dir:
+            return
+
+        try:
+            db = get_db()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Export transactions
+            transactions = db.query(Transaction).all()
+            if transactions:
+                transactions_file = os.path.join(export_dir, f"transactions_{timestamp}.csv")
+                with open(transactions_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        'ID', 'Transaction_Type', 'Week_Number', 'Amount', 'Date',
+                        'Category', 'Description', 'Account_ID', 'Account_Name',
+                        'Bill_ID', 'Bill_Type', 'Is_Spending', 'Is_Income',
+                        'Is_Saving', 'Is_Bill_Pay', 'Include_In_Analytics'
+                    ])
+
+                    for t in transactions:
+                        writer.writerow([
+                            t.id, t.transaction_type, t.week_number, t.amount, t.date,
+                            t.category, t.description, t.account_id, t.account_saved_to,
+                            t.bill_id, t.bill_type, t.is_spending, t.is_income,
+                            t.is_saving, t.is_bill_pay, t.include_in_analytics
+                        ])
+
+            # Export weeks
+            weeks = db.query(Week).all()
+            if weeks:
+                weeks_file = os.path.join(export_dir, f"weeks_{timestamp}.csv")
+                with open(weeks_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['ID', 'Week_Number', 'Start_Date', 'End_Date', 'Running_Total'])
+
+                    for w in weeks:
+                        writer.writerow([w.id, w.week_number, w.start_date, w.end_date, w.running_total])
+
+            # Export accounts
+            accounts = db.query(Account).all()
+            if accounts:
+                accounts_file = os.path.join(export_dir, f"accounts_{timestamp}.csv")
+                with open(accounts_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['ID', 'Name', 'Account_Type', 'Goal_Amount', 'Running_Total', 'Is_Default_Savings'])
+
+                    for a in accounts:
+                        writer.writerow([a.id, a.name, a.account_type, a.goal_amount, a.running_total, a.is_default_savings])
+
+            # Export bills
+            bills = db.query(Bill).all()
+            if bills:
+                bills_file = os.path.join(export_dir, f"bills_{timestamp}.csv")
+                with open(bills_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['ID', 'Name', 'Bill_Type', 'Amount_To_Save', 'Running_Total'])
+
+                    for b in bills:
+                        writer.writerow([b.id, b.name, b.bill_type, b.amount_to_save, b.running_total])
+
+            db.close()
+
+            # Count exported items
+            transaction_count = len(transactions) if transactions else 0
+            week_count = len(weeks) if weeks else 0
+            account_count = len(accounts) if accounts else 0
+            bill_count = len(bills) if bills else 0
+
+            QMessageBox.information(
+                self,
+                "Export Complete",
+                f"Successfully exported to {export_dir}:\n\n"
+                f"• {transaction_count} transactions\n"
+                f"• {week_count} weeks\n"
+                f"• {account_count} accounts\n"
+                f"• {bill_count} bills\n\n"
+                f"Files are timestamped: {timestamp}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Error during data export: {e}")
+
+    def import_test_data(self):
+        """Import test data from TestData/Data2.xlsx with validation"""
+        import os
+
+        # Step 1: Check if file exists
+        excel_file = "TestData/Data2.xlsx"
+        if not os.path.exists(excel_file):
+            QMessageBox.warning(
+                self,
+                "File Not Found",
+                f"Step 1 Failed: Test data file not found.\n\n"
+                f"Expected file: {excel_file}\n"
+                f"Please ensure the test data file exists in the TestData directory."
+            )
+            return
+
+        try:
+            import pandas as pd
+
+            # Step 2: Try to read the Excel file and verify structure
+            try:
+                # Read Spending table (columns 0-3)
+                spending_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[0, 1, 2, 3])
+                spending_df = spending_df.dropna(how='all')
+
+                # Read Paychecks table (columns 5-7)
+                paychecks_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[5, 6, 7])
+                paychecks_df = paychecks_df.dropna(how='all')
+
+            except Exception as e:
+                QMessageBox.warning(
+                    self,
+                    "File Format Error",
+                    f"Step 2 Failed: Could not read expected table structure.\n\n"
+                    f"Error: {e}\n\n"
+                    f"Expected: Two tables side by side in the Excel file."
+                )
+                return
+
+            # Step 3: Verify headers
+            expected_spending_headers = ["Date", "Day", "Catigorie", "Amount"]
+            expected_paycheck_headers = ["Start date", "Pay Date", "Amount.1"]
+
+            spending_headers = list(spending_df.columns)
+            paycheck_headers = list(paychecks_df.columns)
+
+            if spending_headers != expected_spending_headers:
+                QMessageBox.warning(
+                    self,
+                    "Header Validation Failed",
+                    f"Step 3 Failed: Spending table headers don't match.\n\n"
+                    f"Expected: {expected_spending_headers}\n"
+                    f"Found: {spending_headers}\n\n"
+                    f"Please check the Excel file format."
+                )
+                return
+
+            if paycheck_headers != expected_paycheck_headers:
+                QMessageBox.warning(
+                    self,
+                    "Header Validation Failed",
+                    f"Step 3 Failed: Paycheck table headers don't match.\n\n"
+                    f"Expected: {expected_paycheck_headers}\n"
+                    f"Found: {paycheck_headers}\n\n"
+                    f"Please check the Excel file format."
+                )
+                return
+
+            # All validation passed - confirm import
+            reply = QMessageBox.question(
+                self,
+                "Import Test Data",
+                f"All validation checks passed!\n\n"
+                f"Found:\n"
+                f"• {len(spending_df)} spending transactions\n"
+                f"• {len(paychecks_df)} paychecks\n\n"
+                f"This will import the test data into your current database.\n"
+                f"Are you sure you want to proceed?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            # Import the data using our existing import script logic
+            self.perform_test_data_import(excel_file)
+
+        except ImportError:
+            QMessageBox.critical(
+                self,
+                "Missing Dependency",
+                "pandas library is required for Excel file processing.\n"
+                "Please install pandas to use this feature."
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Import Error",
+                f"Unexpected error during validation: {e}"
+            )
+
+    def perform_test_data_import(self, excel_file):
+        """Perform the actual test data import"""
+        try:
+            import pandas as pd
+            from services.transaction_manager import TransactionManager
+            from services.paycheck_processor import PaycheckProcessor
+            from datetime import datetime
+
+            transaction_manager = TransactionManager()
+            paycheck_processor = PaycheckProcessor()
+
+            # Read the Excel data
+            spending_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[0, 1, 2, 3])
+            spending_df = spending_df.dropna(how='all')
+
+            paychecks_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[5, 6, 7])
+            paychecks_df = paychecks_df.dropna(how='all')
+
+            # Import paychecks first
+            paycheck_count = 0
+            for idx, row in paychecks_df.iterrows():
+                if pd.isna(row["Start date"]) or pd.isna(row["Pay Date"]) or pd.isna(row["Amount.1"]):
+                    continue
+
+                start_date = pd.to_datetime(row["Start date"]).date()
+                pay_date = pd.to_datetime(row["Pay Date"]).date()
+                amount = float(row["Amount.1"])
+
+                try:
+                    paycheck_processor.process_new_paycheck(amount, pay_date, start_date)
+                    paycheck_count += 1
+                except Exception as e:
+                    print(f"Error processing paycheck: {e}")
+                    continue
+
+            # Import spending transactions
+            transaction_count = 0
+            negative_count = 0
+
+            for idx, row in spending_df.iterrows():
+                if pd.isna(row["Date"]) or pd.isna(row["Catigorie"]) or pd.isna(row["Amount"]):
+                    continue
+
+                transaction_date = pd.to_datetime(row["Date"]).date()
+                category = str(row["Catigorie"]).strip()
+                amount = float(row["Amount"])
+
+                # Determine which week this transaction belongs to
+                week_number = transaction_manager.get_week_number_for_date(transaction_date)
+                if week_number is None:
+                    continue
+
+                # Determine include_in_analytics flag (negative amounts excluded from plotting)
+                include_in_analytics = amount >= 0
+                if amount < 0:
+                    negative_count += 1
+
+                transaction_data = {
+                    "transaction_type": "spending",
+                    "week_number": week_number,
+                    "amount": abs(amount),
+                    "date": transaction_date,
+                    "description": f"{category} transaction",
+                    "category": category,
+                    "include_in_analytics": include_in_analytics
+                }
+
+                try:
+                    transaction_manager.add_transaction(transaction_data)
+                    transaction_count += 1
+                except Exception as e:
+                    print(f"Error adding transaction: {e}")
+                    continue
+
+            transaction_manager.close()
+            paycheck_processor.close()
+
+            # Show success message
+            QMessageBox.information(
+                self,
+                "Import Successful",
+                f"Test data imported successfully!\n\n"
+                f"Imported:\n"
+                f"• {paycheck_count} paychecks\n"
+                f"• {transaction_count} spending transactions\n"
+                f"  - {transaction_count - negative_count} positive (included in analytics)\n"
+                f"  - {negative_count} negative (excluded from analytics)\n\n"
+                f"The application data has been updated with the test dataset."
+            )
+
+            # Signal that data changed so main window refreshes
+            self.settings_saved.emit()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Import Failed",
+                f"Error during test data import: {e}"
+            )
 
 
 def load_app_settings():

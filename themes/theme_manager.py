@@ -30,37 +30,41 @@ class ThemeManager(QObject):
         """Load all theme definitions"""
         return {
             "dark": {
-                "name": "Dark (Aurora Dragon)",
+                "name": "Dark",
                 "colors": {
-                    # Main application colors - Aurora theme
-                    "background": "#0E1211",     # Very dark forest
-                    "surface": "#15251D",        # Dark forest green
-                    "surface_variant": "#1a2f22", # Medium forest green
-                    "text_primary": "#f4f1ea",    # Cream white
-                    "text_secondary": "#d4d4d4",  # Light gray
-                    "text_disabled": "#888888",   # Gray
-                    
-                    # Accent colors - Aurora greens
-                    "primary": "#30833B",        # Aurora green (main)
-                    "primary_dark": "#1a4a21",   # Dark forest green
-                    "secondary": "#45a049",      # Lighter aurora green
-                    "accent": "#66bb6a",         # Soft green accent
-                    "accent2": "#81c784",        # Light green highlight
-                    
-                    # Chart colors (aurora green palette)
-                    "chart_colors": ["#30833B", "#45a049", "#66bb6a", "#81c784", "#4CAF50", "#8BC34A", "#CDDC39", "#2E7D32"],
-                    
-                    # Status colors
-                    "success": "#30833B",
-                    "warning": "#FFC107",
-                    "error": "#F44336",
-                    "info": "#45a049",
-                    
-                    # UI element colors
-                    "border": "#2a4032",
-                    "hover": "#1a2f22",
-                    "selected": "#30833B",
-                    "disabled": "#444444"
+                    # Core neutrals (gray-based)
+                    "background": "#0D0D0D",        # Almost black
+                    "surface": "#161616",           # Dark gray
+                    "surface_variant": "#1F1F1F",   # Medium dark gray
+                    "text_primary": "#FFFFFF",      # White
+                    "text_secondary": "#B3B3B3",    # Soft gray
+                    "text_disabled": "#6E6E6E",     # Dim gray
+
+                    # Accent (choose one main highlight color — here a vivid blue)
+                    "primary": "#49A041FF",           # Bright blue highlight
+                    "primary_dark": "#53E653",      # Darker blue
+                    "secondary": "#8CBEFB",         # Lighter blue for hover/alt
+                    "accent": "#9871F4",            # Purple accent (optional secondary pop)
+                    "accent2": "#6BF164",           # Cyan highlight
+
+                    # Chart colors (harmonized to match blue/purple system)
+                    "chart_colors": [
+                        "#44C01E", "#3F0979", "#D6CA18",
+                        "#BF0AB0", "#965a3e", "#C9431E",
+                        "#60A5FA", "#48EACFDD"
+                    ],
+
+                    # Status colors (slightly muted so they don’t overpower)
+                    "success": "#22C55E",   # Green
+                    "warning": "#FACC15",   # Amber
+                    "error": "#EF4444",     # Red
+                    "info": "#3B82F6",      # Blue
+
+                    # UI states
+                    "border": "#2A2A2A",
+                    "hover": "#1F1F1F",
+                    "selected": "#3B82F6",
+                    "disabled": "#2E2E2E"
                 },
                 "fonts": {
                     "main": {"family": "Arial", "size": 10},
@@ -82,29 +86,39 @@ class ThemeManager(QObject):
             "light": {
                 "name": "Light",
                 "colors": {
-                    "background": "#ffffff",
-                    "surface": "#f5f5f5",
-                    "surface_variant": "#e0e0e0",
-                    "text_primary": "#000000",
-                    "text_secondary": "#666666",
-                    "text_disabled": "#999999",
-                    
-                    "primary": "#2E7D32",      # Dark green
-                    "primary_dark": "#1B5E20",
-                    "secondary": "#F57C00",    # Dark orange
-                    "accent": "#1976D2",       # Dark blue
-                    
-                    "chart_colors": ["#2E7D32", "#F57C00", "#1976D2", "#7B1FA2", "#C62828", "#00838F", "#F57F17", "#5D4037"],
-                    
-                    "success": "#2E7D32",
-                    "warning": "#F57C00",
-                    "error": "#C62828",
-                    "info": "#1976D2",
-                    
-                    "border": "#cccccc",
-                    "hover": "#e0e0e0",
-                    "selected": "#2E7D32",
-                    "disabled": "#cccccc"
+                    # Base neutrals
+                    "background": "#FFFFFF",        # Pure white background
+                    "surface": "#F9FAFB",           # Very light gray card
+                    "surface_variant": "#E5E7EB",   # Light gray separators
+                    "text_primary": "#111827",      # Near-black text
+                    "text_secondary": "#4B5563",    # Medium gray
+                    "text_disabled": "#9CA3AF",     # Muted gray
+
+                    # Accent colors (bright, modern)
+                    "primary": "#3B82F6",           # Blue (main highlight, like buttons/links)
+                    "primary_dark": "#2563EB",      # Darker blue
+                    "secondary": "#EF4444",         # Bright red/pink
+                    "accent": "#10B981",            # Emerald green
+                    "accent2": "#F59E0B",           # Amber/yellow
+
+                    # Chart colors (matching accents)
+                    "chart_colors": [
+                        "#44C01E", "#3F0979", "#D6CA18",
+                        "#BF0AB0", "#965a3e", "#C9431E",
+                        "#60A5FA", "#48EACFDD"
+                    ],
+
+                    # Status colors
+                    "success": "#10B981",   # Green
+                    "warning": "#F59E0B",   # Amber
+                    "error": "#EF4444",     # Red
+                    "info": "#3B82F6",      # Blue
+
+                    # UI states
+                    "border": "#E5E7EB",    # Light gray borders
+                    "hover": "#F3F4F6",     # Slightly darker gray hover
+                    "selected": "#3B82F6",  # Blue selection
+                    "disabled": "#D1D5DB"   # Gray disabled
                 },
                 "fonts": {
                     "main": {"family": "Arial", "size": 10},
@@ -175,18 +189,22 @@ class ThemeManager(QObject):
                 "colors": {
                     "background": "#1e3a5f",
                     "surface": "#2a4b73",
-                    "surface_variant": "#355d87",
+                    "surface_variant": "#732a71",
                     "text_primary": "#ffffff",
                     "text_secondary": "#e6f3ff",
                     "text_disabled": "#9bb5d6",
                     
                     "primary": "#FFD700",      # Gold
-                    "primary_dark": "#DAA520",
+                    "primary_dark": "#A50C9E",
                     "secondary": "#00BFFF",    # Deep sky blue
                     "accent": "#32CD32",       # Lime green
                     
-                    "chart_colors": ["#FFD700", "#00BFFF", "#32CD32", "#FF69B4", "#FF4500", "#9370DB", "#00CED1", "#F0E68C"],
-                    
+                    "chart_colors": [
+                        "#58D831", "#3F0979", "#D6CA18",
+                        "#BF0AB0", "#965a3e", "#04941ED1",
+                        "#60A5FA", "#DA1010DD"
+                    ],             
+
                     "success": "#32CD32",
                     "warning": "#FFD700",
                     "error": "#FF4500",
@@ -215,7 +233,7 @@ class ThemeManager(QObject):
             },
             
             "cyberpunk": {
-                "name": "Cyberpunk (Neon Tech)",
+                "name": "Cyberpunk",
                 "colors": {
                     # Cyberpunk neon grid inspired palette
                     "background": "#0a0a0a",     # Pure black
@@ -262,10 +280,10 @@ class ThemeManager(QObject):
             },
             
             "honey": {
-                "name": "Honey (Gold & Black)",
+                "name": "Honey",
                 "colors": {
                     # Honey bee inspired palette with gold and black
-                    "background": "#1A141A",     # Deep black (#1A141A from image)
+                    "background": "#000000",     # Deep black (#1A141A from image)
                     "surface": "#423738",        # Dark brown-gray (#423738 from image)
                     "surface_variant": "#8E5915", # Medium honey brown (#8E5915 from image)
                     "text_primary": "#E59312",    # Golden yellow text (#E59312 from image)
@@ -283,7 +301,7 @@ class ThemeManager(QObject):
                     
                     "success": "#8E5915",       # Honey brown success
                     "warning": "#F4B315",       # Bright honey warning
-                    "error": "#CC5500",         # Orange-red error
+                    "error": "#C29309",         # Orange-red error
                     "info": "#E59312",          # Medium honey info
                     
                     "border": "#5A4A2A",

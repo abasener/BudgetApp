@@ -2,12 +2,13 @@
 Bill Editor Dialog - Admin controls for editing all bill fields
 """
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QDoubleSpinBox, QComboBox, QCheckBox, QTextEdit, QPushButton,
                              QDateEdit, QFormLayout, QMessageBox, QFrame, QGroupBox)
 from PyQt6.QtCore import QDate, pyqtSignal
 from datetime import date, timedelta
 from themes import theme_manager
+from models import Transaction
 
 
 class BillEditorDialog(QDialog):
@@ -17,14 +18,18 @@ class BillEditorDialog(QDialog):
     
     def __init__(self, bill, transaction_manager, parent=None):
         super().__init__(parent)
-        self.bill = bill
         self.transaction_manager = transaction_manager
         self.original_values = {}  # Store original values for change tracking
-        
-        self.setWindowTitle(f"Edit Bill: {bill.name}")
+
+        # Refresh bill data from database to get latest running_total
+        self.bill = self.transaction_manager.get_bill_by_id(bill.id)
+        if not self.bill:
+            self.bill = bill  # Fallback to passed bill if refresh fails
+
+        self.setWindowTitle(f"Edit Bill: {self.bill.name}")
         self.setModal(True)
         self.resize(600, 700)
-        
+
         self.init_ui()
         self.load_bill_data()
         self.apply_theme()
@@ -325,11 +330,47 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
             self.bill.payment_frequency = new_values['payment_frequency']
             self.bill.typical_amount = new_values['typical_amount']
             self.bill.amount_to_save = new_values['amount_to_save']
-            self.bill.running_total = new_values['running_total']
             self.bill.last_payment_date = new_values['last_payment_date']
             self.bill.last_payment_amount = new_values['last_payment_amount']
             self.bill.is_variable = new_values['is_variable']
             self.bill.notes = new_values['notes']
+
+            # Handle running total changes properly
+            old_running_total = self.original_values.get('running_total', 0)
+            new_running_total = new_values['running_total']
+
+            if abs(old_running_total - new_running_total) > 0.01:  # Running total changed
+                # Check if there are any transactions for this bill
+                bill_transactions = self.transaction_manager.db.query(Transaction).filter(
+                    Transaction.bill_id == self.bill.id
+                ).all()
+
+                if not bill_transactions:
+                    # No transactions - just change the starting value
+                    self.bill.running_total = new_running_total
+                    print(f"Updated {self.bill.name} starting balance to ${new_running_total:.2f} (no existing transactions)")
+                else:
+                    # Transactions exist - create adjustment transaction for the difference
+                    adjustment_amount = new_running_total - old_running_total
+                    self.bill.running_total = new_running_total
+
+                    # Create adjustment transaction
+                    from datetime import date
+                    adjustment_transaction = Transaction(
+                        transaction_type="saving",  # Using saving type for bill adjustments
+                        amount=adjustment_amount,
+                        date=date.today(),
+                        description=f"Manual adjustment for {self.bill.name} (from ${old_running_total:.2f} to ${new_running_total:.2f})",
+                        bill_id=self.bill.id,
+                        week_number=None,  # Not associated with a specific week
+                        include_in_analytics=False  # Don't include manual adjustments in analytics
+                    )
+
+                    self.transaction_manager.db.add(adjustment_transaction)
+                    print(f"Created adjustment transaction for {self.bill.name}: ${adjustment_amount:.2f}")
+            else:
+                # No change to running total
+                self.bill.running_total = new_running_total
             
             # Save to database
             self.transaction_manager.db.commit()

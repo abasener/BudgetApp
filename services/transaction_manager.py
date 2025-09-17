@@ -33,27 +33,30 @@ class TransactionManager:
         """Get the default savings account"""
         return self.db.query(Account).filter(Account.is_default_save == True).first()
     
-    def add_account(self, name: str, goal_amount: float = 0.0, auto_save_amount: float = 0.0, 
-                    is_default_save: bool = False) -> Account:
-        """Add a new savings account"""
+    def add_account(self, name: str, goal_amount: float = 0.0, auto_save_amount: float = 0.0,
+                    is_default_save: bool = False, initial_balance: float = 0.0) -> Account:
+        """Add a new savings account with optional initial balance"""
         # If this is being set as default, remove default from all others first
         if is_default_save:
             self.db.query(Account).update({Account.is_default_save: False})
-        
+
         # If no accounts exist and this isn't being set as default, make it default
         existing_accounts = self.get_all_accounts()
         if not existing_accounts and not is_default_save:
             is_default_save = True
-        
-        # Create new account
+
+        # Create new account with specified initial balance
         account = Account(
             name=name,
-            running_total=0.0,
+            running_total=initial_balance,
             goal_amount=goal_amount,
             auto_save_amount=auto_save_amount,
             is_default_save=is_default_save
         )
-        
+
+        # Initialize balance history with the account's actual starting balance
+        account.initialize_balance_history(initial_balance)
+
         self.db.add(account)
         self.db.commit()
         self.db.refresh(account)
@@ -121,7 +124,15 @@ class TransactionManager:
         if week:
             week.running_total = new_total
             self.db.commit()
-    
+
+    def get_week_number_for_date(self, target_date: date) -> Optional[int]:
+        """Get week number for a given date"""
+        weeks = self.get_all_weeks()
+        for week in weeks:
+            if week.start_date <= target_date <= week.end_date:
+                return week.week_number
+        return None
+
     # Transaction operations
     def add_transaction(self, transaction_data: Dict[str, Any]) -> Transaction:
         """Add a new transaction"""
@@ -129,7 +140,41 @@ class TransactionManager:
         self.db.add(transaction)
         self.db.commit()
         self.db.refresh(transaction)
+
+        # Trigger rollover recalculation for spending and saving transactions
+        # but exclude rollover transactions to prevent infinite loops
+        is_rollover_transaction = (
+            transaction.description and
+            ("rollover" in transaction.description.lower() or
+             "end-of-period" in transaction.description.lower() or
+             transaction.category == "Rollover" or
+             transaction.category == "Rollover Deficit")
+        )
+
+        if (transaction.is_spending or transaction.is_saving) and not is_rollover_transaction:
+            self.trigger_rollover_recalculation(transaction.week_number)
+
         return transaction
+
+    def trigger_rollover_recalculation(self, week_number: int):
+        """Trigger rollover recalculation when transactions are added to a week"""
+        try:
+            from services.paycheck_processor import PaycheckProcessor
+            processor = PaycheckProcessor()
+
+            # Reset rollover flag for this week so it gets recalculated
+            week = self.get_week_by_number(week_number)
+            if week:
+                week.rollover_applied = False
+                self.db.commit()
+                print(f"DEBUG: Marked Week {week_number} for rollover recalculation")
+
+                # Trigger rollover check
+                processor.check_and_process_rollovers()
+
+            processor.close()
+        except Exception as e:
+            print(f"Error triggering rollover recalculation: {e}")
     
     def get_all_transactions(self) -> List[Transaction]:
         """Get all transactions"""
