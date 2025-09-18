@@ -236,6 +236,33 @@ class AccountEditorDialog(QDialog):
             
             # Apply changes to account object
             self.account.name = current_values['name']
+
+            # Handle running total change - update balance history if needed
+            old_balance = self.original_values['running_total']
+            new_balance = current_values['running_total']
+            if old_balance != new_balance:
+                # If balance history is empty or has only one entry, update the starting balance
+                if not self.account.balance_history or len(self.account.balance_history) <= 1:
+                    self.account.balance_history = [new_balance]
+                    print(f"Updated account {self.account.name} starting balance: ${old_balance:.2f} -> ${new_balance:.2f}")
+                else:
+                    # Account has history - warn user that this affects historical data
+                    reply = QMessageBox.question(
+                        self, "Balance History Warning",
+                        f"This account has {len(self.account.balance_history)} balance history entries.\n\n"
+                        f"Changing the current balance will affect the most recent balance in history.\n"
+                        f"This may impact rollover calculations.\n\n"
+                        f"Do you want to continue?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+
+                    # Update the most recent entry in balance history
+                    self.account.balance_history[-1] = new_balance
+                    print(f"Updated account {self.account.name} most recent balance history: ${old_balance:.2f} -> ${new_balance:.2f}")
+
             self.account.running_total = current_values['running_total']
             self.account.goal_amount = current_values['goal_amount']
             self.account.auto_save_amount = current_values['auto_save_amount']

@@ -164,9 +164,13 @@ class PaycheckProcessor:
         
         # 2. Record account auto-savings transactions
         self.update_account_auto_savings(current_week.week_number, paycheck_date)
-        
+
         # 3. Update bill savings (allocate money for upcoming bills)
+        # Disable automatic rollover recalculation during bill processing to prevent multiple triggers
+        self.transaction_manager.set_auto_rollover_disabled(True)
         self.update_bill_savings(current_week.week_number, paycheck_date, split.gross_paycheck)
+        # Re-enable automatic rollover recalculation
+        self.transaction_manager.set_auto_rollover_disabled(False)
 
         # 4. Update week allocations with the calculated amounts
         print(f"DEBUG: Setting Week {current_week.week_number} allocation to ${split.week1_allocation}")
@@ -269,13 +273,14 @@ class PaycheckProcessor:
         # Get week's transactions
         week_transactions = self.transaction_manager.get_transactions_by_week(week_number)
 
-        # Calculate effective allocated amount (base allocation + income like rollovers)
+        # Calculate effective allocated amount (base allocation + rollover income only, NOT paycheck income)
         base_allocated_amount = week.running_total
-        income_amount = sum(
+        rollover_income = sum(
             t.amount for t in week_transactions
-            if t.transaction_type == TransactionType.INCOME.value
+            if t.transaction_type == TransactionType.INCOME.value and
+            ("rollover" in t.description.lower() or t.category == "Rollover")
         )
-        allocated_amount = base_allocated_amount + income_amount
+        allocated_amount = base_allocated_amount + rollover_income
 
         # Calculate total spent in this week (spending + bills, not including income/savings)
         spent_amount = sum(
@@ -400,13 +405,8 @@ class PaycheckProcessor:
             self.db.delete(existing_tx)
 
 
-        # Update default savings account balance with net adjustment
-        old_balance = default_savings_account.running_total
-        new_balance = old_balance + balance_adjustment
-        self.transaction_manager.update_account_balance(default_savings_account.id, new_balance)
-
-        # Verify the update worked
-        updated_account = self.transaction_manager.get_default_savings_account()
+        # Note: Account balance will be updated automatically when the rollover transaction is created
+        # No need to manually update account balance here since transaction creation handles it
 
         # Record new rollover transaction
         if rollover.rollover_amount > 0:

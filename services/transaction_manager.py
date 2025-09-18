@@ -15,6 +15,7 @@ class TransactionManager:
         self.db = get_db()
         from models.database import DATABASE_URL
         print(f"DEBUG: TransactionManager using database: {DATABASE_URL}")
+        self._disable_auto_rollover = False  # Flag to disable automatic rollover recalculation
     
     def close(self):
         """Close database connection"""
@@ -81,6 +82,34 @@ class TransactionManager:
         if account:
             account.running_total = new_balance
             self.db.commit()
+
+    def update_account_with_transaction(self, account_id: int, transaction_amount: float, week_number: int):
+        """Update account balance and balance history when a transaction is added"""
+        account = self.get_account_by_id(account_id)
+        if account:
+            # Convert week number to pay period index (0-based)
+            pay_period_index = (week_number - 1) // 2 + 1  # +1 because index 0 is starting balance
+
+            # Use the new balance history update method
+            account.update_balance_with_transaction(transaction_amount, pay_period_index)
+            self.db.commit()
+
+    def ensure_all_accounts_have_consistent_history(self):
+        """Ensure all accounts have the same balance history length"""
+        accounts = self.get_all_accounts()
+        weeks = self.get_all_weeks()
+
+        if not weeks:
+            return
+
+        # Calculate required history length: pay periods + 1 for starting balance
+        max_week = max(w.week_number for w in weeks)
+        required_length = (max_week - 1) // 2 + 2  # +2 because: +1 for pay period, +1 for starting
+
+        for account in accounts:
+            account.ensure_history_length(required_length)
+
+        self.db.commit()
     
     # Bill operations
     def get_all_bills(self) -> List[Bill]:
@@ -141,6 +170,15 @@ class TransactionManager:
         self.db.commit()
         self.db.refresh(transaction)
 
+        # Update balance history for account transactions
+        if transaction.account_id and transaction.is_saving:
+            # For savings transactions, update the account's balance history
+            self.update_account_with_transaction(
+                transaction.account_id,
+                transaction.amount,
+                transaction.week_number
+            )
+
         # Trigger rollover recalculation for spending and saving transactions
         # but exclude rollover transactions to prevent infinite loops
         is_rollover_transaction = (
@@ -151,10 +189,18 @@ class TransactionManager:
              transaction.category == "Rollover Deficit")
         )
 
-        if (transaction.is_spending or transaction.is_saving) and not is_rollover_transaction:
+        if (transaction.is_spending or transaction.is_saving) and not is_rollover_transaction and not self._disable_auto_rollover:
             self.trigger_rollover_recalculation(transaction.week_number)
 
         return transaction
+
+    def set_auto_rollover_disabled(self, disabled: bool):
+        """Enable or disable automatic rollover recalculation"""
+        self._disable_auto_rollover = disabled
+        if disabled:
+            print("DEBUG: Automatic rollover recalculation DISABLED")
+        else:
+            print("DEBUG: Automatic rollover recalculation ENABLED")
 
     def trigger_rollover_recalculation(self, week_number: int):
         """Trigger rollover recalculation when transactions are added to a week"""

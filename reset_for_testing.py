@@ -35,13 +35,14 @@ def reset_for_testing():
         print(f"Deleting {week_count} weeks...")
         db.query(Week).delete()
 
-        # Reset account balances to 0 (optional - keeps account structure but resets balances)
+        # Reset account balances to 0 and clear balance history
         print("\nResetting account balances to $0...")
         accounts = db.query(Account).all()
         for account in accounts:
             old_balance = account.running_total
             account.running_total = 0.0
-            print(f"  {account.name}: ${old_balance:.2f} -> $0.00")
+            account.balance_history = []  # Clear balance history
+            print(f"  {account.name}: ${old_balance:.2f} -> $0.00 (history cleared)")
 
         # Commit changes
         db.commit()

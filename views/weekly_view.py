@@ -1453,9 +1453,8 @@ class WeeklyView(QWidget):
             # Get all accounts
             accounts = self.transaction_manager.get_all_accounts()
 
-            # Calculate actual balance changes for each account
-            # This includes savings transactions + rollovers + auto-allocations
-            current_pay_period_index = self.selected_week_index + 1  # Convert 0-based to 1-based
+            # Get current pay period index
+            current_pay_period_index = self.get_current_pay_period_index()
 
             savings_text = ""
             for account in accounts:
@@ -1548,29 +1547,36 @@ class WeeklyView(QWidget):
             print(f"Error updating bills payments: {e}")
             self.bills_payments_label.setText("Error loading bills data")
             
+    def get_current_pay_period_index(self):
+        """Get the current pay period index being displayed (1-based)"""
+        # Determine which pay period we're displaying
+        current_pay_period_index = None
+        if hasattr(self, 'week1_detail') and hasattr(self, 'week2_detail'):
+            if self.week1_detail.week_data and self.week2_detail.week_data:
+                # Calculate pay period index based on week numbers
+                # Week 1-2 = period 1, Week 3-4 = period 2, etc.
+                week1_num = self.week1_detail.week_data.week_number
+                current_pay_period_index = (week1_num - 1) // 2 + 1  # Convert to 1-based pay period
+
+        # If we can't determine from displayed weeks, use the most recent pay period
+        if current_pay_period_index is None:
+            all_weeks = self.transaction_manager.get_all_weeks()
+            if all_weeks:
+                max_week = max(week.week_number for week in all_weeks)
+                current_pay_period_index = (max_week - 1) // 2 + 1  # Most recent pay period
+            else:
+                current_pay_period_index = 1  # Default to first period
+
+        return current_pay_period_index
+
     def update_savings_values(self):
         """Update starting and ending savings account values using balance history arrays"""
         try:
             # Get all accounts
             accounts = self.transaction_manager.get_all_accounts()
 
-            # Determine which pay period we're displaying
-            current_pay_period_index = None
-            if hasattr(self, 'week1_detail') and hasattr(self, 'week2_detail'):
-                if self.week1_detail.week_data and self.week2_detail.week_data:
-                    # Calculate pay period index based on week numbers
-                    # Week 1-2 = period 1, Week 3-4 = period 2, etc.
-                    week1_num = self.week1_detail.week_data.week_number
-                    current_pay_period_index = (week1_num - 1) // 2 + 1  # Convert to 1-based pay period
-
-            # If we can't determine from displayed weeks, use the most recent pay period
-            if current_pay_period_index is None:
-                all_weeks = self.transaction_manager.get_all_weeks()
-                if all_weeks:
-                    max_week = max(week.week_number for week in all_weeks)
-                    current_pay_period_index = (max_week - 1) // 2 + 1  # Most recent pay period
-                else:
-                    current_pay_period_index = 1  # Default to first period
+            # Get current pay period index
+            current_pay_period_index = self.get_current_pay_period_index()
 
             # Display values for each account using balance history
             start_account_text = ""

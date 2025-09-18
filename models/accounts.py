@@ -105,3 +105,43 @@ class Account(Base):
             return []
 
         return list(self.balance_history)
+
+    def update_balance_with_transaction(self, transaction_amount: float, pay_period_index: int):
+        """Update balance and propagate changes through balance history"""
+
+        # Update the running total first
+        self.running_total += transaction_amount
+
+        # Ensure balance history exists and has enough entries
+        if self.balance_history is None:
+            self.balance_history = []
+
+        history = list(self.balance_history)
+
+        # Ensure we have enough history entries up to the pay period
+        while len(history) <= pay_period_index:
+            # Extend history with current balance (before this transaction)
+            previous_balance = history[-1] if history else (self.running_total - transaction_amount)
+            history.append(previous_balance)
+
+        # Update the target pay period and all subsequent periods
+        for i in range(pay_period_index, len(history)):
+            history[i] += transaction_amount
+
+        self.balance_history = history
+        self.updated_at = func.now()
+
+    def ensure_history_length(self, required_length: int):
+        """Ensure balance history has at least the required number of entries"""
+        if self.balance_history is None:
+            self.balance_history = []
+
+        history = list(self.balance_history)
+
+        # If we need more entries, extend with current balance
+        while len(history) < required_length:
+            current_balance = history[-1] if history else self.running_total
+            history.append(current_balance)
+
+        self.balance_history = history
+        self.updated_at = func.now()

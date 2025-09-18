@@ -49,16 +49,23 @@ def clean_all_data():
         db.commit()
         print("  All bill balances reset")
 
-        # STEP 4: Reset savings account balances to 0
-        print("\n4. RESETTING SAVINGS ACCOUNT BALANCES:")
+        # STEP 4: Reset savings account balances and balance history to 0
+        print("\n4. RESETTING SAVINGS ACCOUNT BALANCES AND HISTORY:")
         accounts = transaction_manager.get_all_accounts()
         for account in accounts:
             old_total = account.running_total
+            old_history_length = len(account.balance_history) if account.balance_history else 0
+
+            # Reset running total
             account.running_total = 0.0
-            print(f"  {account.name}: ${old_total:.2f} -> $0.00")
+
+            # Reset balance history to start fresh with 0 (direct assignment is more reliable)
+            account.balance_history = [0.0]
+
+            print(f"  {account.name}: ${old_total:.2f} -> $0.00 (history: {old_history_length} entries -> 1 entry)")
 
         db.commit()
-        print("  All savings account balances reset")
+        print("  All savings account balances and histories reset")
 
         # STEP 5: Verify clean state
         print("\n5. VERIFICATION:")
