@@ -420,7 +420,7 @@ class BillRowWidget(QWidget):
             
             # Savings progress bar
             typical_amount = getattr(self.bill, 'typical_amount', 1)
-            current_saved = getattr(self.bill, 'running_total', 0)
+            current_saved = self.bill.get_current_balance(self.transaction_manager.db)
             
             if typical_amount > 0:
                 savings_progress = min(100, (current_saved / typical_amount) * 100)
@@ -438,86 +438,52 @@ class BillRowWidget(QWidget):
             self.savings_progress_bar.setFormat("0%")
     
     def update_line_chart(self):
-        """Update the running total line chart (enhanced for percentage bills)"""
+        """Update the bill balance line chart using AccountHistory data"""
         try:
-            # Check if this is a percentage-based bill (amount_to_save < 1)
-            is_percentage_bill = getattr(self.bill, 'amount_to_save', 0) < 1.0 and getattr(self.bill, 'amount_to_save', 0) > 0
-            
-            # Get bill history data
-            all_transactions = self.transaction_manager.get_all_transactions()
-            
-            # Filter transactions for this bill
-            bill_transactions = []
-            for transaction in all_transactions:
-                if (hasattr(transaction, 'bill_id') and transaction.bill_id == self.bill.id) or \
-                   (hasattr(transaction, 'bill_type') and transaction.bill_type == self.bill.name):
-                    bill_transactions.append(transaction)
-            
-            if not bill_transactions:
-                # No transaction history - show only current balance
-                current_total = getattr(self.bill, 'running_total', 0)
+            # Get AccountHistory entries directly for this bill
+            from models.account_history import AccountHistoryManager
+
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.bill.id, "bill")
+
+            if not account_history:
+                # No account history - show current balance as flat line
+                current_balance = self.bill.get_current_balance(self.transaction_manager.db)
                 from datetime import date
                 today = date.today()
-                chart_data = {"Running Total": [(today, current_total)]}
-                
-                # For percentage bills with no transaction data, we can't show meaningful secondary lines
-                # because we need actual paycheck data to show real relationships
-                
-            else:
-                # Sort by date and calculate running totals using REAL DATA
-                bill_transactions.sort(key=lambda t: t.date)
-                
-                running_total = 0
-                running_total_points = []
-                weekly_saved_points = []
-                weekly_paycheck_points = []
-                
-                # Get income transactions (paychecks) from the same time periods
-                income_transactions = [t for t in all_transactions if t.transaction_type == "income"]
-                income_by_date = {t.date: t.amount for t in income_transactions}
-                
-                for transaction in bill_transactions[-20:]:  # Last 20 transactions
-                    transaction_date = transaction.date
-                    
-                    if transaction.transaction_type == "saving":
-                        running_total += transaction.amount
-                        
-                        # For percentage bills, find the corresponding paycheck
-                        if is_percentage_bill:
-                            weekly_saved_amount = transaction.amount
-                            
-                            # Look for income transaction on the same date (paycheck day)
-                            paycheck_amount = income_by_date.get(transaction_date, None)
-                            
-                            if paycheck_amount:
-                                # Use REAL paycheck data
-                                weekly_saved_points.append((transaction_date, weekly_saved_amount))
-                                weekly_paycheck_points.append((transaction_date, paycheck_amount))
-                            else:
-                                # Calculate implied paycheck from percentage (backup method)
-                                if self.bill.amount_to_save > 0:
-                                    implied_paycheck = weekly_saved_amount / self.bill.amount_to_save
-                                    weekly_saved_points.append((transaction_date, weekly_saved_amount))
-                                    weekly_paycheck_points.append((transaction_date, implied_paycheck))
-                            
-                    elif transaction.transaction_type == "bill_pay":
-                        running_total -= transaction.amount
-                    
-                    running_total_points.append((transaction_date, running_total))
-                
-                # Build chart data with REAL DATES
-                chart_data = {"Running Total": running_total_points}
-                
-                # Add secondary lines for percentage bills (ONLY REAL DATA)
-                if is_percentage_bill:
-                    if weekly_saved_points:
-                        chart_data["Weekly Saved"] = weekly_saved_points
-                    if weekly_paycheck_points:
-                        chart_data["Weekly Paycheck"] = weekly_paycheck_points
-            
-            # Update chart with date-based x-axis
-            self.running_total_chart.update_data(chart_data, "", "")  # No x/y labels for cleaner look
-            
+                chart_data = {"Bill Balance": [(today, current_balance)]}
+                self.running_total_chart.update_data(chart_data, "", "")
+                return
+
+            # Build balance points from AccountHistory (date, running_total)
+            balance_points = []
+            for entry in account_history:
+                balance_points.append((entry.transaction_date, entry.running_total))
+
+            print(f"DEBUG: {self.bill.name} - Using AccountHistory with {len(account_history)} entries")
+            print(f"DEBUG: {self.bill.name} - Created {len(balance_points)} chart points")
+
+            # If more than 50 entries, show the most recent 50 for performance
+            if len(balance_points) > 50:
+                balance_points = balance_points[-50:]
+
+            # Build chart data
+            chart_data = {"Bill Balance": balance_points} if balance_points else {}
+
+            # Add goal line if typical amount is set and we have data points
+            if (hasattr(self.bill, 'typical_amount') and self.bill.typical_amount and
+                self.bill.typical_amount > 0 and balance_points):
+                first_date = balance_points[0][0]
+                last_date = balance_points[-1][0]
+                goal_points = [
+                    (first_date, self.bill.typical_amount),
+                    (last_date, self.bill.typical_amount)
+                ]
+                chart_data["Payment Goal"] = goal_points
+
+            # Update chart with date on X-axis, running total on Y-axis (with dots like bills should have)
+            self.running_total_chart.update_data(chart_data, "", "")
+
         except Exception as e:
             print(f"Error updating line chart for {self.bill.name}: {e}")
             import traceback
@@ -535,7 +501,7 @@ class BillRowWidget(QWidget):
             self.writeup_labels["name"].setText(self.bill.name)
             
             # Current Balance
-            current_balance = getattr(self.bill, 'running_total', 0)
+            current_balance = self.bill.get_current_balance(self.transaction_manager.db)
             self.writeup_labels["current_balance"].setText(f"${current_balance:.2f}")
             
             # Expected Payment - different for percentage bills

@@ -1,5 +1,5 @@
 """
-Account Transaction History Dialog - Direct table editing for savings account transactions
+Bill Transaction History Dialog - Direct table editing for bill transactions
 """
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -89,22 +89,22 @@ class AmountEditDelegate(QStyledItemDelegate):
             print(f"DEBUG: Error setting amount model data: {e}")
 
 
-class AccountTransactionHistoryDialog(QDialog):
-    """Dialog for direct table editing of account transactions"""
+class BillTransactionHistoryDialog(QDialog):
+    """Dialog for direct table editing of bill transactions"""
 
-    account_updated = pyqtSignal(object)  # Signal when transactions are modified
+    bill_updated = pyqtSignal(object)  # Signal when transactions are modified
 
-    def __init__(self, account, transaction_manager, parent=None):
+    def __init__(self, bill, transaction_manager, parent=None):
         try:
-            print(f"DEBUG: Initializing AccountTransactionHistoryDialog for {account.name}")
+            print(f"DEBUG: Initializing BillTransactionHistoryDialog for {bill.name}")
             super().__init__(parent)
-            self.account = account
+            self.bill = bill
             self.transaction_manager = transaction_manager
             self.original_transactions = {}  # Store original transaction data for change tracking
             self.deleted_transactions = []  # Track deleted transactions
 
             print(f"DEBUG: Setting window properties")
-            self.setWindowTitle(f"Transaction History: {account.name}")
+            self.setWindowTitle(f"Transaction History: {bill.name}")
             self.setModal(True)
             self.resize(1000, 600)
 
@@ -135,7 +135,7 @@ class AccountTransactionHistoryDialog(QDialog):
         layout = QVBoxLayout()
 
         # Header
-        header = QLabel(f"Transaction History: {self.account.name}")
+        header = QLabel(f"Transaction History: {self.bill.name}")
         header.setFont(theme_manager.get_font("title"))
         layout.addWidget(header)
 
@@ -206,15 +206,15 @@ class AccountTransactionHistoryDialog(QDialog):
         self.setLayout(layout)
 
     def load_transactions(self):
-        """Load all transactions for this account using AccountHistory"""
+        """Load all transactions for this bill using AccountHistory"""
         try:
-            print(f"DEBUG: Loading transactions for account {self.account.name} (ID: {self.account.id})")
+            print(f"DEBUG: Loading transactions for bill {self.bill.name} (ID: {self.bill.id})")
 
-            # Get AccountHistory entries directly for this account
+            # Get AccountHistory entries directly for this bill
             from models.account_history import AccountHistoryManager
 
             history_manager = AccountHistoryManager(self.transaction_manager.db)
-            account_history = history_manager.get_account_history(self.account.id, "savings")
+            account_history = history_manager.get_account_history(self.bill.id, "bill")
             print(f"DEBUG: Found {len(account_history)} total history entries")
 
             # Include both transaction entries AND starting balance entries
@@ -559,8 +559,8 @@ class AccountTransactionHistoryDialog(QDialog):
                                 if transaction:
                                     transaction.description = new_description
 
-            # Recalculate all running totals for this account
-            history_manager.recalculate_account_history(self.account.id, "savings")
+            # Recalculate all running totals for this bill
+            history_manager.recalculate_account_history(self.bill.id, "bill")
 
             # Commit all changes
             self.transaction_manager.db.commit()
@@ -582,8 +582,8 @@ class AccountTransactionHistoryDialog(QDialog):
                 print(f"DEBUG: Could not trigger rollover recalculation: {recalc_error}")
 
             # Emit signal to update parent views
-            self.account_updated.emit(self.account)
-            print("DEBUG: Account updated signal emitted")
+            self.bill_updated.emit(self.bill)
+            print("DEBUG: Bill updated signal emitted")
 
         except Exception as e:
             self.transaction_manager.db.rollback()

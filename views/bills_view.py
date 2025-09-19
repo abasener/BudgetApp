@@ -357,9 +357,9 @@ class BillsView(QWidget):
     def on_see_history_clicked(self, bill):
         """Handle 'See History' button click - open transaction history"""
         try:
-            from views.dialogs.transaction_history_dialog import TransactionHistoryDialog
-            
-            dialog = TransactionHistoryDialog(bill, self.transaction_manager, self)
+            from views.dialogs.bill_transaction_history_dialog import BillTransactionHistoryDialog
+
+            dialog = BillTransactionHistoryDialog(bill, self.transaction_manager, self)
             dialog.bill_updated.connect(self.on_bill_updated)
             dialog.exec()
             

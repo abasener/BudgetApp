@@ -7,12 +7,13 @@ from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, asc
 
-from models import get_db, Account, Bill, Week, Transaction, TransactionType
+from models import get_db, Account, Bill, Week, Transaction, TransactionType, AccountHistoryManager
 
 
 class TransactionManager:
     def __init__(self):
         self.db = get_db()
+        self.history_manager = AccountHistoryManager(self.db)
         from models.database import DATABASE_URL
         print(f"DEBUG: TransactionManager using database: {DATABASE_URL}")
         self._disable_auto_rollover = False  # Flag to disable automatic rollover recalculation
@@ -46,21 +47,25 @@ class TransactionManager:
         if not existing_accounts and not is_default_save:
             is_default_save = True
 
-        # Create new account with specified initial balance
+        # Create new account (no running_total field needed)
         account = Account(
             name=name,
-            running_total=initial_balance,
             goal_amount=goal_amount,
             auto_save_amount=auto_save_amount,
             is_default_save=is_default_save
         )
 
-        # Initialize balance history with the account's actual starting balance
-        account.initialize_balance_history(initial_balance)
-
         self.db.add(account)
         self.db.commit()
         self.db.refresh(account)
+
+        # Initialize AccountHistory with starting balance using a reasonable start date
+        # Use a date well in the past so transactions will naturally come after it
+        from datetime import datetime
+        start_date = date(2024, 1, 1)  # Start of year for initial balance
+        account.initialize_history(self.db, starting_balance=initial_balance, start_date=start_date)
+        self.db.commit()
+
         return account
     
     def set_default_savings_account(self, account_id: int):
@@ -115,10 +120,37 @@ class TransactionManager:
     def get_all_bills(self) -> List[Bill]:
         """Get all bills"""
         return self.db.query(Bill).all()
-    
+
     def get_bill_by_id(self, bill_id: int) -> Optional[Bill]:
         """Get bill by ID"""
         return self.db.query(Bill).filter(Bill.id == bill_id).first()
+
+    def add_bill(self, name: str, bill_type: str, payment_frequency: str, typical_amount: float,
+                 amount_to_save: float, is_variable: bool = False, notes: str = None,
+                 initial_balance: float = 0.0) -> Bill:
+        """Add a new bill with AccountHistory initialization"""
+        # Create new bill
+        bill = Bill(
+            name=name,
+            bill_type=bill_type,
+            payment_frequency=payment_frequency,
+            typical_amount=typical_amount,
+            amount_to_save=amount_to_save,
+            is_variable=is_variable,
+            notes=notes
+        )
+
+        self.db.add(bill)
+        self.db.commit()
+        self.db.refresh(bill)
+
+        # Initialize AccountHistory with starting balance using a reasonable start date
+        # Use a date well in the past so transactions will naturally come after it
+        start_date = date(2024, 1, 1)  # Start of year for initial balance
+        bill.initialize_history(self.db, starting_balance=initial_balance, start_date=start_date)
+        self.db.commit()
+
+        return bill
     
     def get_bills_due_soon(self, days_ahead: int = 7) -> List[Bill]:
         """Get bills due within specified days"""
@@ -164,20 +196,28 @@ class TransactionManager:
 
     # Transaction operations
     def add_transaction(self, transaction_data: Dict[str, Any]) -> Transaction:
-        """Add a new transaction"""
+        """
+        Add a new transaction and automatically create AccountHistory entries
+        for any accounts affected by the transaction
+        """
         transaction = Transaction(**transaction_data)
         self.db.add(transaction)
+        self.db.flush()  # Get transaction ID without committing
+
+        # Automatically create AccountHistory entries for affected accounts
+        if transaction.affects_account:
+            change_amount = transaction.get_change_amount_for_account()
+            if change_amount != 0:  # Only create history entry if there's an actual change
+                self.history_manager.add_transaction_change(
+                    account_id=transaction.affected_account_id,
+                    account_type=transaction.account_type,
+                    transaction_id=transaction.id,
+                    change_amount=change_amount,
+                    transaction_date=transaction.date
+                )
+
         self.db.commit()
         self.db.refresh(transaction)
-
-        # Update balance history for account transactions
-        if transaction.account_id and transaction.is_saving:
-            # For savings transactions, update the account's balance history
-            self.update_account_with_transaction(
-                transaction.account_id,
-                transaction.amount,
-                transaction.week_number
-            )
 
         # Trigger rollover recalculation for spending and saving transactions
         # but exclude rollover transactions to prevent infinite loops
@@ -207,17 +247,9 @@ class TransactionManager:
         try:
             from services.paycheck_processor import PaycheckProcessor
             processor = PaycheckProcessor()
-
-            # Reset rollover flag for this week so it gets recalculated
-            week = self.get_week_by_number(week_number)
-            if week:
-                week.rollover_applied = False
-                self.db.commit()
-                print(f"DEBUG: Marked Week {week_number} for rollover recalculation")
-
-                # Trigger rollover check
-                processor.check_and_process_rollovers()
-
+            print(f"DEBUG: Triggering dynamic rollover recalculation for Week {week_number}")
+            # Use the new dynamic recalculation system
+            processor.recalculate_period_rollovers(week_number)
             processor.close()
         except Exception as e:
             print(f"Error triggering rollover recalculation: {e}")
@@ -279,25 +311,80 @@ class TransactionManager:
         return query.all()
     
     def delete_transaction(self, transaction_id: int) -> bool:
-        """Delete a transaction"""
+        """Delete a transaction and its AccountHistory entry"""
         transaction = self.db.query(Transaction).filter(Transaction.id == transaction_id).first()
         if transaction:
+            # Remove AccountHistory entry if it exists
+            if transaction.affects_account:
+                self.history_manager.delete_transaction_change(transaction_id)
+
             self.db.delete(transaction)
             self.db.commit()
             return True
         return False
-    
+
     def update_transaction(self, transaction_id: int, updates: Dict[str, Any]) -> Optional[Transaction]:
-        """Update a transaction"""
+        """Update a transaction and its AccountHistory entry"""
         transaction = self.db.query(Transaction).filter(Transaction.id == transaction_id).first()
-        if transaction:
-            for key, value in updates.items():
-                if hasattr(transaction, key):
-                    setattr(transaction, key, value)
-            self.db.commit()
-            self.db.refresh(transaction)
-            return transaction
-        return None
+        if not transaction:
+            return None
+
+        # Check if this update affects account relationships
+        old_affects_account = transaction.affects_account
+        old_change_amount = transaction.get_change_amount_for_account() if old_affects_account else 0
+        old_account_id = transaction.affected_account_id if old_affects_account else None
+        old_account_type = transaction.account_type if old_affects_account else None
+        old_date = transaction.date
+
+        # Apply updates
+        for key, value in updates.items():
+            if hasattr(transaction, key):
+                setattr(transaction, key, value)
+
+        # Handle AccountHistory changes
+        new_affects_account = transaction.affects_account
+        new_change_amount = transaction.get_change_amount_for_account() if new_affects_account else 0
+        new_account_id = transaction.affected_account_id if new_affects_account else None
+        new_account_type = transaction.account_type if new_affects_account else None
+        new_date = transaction.date
+
+        if old_affects_account and not new_affects_account:
+            # Transaction no longer affects an account - remove history entry
+            self.history_manager.delete_transaction_change(transaction_id)
+        elif not old_affects_account and new_affects_account:
+            # Transaction now affects an account - create history entry
+            if new_change_amount != 0:
+                self.history_manager.add_transaction_change(
+                    account_id=new_account_id,
+                    account_type=new_account_type,
+                    transaction_id=transaction_id,
+                    change_amount=new_change_amount,
+                    transaction_date=new_date
+                )
+        elif old_affects_account and new_affects_account:
+            # Transaction still affects an account - update history entry
+            if (old_account_id != new_account_id or old_account_type != new_account_type):
+                # Account changed - delete old and create new
+                self.history_manager.delete_transaction_change(transaction_id)
+                if new_change_amount != 0:
+                    self.history_manager.add_transaction_change(
+                        account_id=new_account_id,
+                        account_type=new_account_type,
+                        transaction_id=transaction_id,
+                        change_amount=new_change_amount,
+                        transaction_date=new_date
+                    )
+            else:
+                # Same account - update existing entry
+                self.history_manager.update_transaction_change(
+                    transaction_id=transaction_id,
+                    new_change_amount=new_change_amount,
+                    new_date=new_date
+                )
+
+        self.db.commit()
+        self.db.refresh(transaction)
+        return transaction
     
     # Analytics and summary methods
     def get_spending_by_category(self, include_analytics_only: bool = True) -> Dict[str, float]:

@@ -86,18 +86,29 @@ class BillEditorDialog(QDialog):
         amount_layout.addWidget(percentage_note)
         fields_layout.addRow("Amount to Save (Bi-weekly):", amount_layout)
         
-        # Running total with caution note
-        running_layout = QHBoxLayout()
-        self.running_total_spin = QDoubleSpinBox()
-        self.running_total_spin.setRange(0, 99999.99)
-        self.running_total_spin.setDecimals(2)
-        self.running_total_spin.setSuffix(" $")
-        running_layout.addWidget(self.running_total_spin)
-        
-        caution_note = QLabel("⚠️ Changes affect money balances")
-        caution_note.setStyleSheet("color: orange; font-style: italic;")
-        running_layout.addWidget(caution_note)
-        fields_layout.addRow("Running Total:", running_layout)
+        # Starting amount (editable)
+        starting_layout = QHBoxLayout()
+        self.starting_amount_spin = QDoubleSpinBox()
+        self.starting_amount_spin.setRange(0, 999999.99)
+        self.starting_amount_spin.setDecimals(2)
+        self.starting_amount_spin.setSuffix(" $")
+        starting_layout.addWidget(self.starting_amount_spin)
+
+        starting_note = QLabel("(initial balance when bill was created)")
+        starting_note.setStyleSheet("color: gray; font-style: italic;")
+        starting_layout.addWidget(starting_note)
+        fields_layout.addRow("Starting Amount:", starting_layout)
+
+        # Current balance (read-only, from AccountHistory)
+        balance_layout = QHBoxLayout()
+        self.current_balance_label = QLabel("$0.00")
+        self.current_balance_label.setStyleSheet("font-weight: bold; color: #28a745;")
+        balance_layout.addWidget(self.current_balance_label)
+
+        balance_note = QLabel("(from AccountHistory - edit via transaction history)")
+        balance_note.setStyleSheet("color: gray; font-style: italic;")
+        balance_layout.addWidget(balance_note)
+        fields_layout.addRow("Current Balance:", balance_layout)
         
         self.last_payment_date = QDateEdit()
         self.last_payment_date.setCalendarPopup(True)
@@ -181,46 +192,130 @@ class BillEditorDialog(QDialog):
     
     def load_bill_data(self):
         """Load current bill data into the form"""
-        # Store original values for change tracking
-        self.original_values = {
-            'name': self.bill.name,
-            'bill_type': self.bill.bill_type,
-            'payment_frequency': self.bill.payment_frequency,
-            'typical_amount': self.bill.typical_amount,
-            'amount_to_save': self.bill.amount_to_save,
-            'running_total': self.bill.running_total,
-            'last_payment_date': self.bill.last_payment_date,
-            'last_payment_amount': self.bill.last_payment_amount,
-            'is_variable': self.bill.is_variable,
-            'notes': self.bill.notes
-        }
-        
-        # Load values into form
-        self.name_edit.setText(self.bill.name or "")
-        self.bill_type_combo.setCurrentText(self.bill.bill_type or "")
-        
-        # Set frequency combo
-        frequency = self.bill.payment_frequency or "monthly"
-        index = self.frequency_combo.findText(frequency)
-        if index >= 0:
-            self.frequency_combo.setCurrentIndex(index)
-        
-        self.typical_amount_spin.setValue(self.bill.typical_amount or 0)
-        self.amount_to_save_spin.setValue(self.bill.amount_to_save or 0)
-        self.running_total_spin.setValue(self.bill.running_total or 0)
-        
-        # Set date
-        if self.bill.last_payment_date:
-            qdate = QDate(self.bill.last_payment_date.year, 
-                         self.bill.last_payment_date.month, 
-                         self.bill.last_payment_date.day)
-            self.last_payment_date.setDate(qdate)
-        else:
-            self.last_payment_date.setDate(QDate.currentDate())
-        
-        self.last_payment_amount_spin.setValue(self.bill.last_payment_amount or 0)
-        self.is_variable_checkbox.setChecked(self.bill.is_variable or False)
-        self.notes_edit.setPlainText(self.bill.notes or "")
+        try:
+            # Get current balance from AccountHistory
+            current_balance = self.bill.get_current_balance(self.transaction_manager.db)
+
+            # Get starting balance from AccountHistory
+            starting_balance = self.get_starting_balance()
+
+            # Store original values for change tracking
+            self.original_values = {
+                'name': self.bill.name,
+                'bill_type': self.bill.bill_type,
+                'payment_frequency': self.bill.payment_frequency,
+                'typical_amount': self.bill.typical_amount,
+                'amount_to_save': self.bill.amount_to_save,
+                'starting_amount': starting_balance,
+                'last_payment_date': self.bill.last_payment_date,
+                'last_payment_amount': self.bill.last_payment_amount,
+                'is_variable': self.bill.is_variable,
+                'notes': self.bill.notes
+            }
+
+            # Load values into form
+            self.name_edit.setText(self.bill.name or "")
+            self.bill_type_combo.setCurrentText(self.bill.bill_type or "")
+
+            # Set frequency combo
+            frequency = self.bill.payment_frequency or "monthly"
+            index = self.frequency_combo.findText(frequency)
+            if index >= 0:
+                self.frequency_combo.setCurrentIndex(index)
+
+            self.typical_amount_spin.setValue(self.bill.typical_amount or 0)
+            self.amount_to_save_spin.setValue(self.bill.amount_to_save or 0)
+            self.starting_amount_spin.setValue(starting_balance)
+            self.current_balance_label.setText(f"${current_balance:.2f}")
+
+            # Set date
+            if self.bill.last_payment_date:
+                qdate = QDate(self.bill.last_payment_date.year,
+                             self.bill.last_payment_date.month,
+                             self.bill.last_payment_date.day)
+                self.last_payment_date.setDate(qdate)
+            else:
+                self.last_payment_date.setDate(QDate.currentDate())
+
+            self.last_payment_amount_spin.setValue(self.bill.last_payment_amount or 0)
+            self.is_variable_checkbox.setChecked(self.bill.is_variable or False)
+            self.notes_edit.setPlainText(self.bill.notes or "")
+
+        except Exception as e:
+            print(f"Error loading bill data: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self, "Error", f"Failed to load bill data: {str(e)}")
+
+    def get_starting_balance(self):
+        """Get the starting balance from AccountHistory"""
+        try:
+            from models.account_history import AccountHistoryManager
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.bill.id, "bill")
+
+            # Find the starting balance entry (transaction_id is None)
+            for entry in account_history:
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    return entry.change_amount
+
+            return 0.0  # No starting balance found
+
+        except Exception as e:
+            print(f"Error getting starting balance: {e}")
+            return 0.0
+
+    def update_starting_balance(self, new_starting_amount):
+        """Update or create the starting balance entry in AccountHistory"""
+        try:
+            from models.account_history import AccountHistoryManager, AccountHistory
+            from datetime import date, timedelta
+
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.bill.id, "bill")
+
+            # Find the earliest transaction date to set starting balance date
+            earliest_transaction_date = date.today()  # Default to today
+            transaction_entries = [entry for entry in account_history if entry.transaction_id is not None]
+
+            if transaction_entries:
+                earliest_transaction_date = min(entry.transaction_date for entry in transaction_entries)
+
+            # Set starting balance date to 1 day before earliest transaction
+            starting_date = earliest_transaction_date - timedelta(days=1)
+
+            # Find existing starting balance entry
+            starting_entry = None
+            for entry in account_history:
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    starting_entry = entry
+                    break
+
+            if starting_entry:
+                # Update existing starting balance
+                old_amount = starting_entry.change_amount
+                starting_entry.change_amount = new_starting_amount
+                starting_entry.transaction_date = starting_date
+                print(f"Updated starting balance: ${old_amount:.2f} → ${new_starting_amount:.2f}")
+            else:
+                # Create new starting balance entry
+                starting_entry = AccountHistory.create_starting_balance_entry(
+                    account_id=self.bill.id,
+                    account_type="bill",
+                    starting_balance=new_starting_amount,
+                    date=starting_date
+                )
+                self.transaction_manager.db.add(starting_entry)
+                print(f"Created new starting balance: ${new_starting_amount:.2f}")
+
+            # Recalculate all running totals for this bill
+            history_manager.recalculate_account_history(self.bill.id, "bill")
+
+        except Exception as e:
+            print(f"Error updating starting balance: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def calculate_needed_amount(self):
         """Calculate and suggest optimal bi-weekly savings amount"""
@@ -281,9 +376,9 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
             'payment_frequency': self.frequency_combo.currentText(),
             'typical_amount': self.typical_amount_spin.value(),
             'amount_to_save': self.amount_to_save_spin.value(),
-            'running_total': self.running_total_spin.value(),
-            'last_payment_date': date(self.last_payment_date.date().year(), 
-                                     self.last_payment_date.date().month(), 
+            'starting_amount': self.starting_amount_spin.value(),
+            'last_payment_date': date(self.last_payment_date.date().year(),
+                                     self.last_payment_date.date().month(),
                                      self.last_payment_date.date().day()),
             'last_payment_amount': self.last_payment_amount_spin.value(),
             'is_variable': self.is_variable_checkbox.isChecked(),
@@ -295,7 +390,7 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
             if new_value != old_value:
                 if field == 'last_payment_date':
                     changes.append(f"{field}: {old_value} → {new_value}")
-                elif field in ['typical_amount', 'amount_to_save', 'running_total', 'last_payment_amount']:
+                elif field in ['typical_amount', 'amount_to_save', 'starting_amount', 'last_payment_amount']:
                     changes.append(f"{field}: ${old_value:.2f} → ${new_value:.2f}")
                 elif field == 'amount_to_save' and new_value < 1.0:
                     changes.append(f"{field}: {old_value * 100:.1f}% → {new_value * 100:.1f}%")
@@ -315,7 +410,6 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
             
             # Show confirmation dialog
             change_text = "You are about to change:\n\n" + "\n".join(changes)
-            change_text += "\n\n⚠️ Warning: Changes to running_total will affect account balances."
             change_text += "\n\nAre you sure you want to continue?"
             
             reply = QMessageBox.question(self, "Confirm Changes", change_text,
@@ -335,42 +429,9 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
             self.bill.is_variable = new_values['is_variable']
             self.bill.notes = new_values['notes']
 
-            # Handle running total changes properly
-            old_running_total = self.original_values.get('running_total', 0)
-            new_running_total = new_values['running_total']
-
-            if abs(old_running_total - new_running_total) > 0.01:  # Running total changed
-                # Check if there are any transactions for this bill
-                bill_transactions = self.transaction_manager.db.query(Transaction).filter(
-                    Transaction.bill_id == self.bill.id
-                ).all()
-
-                if not bill_transactions:
-                    # No transactions - just change the starting value
-                    self.bill.running_total = new_running_total
-                    print(f"Updated {self.bill.name} starting balance to ${new_running_total:.2f} (no existing transactions)")
-                else:
-                    # Transactions exist - create adjustment transaction for the difference
-                    adjustment_amount = new_running_total - old_running_total
-                    self.bill.running_total = new_running_total
-
-                    # Create adjustment transaction
-                    from datetime import date
-                    adjustment_transaction = Transaction(
-                        transaction_type="saving",  # Using saving type for bill adjustments
-                        amount=adjustment_amount,
-                        date=date.today(),
-                        description=f"Manual adjustment for {self.bill.name} (from ${old_running_total:.2f} to ${new_running_total:.2f})",
-                        bill_id=self.bill.id,
-                        week_number=None,  # Not associated with a specific week
-                        include_in_analytics=False  # Don't include manual adjustments in analytics
-                    )
-
-                    self.transaction_manager.db.add(adjustment_transaction)
-                    print(f"Created adjustment transaction for {self.bill.name}: ${adjustment_amount:.2f}")
-            else:
-                # No change to running total
-                self.bill.running_total = new_running_total
+            # Handle starting amount change
+            if new_values['starting_amount'] != self.original_values['starting_amount']:
+                self.update_starting_balance(new_values['starting_amount'])
             
             # Save to database
             self.transaction_manager.db.commit()

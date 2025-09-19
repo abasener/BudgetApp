@@ -392,7 +392,7 @@ class AccountRowWidget(QWidget):
         try:
             # Goal progress bar
             if hasattr(self.account, 'goal_amount') and self.account.goal_amount > 0:
-                current_balance = getattr(self.account, 'running_total', 0)
+                current_balance = self.account.get_current_balance(self.transaction_manager.db)
                 goal_progress = min(100, (current_balance / self.account.goal_amount) * 100)
                 
                 self.goal_progress_bar.setValue(int(goal_progress))
@@ -425,70 +425,34 @@ class AccountRowWidget(QWidget):
             self.auto_save_progress_bar.setFormat("Error")
     
     def update_line_chart(self):
-        """Update the account balance line chart using balance history arrays"""
+        """Update the account balance line chart using AccountHistory data"""
         try:
-            # Get balance history array from account
-            balance_history = self.account.get_balance_history_copy()
-            if not balance_history:
-                # No balance history - show current balance as flat line
-                current_balance = getattr(self.account, 'running_total', 0)
+            # Get AccountHistory entries directly from the database
+            from models.account_history import AccountHistoryManager
+
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.account.id, "savings")
+
+            if not account_history:
+                # No account history - show current balance as flat line
+                current_balance = self.account.get_current_balance(self.transaction_manager.db)
                 from datetime import date
                 today = date.today()
                 chart_data = {"Account Balance": [(today, current_balance)]}
                 self.balance_chart.update_data(chart_data, "", "")
                 return
 
-            # Get all weeks to create date labels for the balance history
-            all_weeks = self.transaction_manager.get_all_weeks()
-            if not all_weeks:
-                # No weeks - just show current balance
-                current_balance = getattr(self.account, 'running_total', 0)
-                from datetime import date
-                today = date.today()
-                chart_data = {"Account Balance": [(today, current_balance)]}
-                self.balance_chart.update_data(chart_data, "", "")
-                return
-
-            # Sort weeks chronologically
-            all_weeks.sort(key=lambda w: w.start_date)
-
-            # Group weeks into bi-weekly periods for date labels
-            bi_weekly_periods = []
-            for i in range(0, len(all_weeks), 2):
-                if i + 1 < len(all_weeks):
-                    # Full bi-weekly period (Week 1 + Week 2)
-                    week1 = all_weeks[i]
-                    week2 = all_weeks[i + 1]
-                    bi_weekly_periods.append((week1, week2))
-                else:
-                    # Incomplete period (only Week 1)
-                    bi_weekly_periods.append((all_weeks[i], None))
-
-            # Build balance points from balance history array
-            # balance_history[0] = starting balance
-            # balance_history[1] = end of pay period 1
-            # balance_history[2] = end of pay period 2, etc.
+            # Build balance points from AccountHistory (date, running_total)
             balance_points = []
+            for entry in account_history:
+                balance_points.append((entry.transaction_date, entry.running_total))
 
-            # Start from balance_history[1] (end of first pay period) since index 0 is starting balance
-            for period_idx in range(1, len(balance_history)):
-                # Get the date for this pay period's end
-                pay_period_num = period_idx  # 1-based pay period number
-
-                # Find the corresponding bi-weekly period (0-based)
-                if pay_period_num - 1 < len(bi_weekly_periods):
-                    week1, week2 = bi_weekly_periods[pay_period_num - 1]
-                    period_end_date = week2.end_date if week2 else week1.end_date
-                    balance_value = balance_history[period_idx]
-
-                    balance_points.append((period_end_date, balance_value))
-
-            print(f"DEBUG: {self.account.name} - Using balance history with {len(balance_history)} entries")
+            print(f"DEBUG: {self.account.name} - Using AccountHistory with {len(account_history)} entries")
             print(f"DEBUG: {self.account.name} - Created {len(balance_points)} chart points")
 
-            # If more than 20 periods of history, show the most recent 20
-            if len(balance_points) > 20:
-                balance_points = balance_points[-20:]
+            # If more than 50 entries, show the most recent 50 for performance
+            if len(balance_points) > 50:
+                balance_points = balance_points[-50:]
 
             # Build chart data
             chart_data = {"Account Balance": balance_points} if balance_points else {}
@@ -504,7 +468,7 @@ class AccountRowWidget(QWidget):
                 ]
                 chart_data["Goal"] = goal_points
 
-            # Update chart
+            # Update chart with date on X-axis, running total on Y-axis
             self.balance_chart.update_data(chart_data, "", "")  # No x/y labels for cleaner look
 
         except Exception as e:
@@ -521,7 +485,7 @@ class AccountRowWidget(QWidget):
             self.writeup_labels["name"].setText(self.account.name)
             
             # Current Balance
-            current_balance = getattr(self.account, 'running_total', 0)
+            current_balance = self.account.get_current_balance(self.transaction_manager.db)
             self.writeup_labels["current_balance"].setText(f"${current_balance:.2f}")
             
             # Goal Amount

@@ -1570,61 +1570,61 @@ class WeeklyView(QWidget):
         return current_pay_period_index
 
     def update_savings_values(self):
-        """Update starting and ending savings account values using balance history arrays"""
+        """Update starting and ending savings account values using AccountHistory"""
         try:
+            if not self.selected_week or not self.transaction_manager:
+                self.start_savings_label.setText("No period selected")
+                self.final_savings_label.setText("No period selected")
+                return
+
             # Get all accounts
             accounts = self.transaction_manager.get_all_accounts()
 
-            # Get current pay period index
-            current_pay_period_index = self.get_current_pay_period_index()
+            # Get period dates
+            period_start_date = self.selected_week['start_date']
+            period_end_date = self.selected_week['end_date']
 
-            # Display values for each account using balance history
+            print(f"DEBUG: Calculating savings values for period {period_start_date} to {period_end_date}")
+
+            # Display values for each account using AccountHistory
             start_account_text = ""
             final_account_text = ""
+            amount_paid_text = ""
 
             for account in accounts:
                 name = account.name[:14] + "..." if len(account.name) > 14 else account.name
 
-                # Get balance history for this account
-                history = account.get_balance_history_copy()
+                # Get AccountHistory for this account
+                account_history = account.get_account_history(self.transaction_manager.db)
 
-                if not history:
-                    # No history available, use current balance
-                    starting_balance = account.running_total
-                    final_balance = account.running_total
-                else:
-                    # Use balance history indexing:
-                    # payweek1: starting = array[0], final = array[1]
-                    # payweek2: starting = array[1], final = array[2]
-                    # etc.
+                # Find starting balance (latest entry BEFORE period start date - not including start date)
+                day_before_period = period_start_date - timedelta(days=1)
+                starting_balance = self._find_balance_on_or_before_date(account_history, day_before_period)
 
-                    starting_index = current_pay_period_index - 1  # Convert to 0-based
-                    final_index = current_pay_period_index
+                # Find final balance (latest entry between period start and end dates)
+                final_balance = self._find_balance_between_dates(account_history, period_start_date, period_end_date, starting_balance)
 
-                    # Get starting balance (beginning of this pay period)
-                    if starting_index < len(history):
-                        starting_balance = history[starting_index]
-                    else:
-                        # Not enough history, use last available or current balance
-                        starting_balance = history[-1] if history else account.running_total
+                # Calculate amount paid to savings (final - starting)
+                amount_paid = final_balance - starting_balance
 
-                    # Get final balance (end of this pay period)
-                    if final_index < len(history):
-                        final_balance = history[final_index]
-                    else:
-                        # This pay period hasn't finished yet, use current balance
-                        final_balance = account.running_total
+                print(f"DEBUG: {account.name}: Start=${starting_balance:.2f}, Final=${final_balance:.2f}, Paid=${amount_paid:.2f}")
 
                 # Format display
                 start_amount_str = f"${starting_balance:.0f}"
                 final_amount_str = f"${final_balance:.0f}"
+                paid_amount_str = f"${amount_paid:.0f}"
 
                 start_account_text += f"{name:<16} {start_amount_str:>10}\n"
                 final_account_text += f"{name:<16} {final_amount_str:>10}\n"
+                amount_paid_text += f"{name:<16} {paid_amount_str:>10}\n"
 
             # Set the display text
             self.start_savings_label.setText(start_account_text.rstrip() or "No accounts")
             self.final_savings_label.setText(final_account_text.rstrip() or "No accounts")
+
+            # Update amount paid to savings (if that label exists)
+            if hasattr(self, 'savings_payments_label'):
+                self.savings_payments_label.setText(amount_paid_text.rstrip() or "No accounts")
 
         except Exception as e:
             print(f"Error updating savings values: {e}")
@@ -1632,7 +1632,41 @@ class WeeklyView(QWidget):
             traceback.print_exc()
             self.start_savings_label.setText("Error loading data")
             self.final_savings_label.setText("Error loading data")
-            
+
+    def _find_balance_on_or_before_date(self, account_history, target_date):
+        """Find the running total from the latest AccountHistory entry on or before target_date"""
+        if not account_history:
+            return 0.0
+
+        # Find the latest entry on or before the target date
+        latest_entry = None
+        for entry in account_history:
+            if entry.transaction_date <= target_date:
+                if latest_entry is None or entry.transaction_date > latest_entry.transaction_date:
+                    latest_entry = entry
+                elif entry.transaction_date == latest_entry.transaction_date and entry.id > latest_entry.id:
+                    # Same date, take the later entry by ID
+                    latest_entry = entry
+
+        return latest_entry.running_total if latest_entry else 0.0
+
+    def _find_balance_between_dates(self, account_history, start_date, end_date, fallback_balance):
+        """Find the running total from the latest AccountHistory entry between start_date and end_date"""
+        if not account_history:
+            return fallback_balance
+
+        # Find the latest entry between start and end dates (inclusive)
+        latest_entry = None
+        for entry in account_history:
+            if start_date <= entry.transaction_date <= end_date:
+                if latest_entry is None or entry.transaction_date > latest_entry.transaction_date:
+                    latest_entry = entry
+                elif entry.transaction_date == latest_entry.transaction_date and entry.id > latest_entry.id:
+                    # Same date, take the later entry by ID
+                    latest_entry = entry
+
+        return latest_entry.running_total if latest_entry else fallback_balance
+
     def update_progress_bars(self, transactions):
         """Update progress bars for money spent and time progress"""
         try:
