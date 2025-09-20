@@ -63,7 +63,7 @@ class PaycheckProcessor:
         automatic_savings = self.calculate_automatic_savings(paycheck_amount)
         
         # Step 3: Calculate account auto-savings (happens after bills)
-        account_auto_savings = self.calculate_account_auto_savings()
+        account_auto_savings = self.calculate_account_auto_savings(paycheck_amount)
         
         # Step 4: Calculate remaining for weeks
         remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings - account_auto_savings
@@ -116,15 +116,23 @@ class PaycheckProcessor:
             
         return total_deduction
     
-    def calculate_account_auto_savings(self) -> float:
+    def calculate_account_auto_savings(self, paycheck_amount: float = 0) -> float:
         """Calculate auto-savings for accounts (happens after bills)"""
         accounts = self.transaction_manager.get_all_accounts()
         total_auto_savings = 0.0
-        
+
         for account in accounts:
             if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
-                total_auto_savings += account.auto_save_amount
-                
+                # Handle percentage-based vs fixed amount auto-saves
+                if account.auto_save_amount < 1.0 and account.auto_save_amount > 0:
+                    # Percentage-based auto-save (e.g., 0.1 = 10% of paycheck)
+                    auto_save_amount = account.auto_save_amount * paycheck_amount
+                else:
+                    # Fixed dollar amount auto-save
+                    auto_save_amount = account.auto_save_amount
+
+                total_auto_savings += auto_save_amount
+
         return total_auto_savings
     
     def calculate_automatic_savings(self, paycheck_amount: float) -> float:
@@ -178,7 +186,7 @@ class PaycheckProcessor:
         self.transaction_manager.add_transaction(income_transaction)
         
         # 2. Record account auto-savings transactions
-        self.update_account_auto_savings(current_week.week_number, paycheck_date)
+        self.update_account_auto_savings(current_week.week_number, paycheck_date, split.gross_paycheck)
 
         # 3. Update bill savings (allocate money for upcoming bills)
         # Disable automatic rollover recalculation during bill processing to prevent multiple triggers
@@ -229,26 +237,36 @@ class PaycheckProcessor:
                 self.transaction_manager.add_transaction(bill_saving_transaction)
                 print(f"DEBUG: Bill savings - {bill.name}: ${actual_amount:.2f}")
 
-    def update_account_auto_savings(self, week_number: int, transaction_date: date):
+    def update_account_auto_savings(self, week_number: int, transaction_date: date, paycheck_amount: float = 0):
         """Update account auto-savings based on each account's auto_save_amount"""
         accounts = self.transaction_manager.get_all_accounts()
 
         for account in accounts:
             # Check if account has auto_save_amount attribute and it's > 0
             if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
+                # Calculate actual amount using same logic as calculate_account_auto_savings
+                if account.auto_save_amount < 1.0 and account.auto_save_amount > 0:
+                    # Percentage-based auto-save (e.g., 0.1 = 10% of paycheck)
+                    actual_amount = account.auto_save_amount * paycheck_amount
+                    description = f"Auto-savings allocation for {account.name} ({account.auto_save_amount*100:.1f}% of paycheck)"
+                else:
+                    # Fixed dollar amount auto-save
+                    actual_amount = account.auto_save_amount
+                    description = f"Auto-savings allocation for {account.name}"
+
                 # Record a transaction for account auto-savings
                 # The TransactionManager will automatically update AccountHistory
                 account_saving_transaction = {
                     "transaction_type": TransactionType.SAVING.value,
                     "week_number": week_number,
-                    "amount": account.auto_save_amount,
+                    "amount": actual_amount,
                     "date": transaction_date,
-                    "description": f"Auto-savings allocation for {account.name}",
+                    "description": description,
                     "account_id": account.id,
                     "account_saved_to": account.name
                 }
                 self.transaction_manager.add_transaction(account_saving_transaction)
-                print(f"DEBUG: Added ${account.auto_save_amount} to {account.name}")
+                print(f"DEBUG: Added ${actual_amount:.2f} to {account.name}")
 
     def create_new_week(self, start_date: date) -> Week:
         """Create a new week when processing paycheck"""
@@ -364,11 +382,15 @@ class PaycheckProcessor:
         if rollover.rollover_amount < 0:
             rollover_description = f"Deficit rollover from Week {rollover.week_number}"
 
+        # Get the end date of the source week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
         rollover_transaction = {
             "transaction_type": TransactionType.INCOME.value if rollover.rollover_amount > 0 else TransactionType.SPENDING.value,
             "week_number": target_week_number,
             "amount": abs(rollover.rollover_amount),
-            "date": date.today(),
+            "date": transaction_date,
             "description": rollover_description,
             "category": "Rollover"
         }
@@ -437,13 +459,17 @@ class PaycheckProcessor:
         # No need to manually update account balance here since transaction creation handles it
 
         # Record new rollover transaction
+        # Get the end date of the week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
         if rollover.rollover_amount > 0:
             # Positive rollover - money goes TO savings
             savings_transaction = {
                 "transaction_type": TransactionType.SAVING.value,
                 "week_number": rollover.week_number,
                 "amount": rollover.rollover_amount,
-                "date": date.today(),
+                "date": transaction_date,
                 "description": f"End-of-period surplus from Week {rollover.week_number}",
                 "account_id": default_savings_account.id,
                 "account_saved_to": default_savings_account.name
@@ -455,7 +481,7 @@ class PaycheckProcessor:
                 "transaction_type": TransactionType.SAVING.value,
                 "week_number": rollover.week_number,
                 "amount": rollover.rollover_amount,  # Keep negative amount
-                "date": date.today(),
+                "date": transaction_date,
                 "description": f"End-of-period deficit from Week {rollover.week_number}",
                 "account_id": default_savings_account.id,
                 "account_saved_to": default_savings_account.name
@@ -641,11 +667,15 @@ class PaycheckProcessor:
         if rollover.rollover_amount < 0:
             rollover_description = f"Deficit rollover from Week {rollover.week_number}"
 
+        # Get the end date of the source week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
         rollover_transaction = {
             "transaction_type": TransactionType.INCOME.value if rollover.rollover_amount > 0 else TransactionType.SPENDING.value,
             "week_number": target_week_number,
             "amount": abs(rollover.rollover_amount),
-            "date": date.today(),
+            "date": transaction_date,
             "description": rollover_description,
             "category": "Rollover"
         }
@@ -661,13 +691,17 @@ class PaycheckProcessor:
             print("Warning: No default savings account found for rollover")
             return
 
+        # Get the end date of the week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
         if rollover.rollover_amount > 0:
             # Positive rollover - money goes TO savings
             savings_transaction = {
                 "transaction_type": TransactionType.SAVING.value,
                 "week_number": rollover.week_number,
                 "amount": rollover.rollover_amount,
-                "date": date.today(),
+                "date": transaction_date,
                 "description": f"End-of-period surplus from Week {rollover.week_number}",
                 "account_id": default_savings_account.id,
                 "account_saved_to": default_savings_account.name
@@ -678,7 +712,7 @@ class PaycheckProcessor:
                 "transaction_type": TransactionType.SAVING.value,
                 "week_number": rollover.week_number,
                 "amount": rollover.rollover_amount,  # Keep negative amount
-                "date": date.today(),
+                "date": transaction_date,
                 "description": f"End-of-period deficit from Week {rollover.week_number}",
                 "account_id": default_savings_account.id,
                 "account_saved_to": default_savings_account.name

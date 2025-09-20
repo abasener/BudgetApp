@@ -162,7 +162,7 @@ class PayBillDialog(QDialog):
             return False
         
         payment_amount = self.amount_spin.value()
-        saved_amount = self.selected_bill.running_total
+        saved_amount = self.selected_bill.get_current_balance(self.transaction_manager.db)
         
         if payment_amount > saved_amount:
             response = QMessageBox.question(
@@ -192,38 +192,46 @@ class PayBillDialog(QDialog):
             week_number = self.calculate_week_from_date(payment_date)
             
             # Show confirmation
+            current_balance = self.selected_bill.get_current_balance(self.transaction_manager.db)
+            remaining_after_payment = current_balance - payment_amount
+
             response = QMessageBox.question(
                 self,
                 "Confirm Bill Payment",
                 f"Pay {self.selected_bill.name} ${payment_amount:.2f} on {payment_date}?\n\n"
+                f"Current saved amount: ${current_balance:.2f}\n"
+                f"Remaining after payment: ${remaining_after_payment:.2f}\n\n"
                 f"This will:\n"
-                f"• Create a bill payment transaction\n"
+                f"• Create a spending transaction for the payment\n"
                 f"• Update the bill's payment history\n"
-                f"• Reset the bill's saved amount to $0.00",
+                f"• Deduct from the bill's saved amount",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             
             if response != QMessageBox.StandardButton.Yes:
                 return
             
-            # Create bill payment transaction
+            # Create bill payment transaction (deduction from saved amount)
             transaction_data = {
-                "transaction_type": "bill_pay",
+                "transaction_type": "spending",  # Spending reduces the saved amount
                 "amount": payment_amount,
                 "date": payment_date,
                 "description": f"Paid {self.selected_bill.name}",
                 "week_number": week_number,
                 "bill_id": self.selected_bill.id,
-                "bill_type": self.selected_bill.bill_type
+                "category": f"Bill Payment - {self.selected_bill.bill_type}"
             }
-            
+
             transaction = self.transaction_manager.add_transaction(transaction_data)
-            
+
             # Update bill payment tracking (manual system - no automatic dates)
             self.selected_bill.last_payment_date = payment_date
             self.selected_bill.last_payment_amount = payment_amount
-            self.selected_bill.running_total = 0.0  # Reset saved amount
+            # Note: running_total is now calculated from AccountHistory, don't set it directly
             self.transaction_manager.db.commit()
+
+            # Get updated balance after payment
+            new_balance = self.selected_bill.get_current_balance(self.transaction_manager.db)
             
             # Show success message
             success_message = f"""
@@ -238,7 +246,7 @@ PAYMENT DETAILS:
 BILL STATUS UPDATED:
 • Last Payment: {payment_date}
 • Last Amount: ${payment_amount:.2f}
-• Saved Amount: Reset to $0.00
+• Remaining Balance: ${new_balance:.2f}
 
 Manual System: No automatic due dates calculated.
 The dashboard will refresh to show updated data.

@@ -198,6 +198,53 @@ DATA INTEGRITY FIXES:
 - Consistent AccountHistory usage across Bills and Savings
 
 ================================================================================
+LATEST V2 ENHANCEMENTS (Dashboard Analytics & Settings):
+================================================================================
+
+DASHBOARD SPENDING ANALYTICS MODERNIZATION:
+- All spending plots now use proper transaction filtering instead of manual queries
+- Fixed old is_abnormal flag logic, replaced with include_in_analytics field filtering
+- Consistent filtering across all charts: pie charts, histograms, box plots, trend charts, heatmaps
+- "Normal Spending Only" checkbox properly controls analytics filtering throughout dashboard
+- Time frame filtering applied to all spending visualizations and account balance charts
+
+SETTINGS DIALOG COMPLETE REDESIGN:
+- Reorganized into clean 2-column layout (no longer tall and skinny)
+- Left Column: Sorting Settings + Graph Filtering Settings (consolidated)
+- Right Column: Theme Settings + Calculator Settings
+- New "Graph Filtering Settings" section combines filtering and chart options
+- Dashboard chart account selection moved from separate section into Graph Filtering
+- Full-width Data Management section with updated button functionality
+
+GRAPH FILTERING SYSTEM:
+- "Default to Normal Spending Only" checkbox setting (controls dashboard startup state)
+- Time Frame Filter dropdown: All Time, Last Year, Last Month, Last 20 Entries
+- All dashboard spending charts respect time frame filter (except current week pie chart)
+- Current week pie chart always shows current week data (special behavior)
+- Account/bill line charts also filtered by time frame setting
+- Settings persist between app sessions in app_settings.json
+
+DATA MANAGEMENT BUTTONS UPDATED:
+- Delete All Data: Now includes AccountHistory deletion for complete fresh start
+- Reset Test Data: Updated for AccountHistory system, creates proper starting balance entries
+- Export Data: Enhanced with AccountHistory export, uses live balance calculations
+- Import Test Data: Verified working with rebuilt backend, proper validation pipeline
+
+DASHBOARD TIME FILTERING INTEGRATION:
+- Dashboard loads time frame setting from app_settings.json on startup
+- Settings changes immediately refresh dashboard with new time frame
+- Chart titles reflect current time frame (e.g., "Spending by Category (Last Month)")
+- Filtered transactions apply to all visualizations except current week spending
+- Account balance history charts respect time filtering for focused analysis
+
+BACKEND INTEGRATION IMPROVEMENTS:
+- All settings automatically saved to persistent app_settings.json
+- Main window properly handles settings_saved signals for immediate refresh
+- Dashboard refresh() method reloads settings to apply changes without restart
+- Time frame and analytics filtering work seamlessly with existing AccountHistory system
+- All data management functions updated for new backend architecture
+
+================================================================================
 KEY ARCHITECTURAL CHANGES FROM V1:
 ================================================================================
 

@@ -470,6 +470,37 @@ class BillRowWidget(QWidget):
             # Build chart data
             chart_data = {"Bill Balance": balance_points} if balance_points else {}
 
+            # Check if this is a percentage-based bill (amount_to_save < 1.0)
+            is_percentage_bill = (hasattr(self.bill, 'amount_to_save') and
+                                self.bill.amount_to_save < 1.0 and
+                                self.bill.amount_to_save > 0)
+
+            if is_percentage_bill and balance_points:
+                # For percentage bills, add paycheck amounts and percentage calculations
+                from models.transactions import Transaction, TransactionType
+
+                # Get income transactions (paychecks) in the same date range as balance points
+                first_date = balance_points[0][0]
+                last_date = balance_points[-1][0]
+
+                income_transactions = self.transaction_manager.db.query(Transaction).filter(
+                    Transaction.transaction_type == TransactionType.INCOME.value,
+                    Transaction.date >= first_date,
+                    Transaction.date <= last_date
+                ).order_by(Transaction.date).all()
+
+                if income_transactions:
+                    # Plot paycheck amounts
+                    paycheck_points = [(tx.date, tx.amount) for tx in income_transactions]
+                    chart_data["Paycheck Amount"] = paycheck_points
+
+                    # Plot expected percentage amounts (paycheck × percentage)
+                    percentage_points = [
+                        (tx.date, tx.amount * self.bill.amount_to_save)
+                        for tx in income_transactions
+                    ]
+                    chart_data[f"Expected {self.bill.amount_to_save*100:.1f}%"] = percentage_points
+
             # Add goal line if typical amount is set and we have data points
             if (hasattr(self.bill, 'typical_amount') and self.bill.typical_amount and
                 self.bill.typical_amount > 0 and balance_points):

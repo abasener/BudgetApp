@@ -404,15 +404,24 @@ class AccountRowWidget(QWidget):
             # Auto-save progress bar (show auto-save amount as % of goal or fixed amount)
             auto_save_amount = getattr(self.account, 'auto_save_amount', 0)
             if auto_save_amount > 0:
+                # Check if this is a percentage-based auto-save
+                is_percentage_auto_save = auto_save_amount < 1.0 and auto_save_amount > 0
+
                 if hasattr(self.account, 'goal_amount') and self.account.goal_amount > 0:
                     # Show auto-save as percentage of goal
                     auto_save_progress = min(100, (auto_save_amount / self.account.goal_amount) * 100)
                     self.auto_save_progress_bar.setValue(int(auto_save_progress))
-                    self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
+                    if is_percentage_auto_save:
+                        self.auto_save_progress_bar.setFormat(f"{auto_save_amount*100:.1f}%")
+                    else:
+                        self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
                 else:
                     # Show fixed amount (since no goal to compare against)
                     self.auto_save_progress_bar.setValue(50)  # Arbitrary visual
-                    self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
+                    if is_percentage_auto_save:
+                        self.auto_save_progress_bar.setFormat(f"{auto_save_amount*100:.1f}%")
+                    else:
+                        self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
             else:
                 self.auto_save_progress_bar.setValue(0)
                 self.auto_save_progress_bar.setFormat("None")
@@ -456,6 +465,37 @@ class AccountRowWidget(QWidget):
 
             # Build chart data
             chart_data = {"Account Balance": balance_points} if balance_points else {}
+
+            # Check if this is a percentage-based auto-save account (auto_save_amount < 1.0)
+            is_percentage_auto_save = (hasattr(self.account, 'auto_save_amount') and
+                                     self.account.auto_save_amount < 1.0 and
+                                     self.account.auto_save_amount > 0)
+
+            if is_percentage_auto_save and balance_points:
+                # For percentage auto-save accounts, add paycheck amounts and percentage calculations
+                from models.transactions import Transaction, TransactionType
+
+                # Get income transactions (paychecks) in the same date range as balance points
+                first_date = balance_points[0][0]
+                last_date = balance_points[-1][0]
+
+                income_transactions = self.transaction_manager.db.query(Transaction).filter(
+                    Transaction.transaction_type == TransactionType.INCOME.value,
+                    Transaction.date >= first_date,
+                    Transaction.date <= last_date
+                ).order_by(Transaction.date).all()
+
+                if income_transactions:
+                    # Plot paycheck amounts
+                    paycheck_points = [(tx.date, tx.amount) for tx in income_transactions]
+                    chart_data["Paycheck Amount"] = paycheck_points
+
+                    # Plot expected percentage amounts (paycheck × percentage)
+                    percentage_points = [
+                        (tx.date, tx.amount * self.account.auto_save_amount)
+                        for tx in income_transactions
+                    ]
+                    chart_data[f"Expected {self.account.auto_save_amount*100:.1f}%"] = percentage_points
 
             # Add goal line if goal is set and we have data points
             if (hasattr(self.account, 'goal_amount') and self.account.goal_amount and
@@ -505,10 +545,17 @@ class AccountRowWidget(QWidget):
             else:
                 self.writeup_labels["goal_remaining"].setText("N/A")
             
-            # Auto-Save Amount
+            # Auto-Save Amount - handle percentage vs dollar display
             auto_save_amount = getattr(self.account, 'auto_save_amount', 0)
             if auto_save_amount > 0:
-                self.writeup_labels["auto_save_amount"].setText(f"${auto_save_amount:.2f} per paycheck")
+                # Check if this is a percentage-based auto-save
+                if auto_save_amount < 1.0 and auto_save_amount > 0:
+                    # Show as percentage (0.1 = 10%)
+                    percentage = auto_save_amount * 100
+                    self.writeup_labels["auto_save_amount"].setText(f"{percentage:.1f}% per paycheck")
+                else:
+                    # Show as dollar amount
+                    self.writeup_labels["auto_save_amount"].setText(f"${auto_save_amount:.2f} per paycheck")
             else:
                 self.writeup_labels["auto_save_amount"].setText("Not configured")
             

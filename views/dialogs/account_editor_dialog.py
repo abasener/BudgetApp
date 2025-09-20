@@ -86,11 +86,10 @@ class AccountEditorDialog(QDialog):
         auto_save_layout = QHBoxLayout()
         self.auto_save_amount_spin = QDoubleSpinBox()
         self.auto_save_amount_spin.setRange(0, 9999.99)
-        self.auto_save_amount_spin.setDecimals(2)
-        self.auto_save_amount_spin.setSuffix(" $")
+        self.auto_save_amount_spin.setDecimals(3)  # Allow for percentages like 0.30
         auto_save_layout.addWidget(self.auto_save_amount_spin)
-        
-        auto_save_note = QLabel("(per paycheck)")
+
+        auto_save_note = QLabel("(per paycheck - values < 1.0 = % of income)")
         auto_save_note.setStyleSheet("color: gray; font-style: italic;")
         auto_save_layout.addWidget(auto_save_note)
         fields_layout.addRow("Auto-Save Amount:", auto_save_layout)
@@ -331,7 +330,11 @@ class AccountEditorDialog(QDialog):
                     if key == 'goal_amount':
                         change_summary.append(f"Goal: ${old_value:.2f} → ${new_value:.2f}")
                     elif key == 'auto_save_amount':
-                        change_summary.append(f"Auto-save: ${old_value:.2f} → ${new_value:.2f}")
+                        # Handle percentage vs dollar display for auto_save_amount
+                        if new_value < 1.0 and new_value > 0:
+                            change_summary.append(f"Auto-save: {old_value * 100:.1f}% → {new_value * 100:.1f}%")
+                        else:
+                            change_summary.append(f"Auto-save: ${old_value:.2f} → ${new_value:.2f}")
                     elif key == 'starting_amount':
                         change_summary.append(f"Starting amount: ${old_value:.2f} → ${new_value:.2f}")
                     else:

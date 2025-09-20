@@ -41,9 +41,9 @@ class AddPaycheckDialog(QDialog):
         self.amount_spin.valueChanged.connect(self.calculate_preview)
         form_layout.addRow("Gross Paycheck ($):", self.amount_spin)
         
-        # Paycheck date
+        # Paycheck date (defaults to Friday after the Monday)
         self.paycheck_date_edit = QDateEdit()
-        self.paycheck_date_edit.setDate(QDate.currentDate())
+        self.paycheck_date_edit.setDate(self.calculate_default_paycheck_date())
         self.paycheck_date_edit.setCalendarPopup(True)
         form_layout.addRow("Paycheck Date:", self.paycheck_date_edit)
         
@@ -97,6 +97,14 @@ class AddPaycheckDialog(QDialog):
         days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
         monday = today - timedelta(days=days_since_monday)
         return QDate.fromString(monday.isoformat(), "yyyy-MM-dd")
+
+    def calculate_default_paycheck_date(self):
+        """Calculate default paycheck date (Friday following the Monday)"""
+        today = date.today()
+        days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
+        monday = today - timedelta(days=days_since_monday)
+        friday = monday + timedelta(days=4)  # Friday is 4 days after Monday
+        return QDate.fromString(friday.isoformat(), "yyyy-MM-dd")
     
     def calculate_preview(self):
         """Calculate and display preview of paycheck processing"""
@@ -109,8 +117,8 @@ class AddPaycheckDialog(QDialog):
             # Calculate automatic savings (10%)
             automatic_savings = self.paycheck_processor.calculate_automatic_savings(paycheck_amount)
             
-            # Calculate account auto-savings (after bills)
-            account_auto_savings = self.paycheck_processor.calculate_account_auto_savings()
+            # Calculate account auto-savings (after bills) - pass paycheck amount for percentage calculations
+            account_auto_savings = self.paycheck_processor.calculate_account_auto_savings(paycheck_amount)
             
             # Calculate remaining and split
             remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings - account_auto_savings
@@ -173,20 +181,29 @@ SYSTEM NOTES:
     
     def validate_form(self):
         """Validate form data"""
-        if self.amount_spin.value() <= 100:
-            QMessageBox.warning(self, "Validation Error", "Paycheck amount must be at least $100")
+        # Paycheck amount validation
+        if self.amount_spin.value() <= 0:
+            QMessageBox.warning(self, "Validation Error", "Paycheck amount must be positive")
             return False
-        
+
         paycheck_date = self.paycheck_date_edit.date().toPyDate()
         week_start = self.week_start_edit.date().toPyDate()
-        
-        if paycheck_date > date.today() + timedelta(days=7):
-            QMessageBox.warning(self, "Validation Error", "Paycheck date cannot be more than 1 week in the future")
+        today = date.today()
+
+        # Week start must be on Monday
+        if week_start.weekday() != 0:  # 0 = Monday
+            QMessageBox.warning(self, "Validation Error",
+                              f"Week start must be on a Monday. Selected date ({week_start.strftime('%m/%d/%Y')}) is a {week_start.strftime('%A')}.")
             return False
-        
-        if week_start > paycheck_date:
-            QMessageBox.warning(self, "Validation Error", "Week start date cannot be after paycheck date")
+
+        # Week start cannot be more than 1 month in the future
+        one_month_future = today + timedelta(days=30)
+        if week_start > one_month_future:
+            QMessageBox.warning(self, "Validation Error",
+                              f"Week start cannot be more than 1 month in the future. Latest allowed: {one_month_future.strftime('%m/%d/%Y')}")
             return False
+
+        # Paycheck date can be anytime, no specific restrictions (removed the 1 week limit)
 
         # Check for overlapping pay periods
         existing_weeks = self.paycheck_processor.transaction_manager.get_all_weeks()
@@ -322,6 +339,7 @@ The dashboard will refresh to show updated data.
     def get_savings_breakdown(self):
         """Get detailed breakdown of money allocated to savings accounts"""
         accounts = self.paycheck_processor.transaction_manager.get_all_accounts()
+        paycheck_amount = self.amount_spin.value()
 
         if not accounts:
             return "• No savings accounts configured"
@@ -331,8 +349,14 @@ The dashboard will refresh to show updated data.
 
         for account in accounts:
             if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
-                breakdown.append(f"• {account.name}: ${account.auto_save_amount:.2f}")
-                total_savings += account.auto_save_amount
+                # Calculate amount based on percentage vs fixed
+                if account.auto_save_amount < 1.0:
+                    amount = account.auto_save_amount * paycheck_amount
+                    breakdown.append(f"• {account.name}: ${amount:.2f} ({account.auto_save_amount*100:.1f}% of paycheck)")
+                else:
+                    amount = account.auto_save_amount
+                    breakdown.append(f"• {account.name}: ${amount:.2f}")
+                total_savings += amount
 
         if not breakdown:
             return "• No account auto-savings configured"

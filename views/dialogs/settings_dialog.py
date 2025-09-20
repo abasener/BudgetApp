@@ -5,7 +5,7 @@ Settings Dialog - Configure persistent application settings
 import json
 import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
-                             QComboBox, QPushButton, QLabel, QGroupBox, QMessageBox, QDoubleSpinBox)
+                             QComboBox, QPushButton, QLabel, QGroupBox, QMessageBox, QDoubleSpinBox, QCheckBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from themes import theme_manager
 
@@ -34,59 +34,87 @@ class SettingsDialog(QDialog):
         """Initialize the UI layout"""
         main_layout = QVBoxLayout()
         main_layout.setSpacing(15)
-        
+
         # Header
         header_label = QLabel("Application Settings")
         header_label.setFont(theme_manager.get_font("title"))
         main_layout.addWidget(header_label)
-        
-        # Theme settings group
-        theme_group = QGroupBox("Theme Settings")
-        theme_layout = QFormLayout()
-        
-        # Default theme dropdown
-        self.default_theme_combo = QComboBox()
-        self.populate_theme_combo()
-        theme_layout.addRow("Default Theme:", self.default_theme_combo)
-        
-        theme_group.setLayout(theme_layout)
-        main_layout.addWidget(theme_group)
-        
-        # Sorting settings group
+
+        # Create 2-column layout for settings groups
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(20)
+
+        # LEFT COLUMN
+        left_column = QVBoxLayout()
+        left_column.setSpacing(15)
+
+        # Sorting settings group (LEFT)
         sorting_group = QGroupBox("Sorting Settings")
         sorting_layout = QFormLayout()
-        
+
         # Bills sorting order
         self.bills_sort_combo = QComboBox()
         self.bills_sort_combo.addItems(["Alphabetical", "Amount (High to Low)", "Amount (Low to High)", "Due Date"])
         sorting_layout.addRow("Bills Sort Order:", self.bills_sort_combo)
-        
+
         # Savings sorting order
         self.savings_sort_combo = QComboBox()
         self.savings_sort_combo.addItems(["Alphabetical", "Balance (High to Low)", "Balance (Low to High)", "Goal Progress"])
         sorting_layout.addRow("Savings Sort Order:", self.savings_sort_combo)
-        
+
         sorting_group.setLayout(sorting_layout)
-        main_layout.addWidget(sorting_group)
-        
-        # Dashboard chart settings group
-        dashboard_group = QGroupBox("Dashboard Chart Settings")
-        dashboard_layout = QFormLayout()
-        
-        # First line plot account
+        left_column.addWidget(sorting_group)
+
+        # Graph Filtering settings group (LEFT)
+        filtering_group = QGroupBox("Graph Filtering Settings")
+        filtering_layout = QFormLayout()
+
+        # Default "Normal Spending Only" checkbox state
+        self.default_analytics_checkbox = QCheckBox("Default to Normal Spending Only")
+        self.default_analytics_checkbox.setChecked(True)  # Default to true
+        self.default_analytics_checkbox.setToolTip("When enabled, the dashboard will start with 'Normal Spending Only' checked")
+        filtering_layout.addRow("", self.default_analytics_checkbox)
+
+        # Time frame filtering dropdown
+        self.time_frame_combo = QComboBox()
+        self.time_frame_combo.addItems([
+            "All Time",
+            "Last Year",
+            "Last Month",
+            "Last 20 Entries"
+        ])
+        self.time_frame_combo.setToolTip("Filter charts and plots to show only recent data")
+        filtering_layout.addRow("Time Frame Filter:", self.time_frame_combo)
+
+        # Dashboard chart account fields (moved from dashboard group)
         self.chart1_account_combo = QComboBox()
         self.populate_account_combo(self.chart1_account_combo)
-        dashboard_layout.addRow("First Chart Account:", self.chart1_account_combo)
-        
-        # Second line plot account
+        filtering_layout.addRow("First Chart Account:", self.chart1_account_combo)
+
         self.chart2_account_combo = QComboBox()
         self.populate_account_combo(self.chart2_account_combo)
-        dashboard_layout.addRow("Second Chart Account:", self.chart2_account_combo)
-        
-        dashboard_group.setLayout(dashboard_layout)
-        main_layout.addWidget(dashboard_group)
-        
-        # Calculator settings group
+        filtering_layout.addRow("Second Chart Account:", self.chart2_account_combo)
+
+        filtering_group.setLayout(filtering_layout)
+        left_column.addWidget(filtering_group)
+
+        # RIGHT COLUMN
+        right_column = QVBoxLayout()
+        right_column.setSpacing(15)
+
+        # Theme settings group (RIGHT)
+        theme_group = QGroupBox("Theme Settings")
+        theme_layout = QFormLayout()
+
+        # Default theme dropdown
+        self.default_theme_combo = QComboBox()
+        self.populate_theme_combo()
+        theme_layout.addRow("Default Theme:", self.default_theme_combo)
+
+        theme_group.setLayout(theme_layout)
+        right_column.addWidget(theme_group)
+
+        # Calculator settings group (RIGHT)
         calculator_group = QGroupBox("Calculator Settings")
         calculator_layout = QFormLayout()
         
@@ -101,7 +129,12 @@ class SettingsDialog(QDialog):
         calculator_layout.addRow("Default Hourly Rate:", self.hourly_rate_spin)
         
         calculator_group.setLayout(calculator_layout)
-        main_layout.addWidget(calculator_group)
+        right_column.addWidget(calculator_group)
+
+        # Add columns to main layout
+        columns_layout.addLayout(left_column)
+        columns_layout.addLayout(right_column)
+        main_layout.addLayout(columns_layout)
 
         # Data management group
         data_group = QGroupBox("Data Management")
@@ -190,10 +223,12 @@ class SettingsDialog(QDialog):
         return {
             "default_theme": "dark",
             "bills_sort_order": "Alphabetical",
-            "savings_sort_order": "Alphabetical", 
+            "savings_sort_order": "Alphabetical",
             "dashboard_chart1_account": "random",
             "dashboard_chart2_account": "random",
-            "default_hourly_rate": 50.00
+            "default_hourly_rate": 50.00,
+            "default_analytics_only": True,
+            "time_frame_filter": "All Time"
         }
     
     def load_settings(self):
@@ -247,6 +282,16 @@ class SettingsDialog(QDialog):
         # Set default hourly rate
         hourly_rate = self.current_settings.get("default_hourly_rate", 50.00)
         self.hourly_rate_spin.setValue(hourly_rate)
+
+        # Set default analytics checkbox state
+        default_analytics = self.current_settings.get("default_analytics_only", True)
+        self.default_analytics_checkbox.setChecked(default_analytics)
+
+        # Set time frame filter
+        time_frame = self.current_settings.get("time_frame_filter", "All Time")
+        time_frame_index = self.time_frame_combo.findText(time_frame)
+        if time_frame_index >= 0:
+            self.time_frame_combo.setCurrentIndex(time_frame_index)
     
     def get_ui_settings(self):
         """Get current settings from UI controls"""
@@ -256,7 +301,9 @@ class SettingsDialog(QDialog):
             "savings_sort_order": self.savings_sort_combo.currentText(),
             "dashboard_chart1_account": self.chart1_account_combo.currentData(),
             "dashboard_chart2_account": self.chart2_account_combo.currentData(),
-            "default_hourly_rate": self.hourly_rate_spin.value()
+            "default_hourly_rate": self.hourly_rate_spin.value(),
+            "default_analytics_only": self.default_analytics_checkbox.isChecked(),
+            "time_frame_filter": self.time_frame_combo.currentText()
         }
     
     def reset_to_defaults(self):
@@ -471,6 +518,28 @@ class SettingsDialog(QDialog):
                     width: 6px;
                     height: 3px;
                 }}
+
+                QCheckBox {{
+                    color: {colors['text_primary']};
+                    spacing: 8px;
+                }}
+
+                QCheckBox::indicator {{
+                    width: 16px;
+                    height: 16px;
+                    border: 1px solid {colors['border']};
+                    border-radius: 2px;
+                    background-color: {colors['surface']};
+                }}
+
+                QCheckBox::indicator:hover {{
+                    border: 1px solid {colors['primary']};
+                }}
+
+                QCheckBox::indicator:checked {{
+                    background-color: {colors['primary']};
+                    border: 1px solid {colors['primary']};
+                }}
             """)
             
         except Exception as e:
@@ -479,7 +548,7 @@ class SettingsDialog(QDialog):
     def confirm_reset_data(self):
         """Math-based confirmation dialog for data reset"""
         import random
-        from models import get_db, Week, Transaction, Account, Bill
+        from models import get_db, Week, Transaction, Account, Bill, AccountHistory
 
         # Generate random math problem
         num1 = random.randint(2, 99)
@@ -535,8 +604,10 @@ class SettingsDialog(QDialog):
             week_count = db.query(Week).count()
             account_count = db.query(Account).count()
             bill_count = db.query(Bill).count()
+            history_count = db.query(AccountHistory).count()
 
             # Delete all data (order matters due to foreign keys)
+            db.query(AccountHistory).delete()  # Delete history first (references transactions)
             db.query(Transaction).delete()
             db.query(Week).delete()
             db.query(Account).delete()
@@ -552,7 +623,8 @@ class SettingsDialog(QDialog):
                 f"• {transaction_count} transactions\n"
                 f"• {week_count} weeks\n"
                 f"• {account_count} accounts\n"
-                f"• {bill_count} bills\n\n"
+                f"• {bill_count} bills\n"
+                f"• {history_count} balance history entries\n\n"
                 f"Your app now has a clean slate!"
             )
 
@@ -565,7 +637,7 @@ class SettingsDialog(QDialog):
     def confirm_reset_test(self):
         """Math-based confirmation dialog for test data reset"""
         import random
-        from models import get_db, Week, Transaction
+        from models import get_db, Week, Transaction, Account, Bill, AccountHistory
 
         # Generate random math problem
         num1 = random.randint(2, 50)
@@ -621,25 +693,40 @@ class SettingsDialog(QDialog):
             # Count items before deletion
             transaction_count = db.query(Transaction).count()
             week_count = db.query(Week).count()
+            history_count = db.query(AccountHistory).count()
+
+            # Delete AccountHistory first (references transactions)
+            db.query(AccountHistory).delete()
 
             # Delete transactions and weeks
             db.query(Transaction).delete()
             db.query(Week).delete()
 
-            # Reset account balances to 0 and clear balance history
-            from models import Account
+            # Reset account and bill balances by creating new starting balance entries
             accounts = db.query(Account).all()
-            account_count = len(accounts)
-            for account in accounts:
-                account.running_total = 0.0
-                account.balance_history = [0.0]  # Reset balance history to start with $0
-
-            # Reset bill balances to 0
-            from models import Bill
             bills = db.query(Bill).all()
+            account_count = len(accounts)
             bill_count = len(bills)
+
+            # Create starting balance entries for accounts (usually $0)
+            from models.account_history import AccountHistoryManager
+            history_manager = AccountHistoryManager(db)
+
+            for account in accounts:
+                # Create starting balance entry (typically $0)
+                history_manager.create_starting_balance_entry(
+                    account_id=account.id,
+                    account_type="account",
+                    starting_balance=0.0
+                )
+
             for bill in bills:
-                bill.running_total = 0.0
+                # Create starting balance entry (typically $0)
+                history_manager.create_starting_balance_entry(
+                    account_id=bill.id,
+                    account_type="bill",
+                    starting_balance=0.0
+                )
 
             db.commit()
             db.close()
@@ -650,6 +737,7 @@ class SettingsDialog(QDialog):
                 f"Successfully reset test data:\n\n"
                 f"• Deleted {transaction_count} transactions\n"
                 f"• Deleted {week_count} weeks\n"
+                f"• Deleted {history_count} balance history entries\n"
                 f"• Reset {account_count} account balances to $0\n"
                 f"• Reset {bill_count} bill balances to $0\n\n"
                 f"Ready for testing!"
@@ -664,7 +752,7 @@ class SettingsDialog(QDialog):
     def export_data(self):
         """Export all data to CSV files"""
         from PyQt6.QtWidgets import QFileDialog
-        from models import get_db, Week, Transaction, Account, Bill
+        from models import get_db, Week, Transaction, Account, Bill, AccountHistory
         import csv
         import os
         from datetime import datetime
@@ -722,10 +810,12 @@ class SettingsDialog(QDialog):
                 accounts_file = os.path.join(export_dir, f"accounts_{timestamp}.csv")
                 with open(accounts_file, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['ID', 'Name', 'Account_Type', 'Goal_Amount', 'Running_Total', 'Is_Default_Savings'])
+                    writer.writerow(['ID', 'Name', 'Account_Type', 'Goal_Amount', 'Current_Balance', 'Auto_Save_Amount', 'Is_Default_Savings'])
 
                     for a in accounts:
-                        writer.writerow([a.id, a.name, a.account_type, a.goal_amount, a.running_total, a.is_default_savings])
+                        current_balance = a.get_current_balance(db)
+                        writer.writerow([a.id, a.name, a.account_type, a.goal_amount, current_balance,
+                                       getattr(a, 'auto_save_amount', 0.0), a.is_default_savings])
 
             # Export bills
             bills = db.query(Bill).all()
@@ -733,10 +823,24 @@ class SettingsDialog(QDialog):
                 bills_file = os.path.join(export_dir, f"bills_{timestamp}.csv")
                 with open(bills_file, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['ID', 'Name', 'Bill_Type', 'Amount_To_Save', 'Running_Total'])
+                    writer.writerow(['ID', 'Name', 'Bill_Type', 'Amount_To_Save', 'Current_Balance'])
 
                     for b in bills:
-                        writer.writerow([b.id, b.name, b.bill_type, b.amount_to_save, b.running_total])
+                        current_balance = b.get_current_balance(db)
+                        writer.writerow([b.id, b.name, b.bill_type, b.amount_to_save, current_balance])
+
+            # Export AccountHistory
+            history_entries = db.query(AccountHistory).all()
+            if history_entries:
+                history_file = os.path.join(export_dir, f"account_history_{timestamp}.csv")
+                with open(history_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['ID', 'Account_ID', 'Account_Type', 'Transaction_ID', 'Transaction_Date',
+                                   'Change_Amount', 'Running_Total', 'Description'])
+
+                    for h in history_entries:
+                        writer.writerow([h.id, h.account_id, h.account_type, h.transaction_id, h.transaction_date,
+                                       h.change_amount, h.running_total, h.description or ""])
 
             db.close()
 
@@ -745,6 +849,7 @@ class SettingsDialog(QDialog):
             week_count = len(weeks) if weeks else 0
             account_count = len(accounts) if accounts else 0
             bill_count = len(bills) if bills else 0
+            history_count = len(history_entries) if history_entries else 0
 
             QMessageBox.information(
                 self,
@@ -753,7 +858,8 @@ class SettingsDialog(QDialog):
                 f"• {transaction_count} transactions\n"
                 f"• {week_count} weeks\n"
                 f"• {account_count} accounts\n"
-                f"• {bill_count} bills\n\n"
+                f"• {bill_count} bills\n"
+                f"• {history_count} balance history entries\n\n"
                 f"Files are timestamped: {timestamp}"
             )
 
@@ -979,7 +1085,9 @@ def load_app_settings():
         "savings_sort_order": "Alphabetical",
         "dashboard_chart1_account": "random",
         "dashboard_chart2_account": "random",
-        "default_hourly_rate": 50.00
+        "default_hourly_rate": 50.00,
+        "default_analytics_only": True,
+        "time_frame_filter": "All Time"
     }
 
 

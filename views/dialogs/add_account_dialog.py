@@ -35,12 +35,17 @@ class AddAccountDialog(QDialog):
         self.name_edit.setPlaceholderText("e.g., Emergency Fund, Car Savings, etc.")
         form_layout.addRow("Account Name:", self.name_edit)
         
-        # Starting balance
+        # Starting balance (will create AccountHistory entry)
         self.balance_spin = QDoubleSpinBox()
         self.balance_spin.setRange(-999999.99, 999999.99)
         self.balance_spin.setDecimals(2)
         self.balance_spin.setValue(0.00)
         form_layout.addRow("Starting Balance ($):", self.balance_spin)
+
+        # Starting balance note
+        balance_note = QLabel("(initial amount when account is created)")
+        balance_note.setStyleSheet("color: gray; font-size: 11px; font-style: italic;")
+        form_layout.addRow("", balance_note)
         
         # Goal amount
         self.goal_spin = QDoubleSpinBox()
@@ -57,13 +62,13 @@ class AddAccountDialog(QDialog):
         # Auto-save amount (happens after bills during paycheck processing)
         self.auto_save_spin = QDoubleSpinBox()
         self.auto_save_spin.setRange(0.00, 999999.99)
-        self.auto_save_spin.setDecimals(2)
+        self.auto_save_spin.setDecimals(3)  # Allow for percentages like 0.300
         self.auto_save_spin.setValue(0.00)
-        form_layout.addRow("Auto-Save Amount ($):", self.auto_save_spin)
-        
-        # Auto-save explanation
-        auto_save_note = QLabel("Amount to auto-save each paycheck (after bills, set to 0.00 to disable)")
-        auto_save_note.setStyleSheet("color: gray; font-size: 11px;")
+        form_layout.addRow("Auto-Save Amount:", self.auto_save_spin)
+
+        # Auto-save explanation with percentage note
+        auto_save_note = QLabel("Per paycheck (after bills) - values < 1.0 = % of income (e.g., 0.200 = 20%)")
+        auto_save_note.setStyleSheet("color: gray; font-size: 11px; font-style: italic;")
         form_layout.addRow("", auto_save_note)
         
         # Default savings checkbox
@@ -128,7 +133,11 @@ class AddAccountDialog(QDialog):
             preview_text += "No specific savings goal\n"
         
         if auto_save > 0:
-            preview_text += f"Auto-Save: ${auto_save:.2f} per paycheck (after bills)\n"
+            # Check if this is a percentage-based auto-save
+            if auto_save < 1.0 and auto_save > 0:
+                preview_text += f"Auto-Save: {auto_save * 100:.1f}% per paycheck (after bills)\n"
+            else:
+                preview_text += f"Auto-Save: ${auto_save:.2f} per paycheck (after bills)\n"
         else:
             preview_text += "No automatic savings\n"
         
@@ -219,7 +228,11 @@ class AddAccountDialog(QDialog):
                 success_text += f"Savings Goal: ${goal:.2f}\n"
             
             if auto_save > 0:
-                success_text += f"Auto-Save: ${auto_save:.2f} per paycheck\n"
+                # Handle percentage vs dollar display for auto_save
+                if auto_save < 1.0 and auto_save > 0:
+                    success_text += f"Auto-Save: {auto_save * 100:.1f}% per paycheck\n"
+                else:
+                    success_text += f"Auto-Save: ${auto_save:.2f} per paycheck\n"
             
             if is_default:
                 success_text += "Set as default savings account\n"

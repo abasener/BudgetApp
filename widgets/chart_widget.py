@@ -818,11 +818,22 @@ class BoxPlotWidget(BaseChartWidget):
                                 item.set_color(whisker_color)
                                 item.set_alpha(0.8)
                     
-                    # Set up axes
+                    # Set up axes based on box plot whiskers (excluding outliers)
                     if data_lists:
-                        all_amounts = [amount for sublist in data_lists for amount in sublist]
-                        max_amount = max(all_amounts)
-                        ax.set_xlim(0, max_amount * 1.05)  # Small padding
+                        # Calculate max whisker end for each category (Q3 + 1.5*IQR)
+                        import numpy as np
+                        max_whisker_ends = []
+
+                        for amounts in data_lists:
+                            q1, q3 = np.percentile(amounts, [25, 75])
+                            iqr = q3 - q1
+                            upper_whisker = q3 + 1.5 * iqr
+                            # Whisker end is the highest value within the whisker range
+                            whisker_end = max([x for x in amounts if x <= upper_whisker], default=q3)
+                            max_whisker_ends.append(whisker_end)
+
+                        max_whisker = max(max_whisker_ends) if max_whisker_ends else 100
+                        ax.set_xlim(0, max_whisker * 1.1)  # 10% padding beyond whiskers
                     
                     ax.set_ylim(-0.5, len(positions) - 0.5)
                     

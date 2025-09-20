@@ -390,10 +390,14 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
             if new_value != old_value:
                 if field == 'last_payment_date':
                     changes.append(f"{field}: {old_value} → {new_value}")
-                elif field in ['typical_amount', 'amount_to_save', 'starting_amount', 'last_payment_amount']:
+                elif field == 'amount_to_save':
+                    # Handle percentage vs dollar display for amount_to_save
+                    if new_value < 1.0 and new_value > 0:
+                        changes.append(f"{field}: {old_value * 100:.1f}% → {new_value * 100:.1f}%")
+                    else:
+                        changes.append(f"{field}: ${old_value:.2f} → ${new_value:.2f}")
+                elif field in ['typical_amount', 'starting_amount', 'last_payment_amount']:
                     changes.append(f"{field}: ${old_value:.2f} → ${new_value:.2f}")
-                elif field == 'amount_to_save' and new_value < 1.0:
-                    changes.append(f"{field}: {old_value * 100:.1f}% → {new_value * 100:.1f}%")
                 else:
                     changes.append(f"{field}: {old_value} → {new_value}")
         

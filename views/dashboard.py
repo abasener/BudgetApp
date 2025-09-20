@@ -291,8 +291,10 @@ class DashboardView(QWidget):
         self.transaction_manager = transaction_manager
         self.analytics_engine = analytics_engine
         
-        # Analytics toggle
-        self.include_analytics_only = True
+        # Analytics toggle - load from settings
+        from views.dialogs.settings_dialog import get_setting
+        self.include_analytics_only = get_setting("default_analytics_only", True)
+        self.time_frame_filter = get_setting("time_frame_filter", "All Time")
         
         # Track selected accounts for savings rate plots
         self.selected_accounts = [None, None]  # For the two savings rate charts
@@ -330,7 +332,7 @@ class DashboardView(QWidget):
         
         # Analytics toggle
         self.analytics_toggle = QCheckBox("Normal Spending Only")
-        self.analytics_toggle.setChecked(True)
+        self.analytics_toggle.setChecked(self.include_analytics_only)  # Use setting from file
         self.analytics_toggle.toggled.connect(self.toggle_analytics_mode)
         self.analytics_toggle.setToolTip("Filter abnormal transactions from analytics")
         header_layout.addWidget(self.analytics_toggle)
@@ -622,6 +624,57 @@ class DashboardView(QWidget):
         """Toggle between normal and all spending analytics"""
         self.include_analytics_only = checked
         self.refresh()
+
+    def apply_time_frame_filter(self, transactions):
+        """Apply time frame filtering to a list of transactions"""
+        if self.time_frame_filter == "All Time":
+            return transactions
+
+        from datetime import datetime, timedelta
+        today = datetime.now().date()
+
+        if self.time_frame_filter == "Last Year":
+            cutoff_date = today - timedelta(days=365)
+            return [t for t in transactions if t.date >= cutoff_date]
+
+        elif self.time_frame_filter == "Last Month":
+            cutoff_date = today - timedelta(days=30)
+            return [t for t in transactions if t.date >= cutoff_date]
+
+        elif self.time_frame_filter == "Last 20 Entries":
+            # Sort by date descending and take first 20
+            sorted_transactions = sorted(transactions, key=lambda t: t.date, reverse=True)
+            return sorted_transactions[:20]
+
+        return transactions
+
+    def get_filtered_spending_transactions(self):
+        """Get spending transactions with analytics, time, and rollover filtering applied"""
+        transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+        # Filter out rollover transactions (category = "Rollover" or description contains "rollover")
+        filtered_transactions = []
+        for t in transactions:
+            is_rollover = (
+                (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+            )
+            if not is_rollover:
+                filtered_transactions.append(t)
+
+        return self.apply_time_frame_filter(filtered_transactions)
+
+    def calculate_category_spending_from_filtered(self):
+        """Calculate category spending totals from filtered transactions"""
+        transactions = self.get_filtered_spending_transactions()
+        transactions = [t for t in transactions if t.amount > 0]  # Exclude placeholder transactions
+
+        category_totals = {}
+        for transaction in transactions:
+            category = getattr(transaction, 'category', 'Miscellaneous') or 'Miscellaneous'
+            category_totals[category] = category_totals.get(category, 0.0) + float(transaction.amount)
+
+        return category_totals
     
     def apply_hour_calc_button_theme(self):
         """Apply accent color theme to hour calculator button"""
@@ -675,16 +728,21 @@ class DashboardView(QWidget):
                 week_start = today - timedelta(days=today.weekday())
                 days_left_in_week = 7 - (today.weekday() + 1)
                 
-                # Get current week spending
-                all_transactions = self.transaction_manager.get_all_transactions()
-                current_week_spending = [
-                    t for t in all_transactions 
-                    if t.transaction_type == "spending" and 
-                       t.amount > 0 and  # Exclude placeholder transactions
-                       t.include_in_analytics and  # Only include analytics transactions
-                       t.date >= week_start.date() and
-                       (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
-                ]
+                # Get current week spending using analytics and rollover filtering (ignore time frame)
+                spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+                # Filter out rollover transactions and get current week data
+                current_week_spending = []
+                for t in spending_transactions:
+                    if (t.amount > 0 and  # Exclude placeholder transactions
+                        t.date >= week_start.date()):
+                        # Check if it's a rollover transaction
+                        is_rollover = (
+                            (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                            (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                        )
+                        if not is_rollover:
+                            current_week_spending.append(t)
                 
                 week_spent = sum(t.amount for t in current_week_spending)
                 
@@ -716,8 +774,11 @@ class DashboardView(QWidget):
         if not self.transaction_manager or not self.analytics_engine:
             self.set_error_state("Services not available")
             return
-        
+
         try:
+            # Reload settings from file (in case they changed)
+            from views.dialogs.settings_dialog import get_setting
+            self.time_frame_filter = get_setting("time_frame_filter", "All Time")
             # Update all sections
             self.update_accounts_display()
             self.update_weekly_status()
@@ -780,16 +841,21 @@ class DashboardView(QWidget):
             days_into_week = today.weekday() + 1  # 1-7 (Monday = 1)
             days_left_in_week = 7 - days_into_week
             
-            # Get current week transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
-            current_week_spending = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and 
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   t.date >= week_start.date() and
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
-            ]
+            # Get current week transactions using analytics and rollover filtering (ignore time frame)
+            spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+            # Filter out rollover transactions and get current week data
+            current_week_spending = []
+            for t in spending_transactions:
+                if (t.amount > 0 and  # Exclude placeholder transactions
+                    t.date >= week_start.date()):
+                    # Check if it's a rollover transaction
+                    is_rollover = (
+                        (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                        (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                    )
+                    if not is_rollover:
+                        current_week_spending.append(t)
             
             # Calculate week spending total
             week_spent = sum(t.amount for t in current_week_spending)
@@ -885,28 +951,34 @@ class DashboardView(QWidget):
     def update_pie_charts(self):
         """Update both pie charts with different data sources"""
         try:
-            # Get ALL-TIME spending data by category for the big pie chart
-            all_time_category_spending = self.analytics_engine.analyze_spending_by_category(self.include_analytics_only)
+            # Get spending data by category for the big pie chart (respects time filtering)
+            all_time_category_spending = self.calculate_category_spending_from_filtered()
             
-            # Update total spending pie chart (all-time percentages)
+            # Update total spending pie chart with filtered data
             if self.total_pie_chart and all_time_category_spending:
-                self.total_pie_chart.update_data(all_time_category_spending, "All-Time Spending")
+                chart_title = f"Spending by Category ({self.time_frame_filter})"
+                self.total_pie_chart.update_data(all_time_category_spending, chart_title)
             
             # Get CURRENT WEEK spending data for the small pie chart
             from datetime import datetime, timedelta
             today = datetime.now()
             week_start = today - timedelta(days=today.weekday())  # Monday of current week
-            
-            # Get transactions for current week only
-            all_transactions = self.transaction_manager.get_all_transactions()
-            current_week_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and 
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   t.date >= week_start.date() and
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
-            ]
+
+            # Get spending transactions using ONLY analytics filtering (ignore time frame for current week)
+            spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+            # Filter out rollover transactions and get current week data
+            current_week_transactions = []
+            for t in spending_transactions:
+                if (t.amount > 0 and  # Exclude placeholder transactions
+                    t.date >= week_start.date()):
+                    # Check if it's a rollover transaction
+                    is_rollover = (
+                        (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                        (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                    )
+                    if not is_rollover:
+                        current_week_transactions.append(t)
             
             # Calculate current week category spending
             weekly_category_spending = {}
@@ -932,14 +1004,11 @@ class DashboardView(QWidget):
         try:
             from datetime import datetime, timedelta
             
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude $0 placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude $0 placeholder transactions
             ]
             
             if not spending_transactions:
@@ -1022,8 +1091,8 @@ class DashboardView(QWidget):
     def update_heatmap(self):
         """Update day/category heatmap with real data - average spending by day of week and category"""
         try:
-            # Get all spending transactions from the database
-            spending_transactions = self.transaction_manager.get_spending_transactions(include_analytics_only=True)
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             
             # Initialize data structure for day/category averages
             from collections import defaultdict
@@ -1082,14 +1151,11 @@ class DashboardView(QWidget):
     def update_purchase_histogram(self):
         """Update purchase size histogram with spending transaction amounts"""
         try:
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude placeholder transactions
             ]
             
             if not spending_transactions:
@@ -1114,14 +1180,11 @@ class DashboardView(QWidget):
     def update_weekly_spending_trends(self):
         """Update weekly spending trend chart with daily spending by week"""
         try:
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude placeholder transactions
             ]
             
             if not spending_transactions:
@@ -1165,14 +1228,11 @@ class DashboardView(QWidget):
     def update_category_boxplot(self):
         """Update category box plot with spending distributions by category"""
         try:
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude placeholder transactions
             ]
             
             if not spending_transactions:
@@ -1416,6 +1476,9 @@ class DashboardView(QWidget):
             
             # Get transactions for this account
             all_transactions = self.transaction_manager.get_all_transactions()
+
+            # Apply time filtering to all transactions
+            all_transactions = self.apply_time_frame_filter(all_transactions)
             
             if account_type == 'account':
                 # Filter saving transactions for this account

@@ -183,14 +183,15 @@ class AddBillDialog(QDialog):
         # Amount to save per bi-weekly period (dollar amount or percentage)
         self.save_amount_spin = QDoubleSpinBox()
         self.save_amount_spin.setRange(0.00, 99999.99)
-        self.save_amount_spin.setDecimals(2)
+        self.save_amount_spin.setDecimals(3)  # Allow for percentages like 0.300
         self.save_amount_spin.setValue(50.00)
         self.save_amount_spin.valueChanged.connect(self.update_preview)
         form_layout.addRow("Amount to Save (bi-weekly):", self.save_amount_spin)
-        
+
         # Percentage savings note
-        percentage_note = QLabel("Tip: Use values < 1.0 for percentage (e.g., 0.1 = 10% of income)")
+        percentage_note = QLabel("Values < 1.0 = % of income (e.g., 0.300 = 30% of paycheck)")
         percentage_note.setFont(theme_manager.get_font("small"))
+        percentage_note.setStyleSheet("color: gray; font-style: italic;")
         form_layout.addRow("", percentage_note)
         
         # Check savings plan button
@@ -198,13 +199,19 @@ class AddBillDialog(QDialog):
         self.check_plan_button.clicked.connect(self.check_savings_plan)
         form_layout.addRow("", self.check_plan_button)
         
-        # Starting saved amount
-        self.saved_amount_spin = QDoubleSpinBox()
-        self.saved_amount_spin.setRange(0.00, 99999.99)
-        self.saved_amount_spin.setDecimals(2)
-        self.saved_amount_spin.setValue(0.00)
-        self.saved_amount_spin.valueChanged.connect(self.update_preview)
-        form_layout.addRow("Already Saved Amount ($):", self.saved_amount_spin)
+        # Starting balance (will be same as current balance since no transactions yet)
+        self.starting_balance_spin = QDoubleSpinBox()
+        self.starting_balance_spin.setRange(0.00, 99999.99)
+        self.starting_balance_spin.setDecimals(2)
+        self.starting_balance_spin.setValue(0.00)
+        self.starting_balance_spin.valueChanged.connect(self.update_preview)
+        form_layout.addRow("Starting Balance ($):", self.starting_balance_spin)
+
+        # Starting balance note
+        starting_note = QLabel("(initial amount saved for this bill)")
+        starting_note.setFont(theme_manager.get_font("small"))
+        starting_note.setStyleSheet("color: gray; font-style: italic;")
+        form_layout.addRow("", starting_note)
         
         # Last payment date (optional)
         self.last_payment_edit = QDateEdit()
@@ -335,7 +342,7 @@ Planned amount: ${planned_amount:.2f}
         frequency = self.frequency_combo.currentText()
         amount = self.amount_spin.value()
         save_amount = self.save_amount_spin.value()
-        saved_amount = self.saved_amount_spin.value()
+        starting_balance = self.starting_balance_spin.value()
         is_variable = self.variable_checkbox.isChecked()
         qdate = self.last_payment_edit.date()
         last_payment = date(qdate.year(), qdate.month(), qdate.day())
@@ -367,7 +374,7 @@ Variable Amount: {"Yes" if is_variable else "No"}
 SAVINGS PLAN:
 Bi-weekly Savings: {savings_display} ({savings_type})
 Approximate Monthly: ${monthly_savings:.2f}
-Currently Saved: ${saved_amount:.2f}
+Starting Balance: ${starting_balance:.2f}
 
 PAYMENT TRACKING:
 System: Manual entry only
@@ -379,12 +386,18 @@ Last Payment: {last_payment} (optional reference)
         
         preview_text += "\n\nREADINESS:"
         
-        if saved_amount >= amount:
-            preview_text += f"\n✓ Fully funded (${saved_amount - amount:.2f} extra)"
+        if starting_balance >= amount:
+            preview_text += f"\n✓ Fully funded (${starting_balance - amount:.2f} extra)"
         else:
-            shortfall = amount - saved_amount
-            bi_weekly_periods_needed = shortfall / save_amount if save_amount > 0 else 0
-            preview_text += f"\n⚠ Need ${shortfall:.2f} more (~{bi_weekly_periods_needed:.1f} pay periods)"
+            shortfall = amount - starting_balance
+            if save_amount < 1.0 and save_amount > 0:
+                # For percentage savings, estimate based on $1500 paycheck
+                estimated_bi_weekly = save_amount * 1500
+                bi_weekly_periods_needed = shortfall / estimated_bi_weekly if estimated_bi_weekly > 0 else 0
+                preview_text += f"\n⚠ Need ${shortfall:.2f} more (~{bi_weekly_periods_needed:.1f} pay periods @ {save_amount*100:.1f}% of $1500)"
+            else:
+                bi_weekly_periods_needed = shortfall / save_amount if save_amount > 0 else 0
+                preview_text += f"\n⚠ Need ${shortfall:.2f} more (~{bi_weekly_periods_needed:.1f} pay periods)"
         
         self.preview_text.setPlainText(preview_text)
     
@@ -448,7 +461,7 @@ Last Payment: {last_payment} (optional reference)
             frequency = self.frequency_combo.currentText()
             amount = self.amount_spin.value()
             save_amount = self.save_amount_spin.value()
-            saved_amount = self.saved_amount_spin.value()
+            starting_balance = self.starting_balance_spin.value()
             is_variable = self.variable_checkbox.isChecked()
             qdate = self.last_payment_edit.date()
             last_payment = date(qdate.year(), qdate.month(), qdate.day())
@@ -463,16 +476,30 @@ Last Payment: {last_payment} (optional reference)
                 payment_frequency=frequency,
                 typical_amount=amount,
                 amount_to_save=save_amount,
-                running_total=saved_amount,
+                running_total=0.0,  # Will be calculated from AccountHistory
                 last_payment_date=last_payment,
                 last_payment_amount=0.0,  # Will be set when first payment is made
                 is_variable=is_variable,
                 notes=notes if notes else None
             )
-            
+
             self.transaction_manager.db.add(new_bill)
             self.transaction_manager.db.commit()
             self.transaction_manager.db.refresh(new_bill)
+
+            # Create starting balance entry in AccountHistory if starting_balance > 0
+            if starting_balance > 0:
+                from models.account_history import AccountHistory
+                from datetime import date as date_class
+
+                starting_entry = AccountHistory.create_starting_balance_entry(
+                    account_id=new_bill.id,
+                    account_type="bill",
+                    starting_balance=starting_balance,
+                    date=date_class.today()
+                )
+                self.transaction_manager.db.add(starting_entry)
+                self.transaction_manager.db.commit()
             
             # Success message
             success_text = f"Bill '{name}' created successfully!\n\n"
@@ -485,8 +512,8 @@ Last Payment: {last_payment} (optional reference)
             else:
                 success_text += f"Bi-weekly Savings: ${save_amount:.2f}\n"
             
-            if saved_amount > 0:
-                success_text += f"Starting with ${saved_amount:.2f} already saved\n"
+            if starting_balance > 0:
+                success_text += f"Starting balance: ${starting_balance:.2f}\n"
             
             if notes:
                 success_text += f"Notes: {notes}\n"
