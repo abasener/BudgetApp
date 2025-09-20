@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QVBoxLayout,
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 
+
 from views.dialogs.add_transaction_dialog import AddTransactionDialog
 from views.dialogs.add_paycheck_dialog import AddPaycheckDialog
 from views.dialogs.pay_bill_dialog import PayBillDialog

@@ -416,11 +416,9 @@ class WeekDetailWidget(QWidget):
         try:
             # Get transactions for this week
             self.transactions = self.transaction_manager.get_transactions_by_week(self.week_data.week_number)
-            print(f"DEBUG: Week {self.week_data.week_number} loaded {len(self.transactions)} total transactions")
 
             # Count spending transactions for debugging
             spending_count = len([t for t in self.transactions if t.is_spending and t.include_in_analytics])
-            print(f"DEBUG: Week {self.week_data.week_number} has {spending_count} spending transactions")
             
             # Update text display
             self.update_week_text_info()
@@ -444,7 +442,7 @@ class WeekDetailWidget(QWidget):
         # Only count actual spending transactions, exclude rollovers and bill/savings allocations
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending and t.include_in_analytics
+            if t.is_spending
             and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
             and not (t.description and "allocation" in t.description.lower())
         ]
@@ -507,7 +505,7 @@ class WeekDetailWidget(QWidget):
             # Only count actual spending transactions, exclude rollovers and bill/savings allocations
             spending_transactions = [
                 t for t in self.transactions
-                if t.is_spending and t.include_in_analytics
+                if t.is_spending
                 and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
                 and not (t.description and "allocation" in t.description.lower())
             ]
@@ -560,21 +558,21 @@ class WeekDetailWidget(QWidget):
         # Only count actual spending transactions, exclude rollovers and bill/savings allocations
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending and t.include_in_analytics
+            if t.is_spending
             and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
             and not (t.description and "allocation" in t.description.lower())
         ]
-        
+
         if not spending_transactions:
             self.category_pie_chart.update_data({}, "No Spending")
             return
-            
+
         # Calculate spending by category
         category_spending = {}
         for transaction in spending_transactions:
             category = transaction.category or "Uncategorized"
             category_spending[category] = category_spending.get(category, 0) + transaction.amount
-            
+
         self.category_pie_chart.update_data(category_spending, "Category Spending")
         
     def update_week_progress_bars(self):
@@ -583,7 +581,7 @@ class WeekDetailWidget(QWidget):
         # Only count actual spending transactions, exclude rollovers and bill/savings allocations
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending and t.include_in_analytics
+            if t.is_spending
             and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
             and not (t.description and "allocation" in t.description.lower())
         ]
@@ -1461,7 +1459,9 @@ class WeeklyView(QWidget):
                 name = account.name[:14] + "..." if len(account.name) > 14 else account.name
 
                 # Get balance history for this account
-                history = account.get_balance_history_copy()
+                account_history = account.get_account_history(self.transaction_manager.db)
+                # Convert to simple list of running totals for compatibility
+                history = [entry.running_total for entry in account_history] if account_history else []
 
                 if not history:
                     # No history available, assume 0 change
@@ -1584,7 +1584,6 @@ class WeeklyView(QWidget):
             period_start_date = self.selected_week['start_date']
             period_end_date = self.selected_week['end_date']
 
-            print(f"DEBUG: Calculating savings values for period {period_start_date} to {period_end_date}")
 
             # Display values for each account using AccountHistory
             start_account_text = ""
@@ -1607,7 +1606,6 @@ class WeeklyView(QWidget):
                 # Calculate amount paid to savings (final - starting)
                 amount_paid = final_balance - starting_balance
 
-                print(f"DEBUG: {account.name}: Start=${starting_balance:.2f}, Final=${final_balance:.2f}, Paid=${amount_paid:.2f}")
 
                 # Format display
                 start_amount_str = f"${starting_balance:.0f}"
@@ -1712,17 +1710,11 @@ class WeeklyView(QWidget):
         
     def populate_week_list(self):
         """Populate the week list with bi-weekly periods (newest first)"""
-        print("=" * 50)
-        print("DEBUG: Starting populate_week_list")
 
         if not self.transaction_manager:
-            print("DEBUG: No transaction manager!")
             return
 
         weeks = self.transaction_manager.get_all_weeks()
-        print(f"DEBUG: populate_week_list found {len(weeks)} weeks")
-        for week in weeks:
-            print(f"DEBUG: Week {week.week_number} - Start: {week.start_date} - End: {week.end_date}")
         self.week_list.clear()
         
         # Group weeks into bi-weekly periods based on consecutive week numbers
@@ -1756,7 +1748,6 @@ class WeeklyView(QWidget):
 
             if week1 and week2 and week1_num not in processed_weeks and week2_num not in processed_weeks:
                 # Both weeks exist - create bi-weekly period
-                print(f"DEBUG: Creating Pay Period {period_counter} with Week {week1_num} and Week {week2_num}")
                 bi_weekly_periods.append({
                     'period_id': period_counter,
                     'week1': week1,
@@ -1769,7 +1760,6 @@ class WeeklyView(QWidget):
                 period_counter -= 1
             elif week2 and week2_num not in processed_weeks:
                 # Only week 2 exists - single week period
-                print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week2_num}")
                 bi_weekly_periods.append({
                     'period_id': period_counter,
                     'week1': week2,
@@ -1781,7 +1771,6 @@ class WeeklyView(QWidget):
                 period_counter -= 1
             elif week1 and week1_num not in processed_weeks:
                 # Only week 1 exists - single week period
-                print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week1_num}")
                 bi_weekly_periods.append({
                     'period_id': period_counter,
                     'week1': week1,
@@ -1800,7 +1789,6 @@ class WeeklyView(QWidget):
         orphaned_weeks.sort(key=lambda x: x[0], reverse=True)  # Highest week numbers first
 
         for week_num, week in orphaned_weeks:
-            print(f"DEBUG: Creating Pay Period {period_counter} with orphaned Week {week_num}")
             bi_weekly_periods.append({
                 'period_id': period_counter,
                 'week1': week,
@@ -1814,21 +1802,13 @@ class WeeklyView(QWidget):
         # Sort periods by period_id (newest first)
         bi_weekly_periods.sort(key=lambda p: p['period_id'], reverse=True)
 
-        print(f"DEBUG: Created {len(bi_weekly_periods)} pay periods")
-        for period in bi_weekly_periods:
-            print(f"DEBUG: Pay Period {period['period_id']} - Start: {period['start_date']} - Weeks: {period['week1'].week_number if period['week1'] else 'None'},{period['week2'].week_number if period['week2'] else 'None'}")
-
-        print("DEBUG: Adding periods to QListWidget...")
         for period in bi_weekly_periods:
             start_date = period['start_date']
             item_text = f"Pay Period {period['period_id']}\n{start_date.strftime('%m/%d')}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, period)
             self.week_list.addItem(item)
-            print(f"DEBUG: Added {item_text} to list widget")
 
-        print(f"DEBUG: QListWidget now has {self.week_list.count()} items")
-        print("=" * 50)
             
         # Select first item by default
         if self.week_list.count() > 0:
@@ -1839,7 +1819,6 @@ class WeeklyView(QWidget):
             
     def refresh(self):
         """Refresh weekly data"""
-        print("Refreshing bi-weekly view...")
         self.populate_week_list()
         self.update_week_info()
         

@@ -15,7 +15,6 @@ class TransactionManager:
         self.db = get_db()
         self.history_manager = AccountHistoryManager(self.db)
         from models.database import DATABASE_URL
-        print(f"DEBUG: TransactionManager using database: {DATABASE_URL}")
         self._disable_auto_rollover = False  # Flag to disable automatic rollover recalculation
     
     def close(self):
@@ -238,16 +237,15 @@ class TransactionManager:
         """Enable or disable automatic rollover recalculation"""
         self._disable_auto_rollover = disabled
         if disabled:
-            print("DEBUG: Automatic rollover recalculation DISABLED")
+            pass  # Rollover recalculation disabled
         else:
-            print("DEBUG: Automatic rollover recalculation ENABLED")
+            pass  # Rollover recalculation enabled
 
     def trigger_rollover_recalculation(self, week_number: int):
         """Trigger rollover recalculation when transactions are added to a week"""
         try:
             from services.paycheck_processor import PaycheckProcessor
             processor = PaycheckProcessor()
-            print(f"DEBUG: Triggering dynamic rollover recalculation for Week {week_number}")
             # Use the new dynamic recalculation system
             processor.recalculate_period_rollovers(week_number)
             processor.close()

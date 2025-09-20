@@ -460,8 +460,6 @@ class BillRowWidget(QWidget):
             for entry in account_history:
                 balance_points.append((entry.transaction_date, entry.running_total))
 
-            print(f"DEBUG: {self.bill.name} - Using AccountHistory with {len(account_history)} entries")
-            print(f"DEBUG: {self.bill.name} - Created {len(balance_points)} chart points")
 
             # If more than 50 entries, show the most recent 50 for performance
             if len(balance_points) > 50:

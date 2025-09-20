@@ -21,7 +21,6 @@ class DateEditDelegate(QStyledItemDelegate):
             editor.setDate(QDate.currentDate())
             return editor
         except Exception as e:
-            print(f"DEBUG: Error creating date editor: {e}")
             return None
 
     def setEditorData(self, editor, index):
@@ -38,7 +37,6 @@ class DateEditDelegate(QStyledItemDelegate):
             elif isinstance(value, date):
                 editor.setDate(QDate(value.year, value.month, value.day))
         except Exception as e:
-            print(f"DEBUG: Error setting editor data: {e}")
 
     def setModelData(self, editor, model, index):
         try:
@@ -47,7 +45,6 @@ class DateEditDelegate(QStyledItemDelegate):
             date_value = editor.date().toPython()
             model.setData(index, date_value.strftime('%Y-%m-%d'), Qt.ItemDataRole.EditRole)
         except Exception as e:
-            print(f"DEBUG: Error setting model data: {e}")
 
 
 class AmountEditDelegate(QStyledItemDelegate):
@@ -60,7 +57,6 @@ class AmountEditDelegate(QStyledItemDelegate):
             editor.setDecimals(2)
             return editor
         except Exception as e:
-            print(f"DEBUG: Error creating amount editor: {e}")
             return None
 
     def setEditorData(self, editor, index):
@@ -78,7 +74,6 @@ class AmountEditDelegate(QStyledItemDelegate):
             elif isinstance(value, (int, float)):
                 editor.setValue(value)
         except Exception as e:
-            print(f"DEBUG: Error setting amount editor data: {e}")
 
     def setModelData(self, editor, model, index):
         try:
@@ -86,7 +81,6 @@ class AmountEditDelegate(QStyledItemDelegate):
                 return
             model.setData(index, editor.value(), Qt.ItemDataRole.EditRole)
         except Exception as e:
-            print(f"DEBUG: Error setting amount model data: {e}")
 
 
 class BillTransactionHistoryDialog(QDialog):
@@ -96,36 +90,27 @@ class BillTransactionHistoryDialog(QDialog):
 
     def __init__(self, bill, transaction_manager, parent=None):
         try:
-            print(f"DEBUG: Initializing BillTransactionHistoryDialog for {bill.name}")
             super().__init__(parent)
             self.bill = bill
             self.transaction_manager = transaction_manager
             self.original_transactions = {}  # Store original transaction data for change tracking
             self.deleted_transactions = []  # Track deleted transactions
 
-            print(f"DEBUG: Setting window properties")
             self.setWindowTitle(f"Transaction History: {bill.name}")
             self.setModal(True)
             self.resize(1000, 600)
 
-            print(f"DEBUG: Initializing UI")
             self.init_ui()
 
-            print(f"DEBUG: Loading transactions")
             self.load_transactions()
 
-            print(f"DEBUG: Applying theme")
             self.apply_theme()
 
-            print(f"DEBUG: Theme applied, dialog should be ready")
-            print(f"DEBUG: Dialog initialization completed successfully")
 
             # Force a refresh to ensure everything is properly displayed
             self.update()
-            print(f"DEBUG: Dialog update() called")
 
         except Exception as e:
-            print(f"DEBUG: Error during dialog initialization: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -166,7 +151,6 @@ class BillTransactionHistoryDialog(QDialog):
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Running Total
 
         # Disable custom delegates for now to prevent crashes
-        print("DEBUG: Skipping custom delegates - using standard table editing")
         # TODO: Re-enable delegates once crash is fixed
         # date_delegate = DateEditDelegate()
         # amount_delegate = AmountEditDelegate()
@@ -208,18 +192,15 @@ class BillTransactionHistoryDialog(QDialog):
     def load_transactions(self):
         """Load all transactions for this bill using AccountHistory"""
         try:
-            print(f"DEBUG: Loading transactions for bill {self.bill.name} (ID: {self.bill.id})")
 
             # Get AccountHistory entries directly for this bill
             from models.account_history import AccountHistoryManager
 
             history_manager = AccountHistoryManager(self.transaction_manager.db)
             account_history = history_manager.get_account_history(self.bill.id, "bill")
-            print(f"DEBUG: Found {len(account_history)} total history entries")
 
             # Include both transaction entries AND starting balance entries
             all_history = account_history  # Show all entries including starting balance
-            print(f"DEBUG: Found {len(all_history)} total history entries (including starting balance)")
 
             # Sort by date (newest first)
             all_history.sort(key=lambda h: h.transaction_date, reverse=True)
@@ -229,11 +210,9 @@ class BillTransactionHistoryDialog(QDialog):
             self.deleted_transactions = []
 
             # Populate table
-            print(f"DEBUG: Setting table row count to {len(all_history)}")
             self.table.setRowCount(len(all_history))
 
             for row, history_entry in enumerate(all_history):
-                print(f"DEBUG: Processing row {row}, history entry ID {history_entry.id}")
 
                 # Store original data for change tracking
                 self.original_transactions[history_entry.id] = {
@@ -285,7 +264,6 @@ class BillTransactionHistoryDialog(QDialog):
                             else:
                                 description = f"Transaction {history_entry.transaction_id} not found"
                         except Exception as desc_error:
-                            print(f"DEBUG: Error getting transaction description: {desc_error}")
                             description = "Error loading description"
 
                     desc_item = QTableWidgetItem(description)
@@ -302,19 +280,15 @@ class BillTransactionHistoryDialog(QDialog):
                     total_item.setFlags(total_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                     self.table.setItem(row, 5, total_item)
 
-                    print(f"DEBUG: Successfully processed row {row}")
 
                 except Exception as row_error:
-                    print(f"DEBUG: Error processing row {row}: {row_error}")
                     import traceback
                     traceback.print_exc()
                     # Continue to next row instead of crashing
 
-            print(f"DEBUG: Transaction loading completed successfully")
 
         except Exception as e:
             error_msg = f"Error loading transactions: {str(e)}"
-            print(f"DEBUG: {error_msg}")
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Error", error_msg)
@@ -568,7 +542,6 @@ class BillTransactionHistoryDialog(QDialog):
             QMessageBox.information(self, "Success", "All changes saved successfully!")
 
             # Auto-refresh and reorder: reload transactions to get updated running totals and proper ordering
-            print("DEBUG: Auto-refreshing table after save")
             self.load_transactions()
 
             # Trigger rollover recalculation to update any dependent calculations
@@ -577,13 +550,10 @@ class BillTransactionHistoryDialog(QDialog):
                 current_week = self.transaction_manager.get_current_week()
                 if current_week:
                     self.transaction_manager.trigger_rollover_recalculation(current_week.week_number)
-                    print("DEBUG: Triggered rollover recalculation")
             except Exception as recalc_error:
-                print(f"DEBUG: Could not trigger rollover recalculation: {recalc_error}")
 
             # Emit signal to update parent views
             self.bill_updated.emit(self.bill)
-            print("DEBUG: Bill updated signal emitted")
 
         except Exception as e:
             self.transaction_manager.db.rollback()
@@ -594,18 +564,14 @@ class BillTransactionHistoryDialog(QDialog):
     def apply_theme(self):
         """Apply current theme"""
         try:
-            print("DEBUG: Starting theme application")
             colors = theme_manager.get_colors()
-            print(f"DEBUG: Got colors: {list(colors.keys())}")
 
             # Check for missing colors and provide defaults
             required_colors = ['background', 'text_primary', 'surface', 'surface_variant', 'border', 'primary', 'hover', 'accent']
             for color_key in required_colors:
                 if color_key not in colors:
-                    print(f"DEBUG: Missing color '{color_key}', using default")
                     colors[color_key] = '#333333'  # Dark gray default
 
-            print("DEBUG: Applying stylesheet")
             self.setStyleSheet(f"""
                 QDialog {{
                     background-color: {colors['background']};
@@ -668,10 +634,8 @@ class BillTransactionHistoryDialog(QDialog):
                     background-color: {colors['primary']};
                 }}
             """)
-            print("DEBUG: Theme application completed successfully")
 
         except Exception as e:
-            print(f"DEBUG: Error applying theme: {e}")
             import traceback
             traceback.print_exc()
             # Apply a minimal fallback theme

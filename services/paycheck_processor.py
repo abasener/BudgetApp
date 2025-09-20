@@ -144,23 +144,16 @@ class PaycheckProcessor:
         """Record all transactions from paycheck processing"""
 
         print("=" * 60)
-        print("DEBUG: Starting paycheck transaction recording")
-        print(f"DEBUG: Paycheck date: {paycheck_date}")
-        print(f"DEBUG: Week start date: {split.week_start_date}")
-        print(f"DEBUG: Week 1 allocation: ${split.week1_allocation}")
-        print(f"DEBUG: Week 2 allocation: ${split.week2_allocation}")
 
         # Create both weeks for the bi-weekly period
         # Always create new weeks for a new paycheck based on the week_start date
 
         # Create first week starting from week_start date
         week_start = split.week_start_date  # This should be passed from the dialog
-        print(f"DEBUG: Creating Week 1 starting {week_start}")
         current_week = self.create_new_week(week_start)
 
         # Create the second week for bi-weekly period
         next_week_start = week_start + timedelta(days=7)  # Start date for week 2
-        print(f"DEBUG: Creating Week 2 starting {next_week_start}")
         next_week = self.create_new_week(next_week_start)
 
         # Set appropriate rollover flags for new bi-weekly period
@@ -172,7 +165,6 @@ class PaycheckProcessor:
         if is_week2_even:
             # Week 2 should not process rollover until bi-weekly period is complete
             next_week.rollover_applied = True  # Prevent premature rollover processing
-            print(f"DEBUG: Set Week {next_week.week_number} rollover_applied = True to prevent premature processing")
             self.db.commit()
 
         # 1. Record the income transaction
@@ -196,15 +188,10 @@ class PaycheckProcessor:
         self.transaction_manager.set_auto_rollover_disabled(False)
 
         # 4. Update week allocations with the calculated amounts
-        print(f"DEBUG: Setting Week {current_week.week_number} allocation to ${split.week1_allocation}")
-        print(f"DEBUG: Setting Week {next_week.week_number} allocation to ${split.week2_allocation}")
         current_week.running_total = split.week1_allocation
         next_week.running_total = split.week2_allocation
         self.db.commit()
 
-        print(f"DEBUG: Final Week {current_week.week_number}: ${current_week.running_total}")
-        print(f"DEBUG: Final Week {next_week.week_number}: ${next_week.running_total}")
-        print("DEBUG: Paycheck transaction recording completed")
         print("=" * 60)
     
     def update_bill_savings(self, week_number: int, transaction_date: date, paycheck_amount: float):
@@ -235,7 +222,6 @@ class PaycheckProcessor:
                     "bill_type": bill.bill_type
                 }
                 self.transaction_manager.add_transaction(bill_saving_transaction)
-                print(f"DEBUG: Bill savings - {bill.name}: ${actual_amount:.2f}")
 
     def update_account_auto_savings(self, week_number: int, transaction_date: date, paycheck_amount: float = 0):
         """Update account auto-savings based on each account's auto_save_amount"""
@@ -266,7 +252,6 @@ class PaycheckProcessor:
                     "account_saved_to": account.name
                 }
                 self.transaction_manager.add_transaction(account_saving_transaction)
-                print(f"DEBUG: Added ${actual_amount:.2f} to {account.name}")
 
     def create_new_week(self, start_date: date) -> Week:
         """Create a new week when processing paycheck"""
@@ -274,7 +259,6 @@ class PaycheckProcessor:
         current_week = self.transaction_manager.get_current_week()
         next_week_number = (current_week.week_number + 1) if current_week else 1
 
-        print(f"DEBUG: Creating new week {next_week_number} starting {start_date}")
 
         new_week = Week(
             week_number=next_week_number,
@@ -287,7 +271,6 @@ class PaycheckProcessor:
         self.db.commit()
         self.db.refresh(new_week)
 
-        print(f"DEBUG: Successfully created Week {new_week.week_number} (ID: {new_week.id})")
         return new_week
     
     def calculate_week_rollover(self, week_number: int) -> WeekRollover:
@@ -406,18 +389,16 @@ class PaycheckProcessor:
 
         if is_target_week1_of_period:
             # Target is Week 1, always reset (Week 1 can rollover immediately when Week 2 exists)
-            print(f"DEBUG: Cascading - Resetting Week {target_week.week_number} rollover_applied to False (Week 1)")
             target_week.rollover_applied = False
         else:
             # Target is Week 2, only reset if bi-weekly period is complete
             week3_exists = self.db.query(Week).filter(Week.week_number == target_week.week_number + 1).first()
             week_ended = date.today() > target_week.end_date
             if week3_exists or week_ended:
-                print(f"DEBUG: Cascading - Resetting Week {target_week.week_number} rollover_applied to False (Week 2, period complete)")
                 target_week.rollover_applied = False
             else:
-                print(f"DEBUG: Cascading - NOT resetting Week {target_week.week_number} rollover_applied (Week 2, period incomplete)")
-            # Otherwise, leave Week 2 as rollover_applied = True to prevent premature processing
+                # Otherwise, leave Week 2 as rollover_applied = True to prevent premature processing
+                pass
 
         self.transaction_manager.db.commit()
     
@@ -593,9 +574,7 @@ class PaycheckProcessor:
         for account in accounts:
             # Get current balance from AccountHistory
             current_balance = account.get_current_balance(self.db)
-            print(f"DEBUG: Account {account.name} current balance: ${current_balance:.2f}")
 
-        print("DEBUG: Balance history is automatically maintained through AccountHistory")
 
     def recalculate_period_rollovers(self, week_number: int):
         """
@@ -621,7 +600,6 @@ class PaycheckProcessor:
         if not week1:
             return  # Week 1 doesn't exist, nothing to recalculate
 
-        print(f"DEBUG: Recalculating rollovers for bi-weekly period: Week {week1_number} & Week {week2_number}")
 
         # Step 1: Remove existing rollover transactions for this period
         self._remove_period_rollover_transactions(week1_number, week2_number)

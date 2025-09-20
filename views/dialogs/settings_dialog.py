@@ -709,24 +709,25 @@ class SettingsDialog(QDialog):
             bill_count = len(bills)
 
             # Create starting balance entries for accounts (usually $0)
-            from models.account_history import AccountHistoryManager
-            history_manager = AccountHistoryManager(db)
+            from models.account_history import AccountHistory
 
             for account in accounts:
                 # Create starting balance entry (typically $0)
-                history_manager.create_starting_balance_entry(
+                starting_entry = AccountHistory.create_starting_balance_entry(
                     account_id=account.id,
                     account_type="account",
                     starting_balance=0.0
                 )
+                db.add(starting_entry)
 
             for bill in bills:
                 # Create starting balance entry (typically $0)
-                history_manager.create_starting_balance_entry(
+                starting_entry = AccountHistory.create_starting_balance_entry(
                     account_id=bill.id,
                     account_type="bill",
                     starting_balance=0.0
                 )
+                db.add(starting_entry)
 
             db.commit()
             db.close()
