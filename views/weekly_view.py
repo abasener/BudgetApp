@@ -490,44 +490,61 @@ class WeekDetailWidget(QWidget):
         self.ring_figure.clear()
         ax = self.ring_figure.add_subplot(111)
         
-        # Calculate actual data: paycheck/2 as total, then portions
+        # Calculate actual money breakdown for this specific week
         if self.pay_period_data:
-            paycheck = self.pay_period_data.get('paycheck', 0.0)
             bills_total = self.pay_period_data.get('bills', 0.0)
-            savings_total = self.pay_period_data.get('savings', 0.0)
-            
-            # Divide by 2 for per-week amounts
-            total_week_money = paycheck / 2
-            week_bills = bills_total / 2
-            week_savings = savings_total / 2
 
-            # Calculate spent for this week
-            # Include both SPENDING and BILL_PAY transactions, exclude rollovers and bill/savings allocations
+            # Bills allocation for this week (half of bi-weekly total)
+            week_bills_allocation = bills_total / 2
+
+            # Calculate actual spending transactions in this week (positive amounts only)
             spending_transactions = [
                 t for t in self.transactions
-                if (t.is_spending or t.is_bill_pay)
-                and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+                if t.is_spending
+                and t.amount > 0
+                and t.category != "Rollover"
+                and not (t.description and "rollover" in t.description.lower())
                 and not (t.description and "allocation" in t.description.lower())
             ]
-            week_spent = sum(t.amount for t in spending_transactions)
+            week_spending = sum(t.amount for t in spending_transactions)
 
-            # Rollover is any amount left
-            week_rollover = max(0, total_week_money - week_bills - week_savings - week_spent)
-
-
-            # Ensure all values are non-negative for ring chart display
-            # In overspending scenarios, some values might be negative or zero
-            sizes = [
-                max(0, week_savings),
-                max(0, week_bills),
-                max(0, week_spent),
-                max(0, week_rollover)
+            # Calculate actual savings transactions in this week (positive amounts only)
+            savings_transactions = [
+                t for t in self.transactions
+                if t.is_saving
+                and t.amount > 0
+                and not (t.description and "allocation" in t.description.lower())
             ]
-            labels = ['Savings', 'Bills', 'Spent', 'Rollover']
+            week_savings = sum(t.amount for t in savings_transactions)
 
-            # If all values are zero (extreme overspending), show a default
-            if sum(sizes) == 0:
-                sizes = [0, 0, 100, 0]  # Show 100% spent when overspending
+            # Calculate rollover income for this week (positive rollover from previous week)
+            rollover_transactions = [
+                t for t in self.transactions
+                if t.transaction_type == "income"
+                and t.amount > 0
+                and ("rollover" in t.description.lower() or t.category == "Rollover")
+            ]
+            week_rollover = sum(t.amount for t in rollover_transactions)
+
+            # Ring chart shows actual money flow breakdown
+            sizes = [week_bills_allocation, week_spending, week_savings, week_rollover]
+            labels = ['Bills', 'Spending', 'Savings', 'Rollover In']
+
+            # Only show segments with positive values
+            filtered_sizes = []
+            filtered_labels = []
+            for size, label in zip(sizes, labels):
+                if size > 0:
+                    filtered_sizes.append(size)
+                    filtered_labels.append(label)
+
+            # If no positive values, show minimal default
+            if not filtered_sizes:
+                sizes = [1]
+                labels = ['No Activity']
+            else:
+                sizes = filtered_sizes
+                labels = filtered_labels
         else:
             # Fallback data
             sizes = [0, 0, 0, 100]

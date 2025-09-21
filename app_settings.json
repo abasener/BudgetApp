@@ -1,8 +1,8 @@
 {
-  "default_theme": "honey",
+  "default_theme": "excel_blue",
   "bills_sort_order": "Amount (High to Low)",
   "savings_sort_order": "Goal Progress",
-  "dashboard_chart1_account": "Emergency Fund",
+  "dashboard_chart1_account": "random",
   "dashboard_chart2_account": "random",
   "default_hourly_rate": 50.0,
   "default_analytics_only": true,

@@ -62,15 +62,16 @@ PART 2: TECHNICAL IMPLEMENTATION (Developer Reference)
 
 KEY FILES:
 - services/paycheck_processor.py: Main paycheck logic & rollover system
-- services/transaction_manager.py: CRUD operations & rollover triggers
+- services/transaction_manager.py: CRUD operations & rollover triggers (includes date-range queries)
 - models/account_history.py: Date-ordered balance tracking system for all account types
-- views/weekly_view.py: Frontend display logic (updated for AccountHistory)
+- views/weekly_view.py: Frontend display logic (date-range transaction loading, improved charts)
 - views/bills_view.py: Bills management with AccountHistory integration
 - views/savings_view.py: Savings accounts with AccountHistory integration
 - views/dialogs/bill_transaction_history_dialog.py: Direct transaction editing for bills
 - views/dialogs/account_transaction_history_dialog.py: Direct transaction editing for savings
 - widgets/bill_row_widget.py: Bills display widgets with live AccountHistory data
 - widgets/account_row_widget.py: Savings display widgets with live AccountHistory data
+- widgets/chart_widget.py: Chart widgets with negative value handling for overspending scenarios
 
 CRITICAL METHODS:
 
@@ -86,6 +87,8 @@ TransactionManager:
 - add_transaction(): Auto-triggers rollover recalc for spending/saving transactions
 - trigger_rollover_recalculation(): Calls PaycheckProcessor.recalculate_period_rollovers()
 - set_auto_rollover_disabled(): Prevent infinite loops during rollover creation
+- get_transactions_by_date_range(): Date-based transaction queries (preferred over week_number)
+- get_transactions_by_week(): Legacy week_number-based queries (deprecated in weekly view)
 
 AccountHistoryManager:
 - add_transaction_change(): Add new history entry, handle out-of-order dates
@@ -268,5 +271,58 @@ PERFORMANCE NOTES:
 - Direct transaction editing triggers targeted AccountHistory recalculation
 - All operations acceptable for typical usage patterns (few hundred transactions)
 - Real-time balance updates provide immediate feedback without performance impact
+- Date-range transaction queries are O(log n) with proper database indexing
+
+================================================================================
+LATEST V2 ENHANCEMENTS (Weekly View Reliability & Chart Improvements):
+================================================================================
+
+WEEKLY VIEW TRANSACTION LOADING REDESIGN:
+- Switched from week_number-based queries to date-range-based queries for transaction loading
+- OLD: get_transactions_by_week(week_number) - Could miss transactions with wrong week_number
+- NEW: get_transactions_by_date_range(start_date, end_date) - Always gets correct transactions
+- More reliable transaction loading regardless of week_number field accuracy
+- Eliminates transaction display bugs caused by week_number mismatches
+
+TRANSACTION TABLE FILTERING IMPROVEMENTS:
+- Fixed transaction filtering to include both SPENDING and BILL_PAY transactions
+- Consistent filtering logic across all weekly view calculations (table, charts, progress bars)
+- Only shows transactions within the actual week date range (10/21/2024 - 10/27/2024 format)
+- Excludes rollover and allocation transactions from spending calculations
+- Shows all non-rollover transactions regardless of include_in_analytics flag
+
+PIE CHART ENHANCEMENTS:
+- Improved category pie chart to handle positive-only spending transactions
+- Added filtering for t.amount > 0 to prevent negative value errors
+- Simplified logic to only show actual spending categories (not bill_pay)
+- Consistent with user expectation: sum_category_n / sum_all for percentage calculation
+
+RING CHART REDESIGN:
+- Completely redesigned to show actual week money flow instead of theoretical allocations
+- NEW LOGIC: Shows Bills/2 + Spending + Savings_Transactions + Rollover_In as total
+- Segments: Bills allocation, Actual spending, Actual savings, Rollover income
+- Only displays positive values to prevent chart rendering errors
+- Dynamic segment filtering - only shows segments with positive amounts
+- Handles overspending scenarios gracefully without crashes
+
+CHART ERROR HANDLING:
+- Added negative value protection for all chart widgets
+- Fixed "Wedge sizes 'x' must be non negative values" errors in overspending scenarios
+- Ring and pie charts now handle deficit weeks without crashing
+- Fallback displays for extreme cases (no positive values)
+
+CODE CLEANUP & RELIABILITY:
+- Removed 95+ debug and test files that were cluttering the codebase
+- Cleaned up all debug print statements and testing code
+- Fixed syntax errors from cleanup operations
+- Eliminated "sticky table" issues where transaction tables showed wrong data
+- Improved error handling for chart widgets in edge cases
+
+WEEKLY VIEW DATA ACCURACY:
+- Date-range queries ensure correct transaction loading for each week
+- Consistent spending calculations across table, charts, and progress bars
+- Proper handling of overspending scenarios with negative savings transactions
+- Real-time transaction loading without dependency on potentially incorrect week_number fields
+- Eliminated transaction loading discrepancies between backend calculations and UI display
 
 ================================================================================
