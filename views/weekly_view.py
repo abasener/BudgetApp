@@ -414,11 +414,11 @@ class WeekDetailWidget(QWidget):
             return
 
         try:
-            # Get transactions for this week
-            self.transactions = self.transaction_manager.get_transactions_by_week(self.week_data.week_number)
-
-            # Count spending transactions for debugging
-            spending_count = len([t for t in self.transactions if t.is_spending and t.include_in_analytics])
+            # Get transactions for this week using date range instead of week_number
+            self.transactions = self.transaction_manager.get_transactions_by_date_range(
+                self.week_data.start_date,
+                self.week_data.end_date
+            )
             
             # Update text display
             self.update_week_text_info()
@@ -439,10 +439,10 @@ class WeekDetailWidget(QWidget):
     def update_week_text_info(self):
         """Update the 4-line text display with week financial info"""
         # Calculate spending for this week
-        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        # Include both SPENDING and BILL_PAY transactions, exclude rollovers and bill/savings allocations
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending
+            if (t.is_spending or t.is_bill_pay)
             and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
             and not (t.description and "allocation" in t.description.lower())
         ]
@@ -502,10 +502,10 @@ class WeekDetailWidget(QWidget):
             week_savings = savings_total / 2
 
             # Calculate spent for this week
-            # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+            # Include both SPENDING and BILL_PAY transactions, exclude rollovers and bill/savings allocations
             spending_transactions = [
                 t for t in self.transactions
-                if t.is_spending
+                if (t.is_spending or t.is_bill_pay)
                 and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
                 and not (t.description and "allocation" in t.description.lower())
             ]
@@ -514,16 +514,20 @@ class WeekDetailWidget(QWidget):
             # Rollover is any amount left
             week_rollover = max(0, total_week_money - week_bills - week_savings - week_spent)
 
-            # Debug output
-            print(f"Week {self.week_number} Ring Chart Data:")
-            print(f"  Total week money: ${total_week_money:.2f}")
-            print(f"  Week savings: ${week_savings:.2f}")
-            print(f"  Week bills: ${week_bills:.2f}")
-            print(f"  Week spent: ${week_spent:.2f}")
-            print(f"  Week rollover: ${week_rollover:.2f}")
 
-            sizes = [week_savings, week_bills, week_spent, week_rollover]
+            # Ensure all values are non-negative for ring chart display
+            # In overspending scenarios, some values might be negative or zero
+            sizes = [
+                max(0, week_savings),
+                max(0, week_bills),
+                max(0, week_spent),
+                max(0, week_rollover)
+            ]
             labels = ['Savings', 'Bills', 'Spent', 'Rollover']
+
+            # If all values are zero (extreme overspending), show a default
+            if sum(sizes) == 0:
+                sizes = [0, 0, 100, 0]  # Show 100% spent when overspending
         else:
             # Fallback data
             sizes = [0, 0, 0, 100]
@@ -555,11 +559,13 @@ class WeekDetailWidget(QWidget):
         
     def update_category_pie_chart(self):
         """Update category pie chart with spending breakdown"""
-        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        # Only include SPENDING transactions with positive amounts, exclude rollovers and allocations
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            if t.is_spending  # Only spending, not bill_pay
+            and t.amount > 0  # Only positive amounts
+            and t.category != "Rollover"
+            and not (t.description and "rollover" in t.description.lower())
             and not (t.description and "allocation" in t.description.lower())
         ]
 
@@ -567,7 +573,7 @@ class WeekDetailWidget(QWidget):
             self.category_pie_chart.update_data({}, "No Spending")
             return
 
-        # Calculate spending by category
+        # Calculate spending by category (all amounts are now guaranteed positive)
         category_spending = {}
         for transaction in spending_transactions:
             category = transaction.category or "Uncategorized"
@@ -578,10 +584,10 @@ class WeekDetailWidget(QWidget):
     def update_week_progress_bars(self):
         """Update progress bars for this specific week"""
         # Money progress (similar to bi-weekly but for single week)
-        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        # Include both SPENDING and BILL_PAY transactions, exclude rollovers and bill/savings allocations
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending
+            if (t.is_spending or t.is_bill_pay)
             and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
             and not (t.description and "allocation" in t.description.lower())
         ]
@@ -627,11 +633,12 @@ class WeekDetailWidget(QWidget):
         
     def update_transaction_table(self):
         """Update transaction table with week's spending transactions only"""
-        # Filter to only spending transactions (exclude paychecks, bills, savings)
+        # Filter to only spending transactions (exclude paychecks, income, savings allocations)
         # Show ALL spending transactions regardless of analytics flag, exclude rollovers and allocations
+        # Include both SPENDING and BILL_PAY transaction types since both reduce available money
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending
+            if (t.is_spending or t.is_bill_pay)
             and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
             and not (t.description and "allocation" in t.description.lower())
         ]
