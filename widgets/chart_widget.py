@@ -196,8 +196,15 @@ class PieChartWidget(BaseChartWidget):
         self.transparent_background = transparent_background
         super().__init__(title, parent)
     
-    def update_data(self, data: dict, total_label: str = "Total"):
-        """Update pie chart with new data"""
+    def update_data(self, data: dict, total_label: str = "Total", highlight_category: str = None, custom_colors: list = None):
+        """Update pie chart with new data
+
+        Args:
+            data: dict of category -> amount
+            total_label: label for total display
+            highlight_category: category name to highlight (will explode and have thicker border)
+            custom_colors: list of hex colors to use instead of theme colors (for consistency)
+        """
         self.figure.clear()
         
         if not data or not any(data.values()):
@@ -213,12 +220,30 @@ class PieChartWidget(BaseChartWidget):
             # Prepare data
             labels = list(data.keys())
             sizes = list(data.values())
-            colors = theme_manager.get_chart_colors()[:len(labels)]
-            
+
+            # Use custom colors if provided, otherwise use theme colors
+            if custom_colors and len(custom_colors) >= len(labels):
+                colors = custom_colors[:len(labels)]
+            else:
+                colors = theme_manager.get_chart_colors()[:len(labels)]
+
+            # Prepare explode values for highlighting
+            explode = None
+            if highlight_category and highlight_category in labels:
+                # Create explode tuple - highlight the selected category
+                explode = [0.1 if label == highlight_category else 0 for label in labels]
+
             # Create pie chart without labels and percentages
             # When autopct=None, pie() only returns wedges and texts (2 values), not autotexts
-            wedges, texts = ax.pie(sizes, labels=None, colors=colors, 
-                                 autopct=None, startangle=90)
+            wedges, texts = ax.pie(sizes, labels=None, colors=colors,
+                                 explode=explode, autopct=None, startangle=90)
+
+            # Add thicker border to highlighted category
+            if highlight_category and highlight_category in labels:
+                highlight_index = labels.index(highlight_category)
+                if highlight_index < len(wedges):
+                    wedges[highlight_index].set_linewidth(3)
+                    wedges[highlight_index].set_edgecolor('#FFFFFF')  # White border for visibility
             
             
             # Store data for potential tooltips (basic implementation)
@@ -300,10 +325,10 @@ class LineChartWidget(BaseChartWidget):
                     import datetime
                     has_dates = len(x_vals) > 0 and isinstance(x_vals[0], (datetime.date, datetime.datetime))
                     
-                    # Main "Running Total" line gets full styling with markers
-                    if series_name == "Running Total":
-                        ax.plot(x_vals, y_vals, marker='o', label=series_name, 
-                               color=color, linewidth=2, markersize=4)
+                    # Main "Running Total" and "Bill Balance" lines get full styling with markers - thicker for bills
+                    if series_name == "Running Total" or series_name == "Bill Balance":
+                        ax.plot(x_vals, y_vals, marker='o', label=series_name,
+                               color=color, linewidth=3, markersize=4)
                     # Account Balance lines (savings accounts) get clean line style without markers
                     elif series_name == "Account Balance":
                         ax.plot(x_vals, y_vals, marker='', label=series_name, 
@@ -315,14 +340,14 @@ class LineChartWidget(BaseChartWidget):
                         ax.plot(x_vals, y_vals, marker='', label=series_name, 
                                color=secondary_color, linewidth=1, alpha=0.7)
                     
-                    # Format x-axis for dates (for Running Total and Account Balance)
-                    if has_dates and (series_name == "Running Total" or series_name == "Account Balance"):
+                    # Format x-axis for dates (for Running Total, Bill Balance, and Account Balance)
+                    if has_dates and (series_name == "Running Total" or series_name == "Bill Balance" or series_name == "Account Balance"):
                         import matplotlib.dates as mdates
                         
                         # Handle date formatting differently for each series type
                         if len(x_vals) > 1:
-                            if series_name == "Running Total":
-                                # Only show ticks where running total actually changes
+                            if series_name == "Running Total" or series_name == "Bill Balance":
+                                # Only show ticks where running total/bill balance actually changes
                                 change_points = []
                                 change_dates = []
                                 
@@ -351,11 +376,11 @@ class LineChartWidget(BaseChartWidget):
                                 ax.set_xticks(tick_dates)
                             
                             # Apply date formatting to both
-                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%Y'))
                             plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
                         else:
                             # Single point - just show that date
-                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%Y'))
                             plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
             
             # Clean formatting - no labels for savings charts
@@ -660,12 +685,13 @@ class WeeklySpendingTrendWidget(BaseChartWidget):
         # Override figure settings for clean trend display
         self.figure.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.10)
     
-    def update_data(self, weekly_spending_data: dict):
+    def update_data(self, weekly_spending_data: dict, average_line_color: str = None):
         """Update with weekly spending data
-        
+
         Args:
-            weekly_spending_data: dict where keys are week identifiers and 
+            weekly_spending_data: dict where keys are week identifiers and
                                 values are lists of 7 daily amounts [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+            average_line_color: optional color for the average line (for category consistency)
         """
         self.figure.clear()
         
@@ -709,25 +735,31 @@ class WeeklySpendingTrendWidget(BaseChartWidget):
             if week_count > 0:
                 daily_averages = [total / week_count for total in daily_totals]
                 
-                # Get secondary color (warning/accent color)
-                secondary_color = theme_manager.get_color('warning')  # Usually orange/yellow
-                if not secondary_color or secondary_color == line_color:
-                    # Fallback to a different color if warning not available
-                    secondary_color = theme_manager.get_color('accent')
-                if not secondary_color or secondary_color == line_color:
-                    # Final fallback - use a contrasting color
-                    secondary_color = '#FFA500'  # Orange
-                
-                # Plot average line - thinner, 100% alpha, on top
-                ax.plot(x_values, daily_averages, color=secondary_color, alpha=1.0, 
-                       linewidth=1.0, linestyle='-', zorder=10)  # zorder puts it on top
+                # Use custom color if provided, otherwise use theme colors
+                if average_line_color:
+                    secondary_color = average_line_color
+                else:
+                    # Get secondary color (warning/accent color)
+                    secondary_color = theme_manager.get_color('warning')  # Usually orange/yellow
+                    if not secondary_color or secondary_color == line_color:
+                        # Fallback to a different color if warning not available
+                        secondary_color = theme_manager.get_color('accent')
+                    if not secondary_color or secondary_color == line_color:
+                        # Final fallback - use a contrasting color
+                        secondary_color = '#FFA500'  # Orange
+
+                # Plot average line - thicker to make it stand out, 100% alpha, on top
+                ax.plot(x_values, daily_averages, color=secondary_color, alpha=1.0,
+                       linewidth=2.0, linestyle='-', zorder=10)  # zorder puts it on top
             
             # Set up axes
             ax.set_xlim(-0.2, 6.2)  # Small padding on x-axis
             
             if all_amounts:
                 max_amount = max(all_amounts)
-                ax.set_ylim(0, max_amount * 1.05)  # 5% padding on top
+                # Ensure we have a reasonable y-axis range, minimum of 10
+                y_max = max(max_amount * 1.05, 10)
+                ax.set_ylim(0, y_max)
             else:
                 ax.set_ylim(0, 100)  # Default range
             
@@ -753,12 +785,14 @@ class BoxPlotWidget(BaseChartWidget):
         # Override figure settings for horizontal box plot
         self.figure.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.10)
     
-    def update_data(self, category_spending_data: dict):
+    def update_data(self, category_spending_data: dict, highlight_category: str = None, color_map: dict = None):
         """Update with category spending distributions
-        
+
         Args:
-            category_spending_data: dict where keys are category names and 
+            category_spending_data: dict where keys are category names and
                                   values are lists of spending amounts for that category
+            highlight_category: category name to highlight (will have different color and border)
+            color_map: dict mapping category names to colors (for consistency)
         """
         self.figure.clear()
         
@@ -773,24 +807,47 @@ class BoxPlotWidget(BaseChartWidget):
         else:
             ax = self.figure.add_subplot(111)
             
-            # Use ALL categories from the data (not hardcoded list)
-            # Sort by total spending to show most important categories first
-            category_totals = {cat: sum(amounts) for cat, amounts in category_spending_data.items()}
-            categories_with_data = sorted(category_totals.keys(), key=lambda x: category_totals[x], reverse=True)
+            # Keep the order from the data passed in (categories view will provide consistent ordering)
+            categories_with_data = list(category_spending_data.keys())
             chart_colors = theme_manager.get_chart_colors()
-            
+
+
             if categories_with_data:
                 # Prepare data for box plot
                 data_lists = []
                 colors = []
                 positions = []
-                
+
                 for i, category in enumerate(categories_with_data):
                     spending_amounts = [float(amount) for amount in category_spending_data[category] if amount > 0]
                     if spending_amounts:  # Only add if there's actual data
                         data_lists.append(spending_amounts)
-                        # Assign colors sequentially to all categories
-                        colors.append(chart_colors[i % len(chart_colors)])
+
+                        # Get the original category name (before shortening) for color lookup
+                        # This assumes category names were shortened from their original form
+                        original_category = None
+                        if color_map:
+                            # Try to find the original category name that matches this shortened one
+                            for orig_cat in color_map.keys():
+                                # Handle shortened names: "Entertainm..." should match "Entertainment"
+                                shortened_orig = orig_cat[:10] + "..." if len(orig_cat) > 10 else orig_cat
+                                if shortened_orig == category:
+                                    original_category = orig_cat
+                                    break
+                                if orig_cat == category:  # Exact match for short names
+                                    original_category = orig_cat
+                                    break
+
+                        # Assign colors using color map or fallback to theme colors (same color whether highlighted or not)
+                        if color_map and original_category and original_category in color_map:
+                            color = color_map[original_category]
+                            colors.append(color)
+                        else:
+                            # Fallback to old method
+                            color_index = i % len(chart_colors)
+                            actual_color = chart_colors[color_index]
+                            colors.append(actual_color)
+
                         positions.append(i)
                 
                 if data_lists:
@@ -798,11 +855,19 @@ class BoxPlotWidget(BaseChartWidget):
                     box_parts = ax.boxplot(data_lists, positions=positions, vert=False, 
                                          patch_artist=True, widths=0.6, showfliers=False)
                     
-                    # Color the boxes with category colors
-                    for patch, color in zip(box_parts['boxes'], colors):
+                    # Color the boxes with category colors and add highlighting
+                    for i, (patch, color) in enumerate(zip(box_parts['boxes'], colors)):
                         patch.set_facecolor(color)
-                        patch.set_alpha(0.7)  # Slight transparency
-                        patch.set_edgecolor(color)
+
+                        # Highlight the selected category with different styling
+                        category = categories_with_data[i] if i < len(categories_with_data) else None
+                        if category == highlight_category:
+                            patch.set_alpha(1.0)  # Full opacity for highlight
+                            patch.set_edgecolor('#FFFFFF')  # White border
+                            patch.set_linewidth(1.5)  # Thinner border to match thin boxes
+                        else:
+                            patch.set_alpha(0.7)  # Slight transparency for non-highlighted
+                            patch.set_edgecolor(color)
                     
                     # Style whiskers, caps, and medians with subtle color
                     # Use text_secondary or border color for whiskers instead of white

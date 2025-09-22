@@ -654,10 +654,10 @@ class SettingsDialog(QDialog):
             "This will reset for testing by deleting:\n\n"
             "• All transactions (spending, income, bills)\n"
             "• All pay weeks and periods\n"
-            "• Reset all account balances to $0\n\n"
+            "• Reset all account balances to their starting values\n\n"
             "This will keep:\n"
-            "• All savings accounts (structure)\n"
-            "• All bills (structure)\n\n"
+            "• All savings accounts (structure and starting balances)\n"
+            "• All bills (structure and starting balances)\n\n"
             "This action cannot be undone!\n\n"
             "Are you sure you want to continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -695,37 +695,69 @@ class SettingsDialog(QDialog):
             week_count = db.query(Week).count()
             history_count = db.query(AccountHistory).count()
 
-            # Delete AccountHistory first (references transactions)
+            # Get accounts and bills
+            accounts = db.query(Account).all()
+            bills = db.query(Bill).all()
+            account_count = len(accounts)
+            bill_count = len(bills)
+
+            # Get starting balances BEFORE deleting AccountHistory
+            account_starting_balances = {}
+            bill_starting_balances = {}
+
+            # Get starting balances for accounts
+            for account in accounts:
+                # Find the starting balance entry (transaction_id is None, earliest date)
+                starting_entry = db.query(AccountHistory).filter(
+                    AccountHistory.account_id == account.id,
+                    AccountHistory.account_type == "savings",
+                    AccountHistory.transaction_id.is_(None)
+                ).order_by(AccountHistory.transaction_date, AccountHistory.id).first()
+
+                if starting_entry:
+                    account_starting_balances[account.id] = starting_entry.change_amount
+                else:
+                    account_starting_balances[account.id] = 0.0
+
+            # Get starting balances for bills
+            for bill in bills:
+                # Find the starting balance entry (transaction_id is None, earliest date)
+                starting_entry = db.query(AccountHistory).filter(
+                    AccountHistory.account_id == bill.id,
+                    AccountHistory.account_type == "bill",
+                    AccountHistory.transaction_id.is_(None)
+                ).order_by(AccountHistory.transaction_date, AccountHistory.id).first()
+
+                if starting_entry:
+                    bill_starting_balances[bill.id] = starting_entry.change_amount
+                else:
+                    bill_starting_balances[bill.id] = 0.0
+
+            # Now delete AccountHistory first (references transactions)
             db.query(AccountHistory).delete()
 
             # Delete transactions and weeks
             db.query(Transaction).delete()
             db.query(Week).delete()
 
-            # Reset account and bill balances by creating new starting balance entries
-            accounts = db.query(Account).all()
-            bills = db.query(Bill).all()
-            account_count = len(accounts)
-            bill_count = len(bills)
-
-            # Create starting balance entries for accounts (usually $0)
+            # Create starting balance entries for accounts using preserved values
             from models.account_history import AccountHistory
 
             for account in accounts:
-                # Create starting balance entry (typically $0)
+                starting_balance = account_starting_balances[account.id]
                 starting_entry = AccountHistory.create_starting_balance_entry(
                     account_id=account.id,
-                    account_type="account",
-                    starting_balance=0.0
+                    account_type="savings",
+                    starting_balance=starting_balance
                 )
                 db.add(starting_entry)
 
             for bill in bills:
-                # Create starting balance entry (typically $0)
+                starting_balance = bill_starting_balances[bill.id]
                 starting_entry = AccountHistory.create_starting_balance_entry(
                     account_id=bill.id,
                     account_type="bill",
-                    starting_balance=0.0
+                    starting_balance=starting_balance
                 )
                 db.add(starting_entry)
 
@@ -739,8 +771,8 @@ class SettingsDialog(QDialog):
                 f"• Deleted {transaction_count} transactions\n"
                 f"• Deleted {week_count} weeks\n"
                 f"• Deleted {history_count} balance history entries\n"
-                f"• Reset {account_count} account balances to $0\n"
-                f"• Reset {bill_count} bill balances to $0\n\n"
+                f"• Reset {account_count} account balances to starting values\n"
+                f"• Reset {bill_count} bill balances to starting values\n\n"
                 f"Ready for testing!"
             )
 

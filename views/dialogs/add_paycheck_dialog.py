@@ -44,12 +44,14 @@ class AddPaycheckDialog(QDialog):
         # Paycheck date (defaults to Friday after the Monday)
         self.paycheck_date_edit = QDateEdit()
         self.paycheck_date_edit.setDate(self.calculate_default_paycheck_date())
+        self.paycheck_date_edit.setDisplayFormat("MM/dd/yyyy")
         self.paycheck_date_edit.setCalendarPopup(True)
         form_layout.addRow("Paycheck Date:", self.paycheck_date_edit)
         
         # Week start date (with default logic)
         self.week_start_edit = QDateEdit()
         self.week_start_edit.setDate(self.calculate_week_start())
+        self.week_start_edit.setDisplayFormat("MM/dd/yyyy")
         self.week_start_edit.setCalendarPopup(True)
         form_layout.addRow("Week Start Date:", self.week_start_edit)
         

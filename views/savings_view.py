@@ -271,7 +271,6 @@ class SavingsView(QWidget):
                 self.accounts_layout.insertWidget(self.accounts_layout.count() - 1, account_row)
                 self.account_rows.append(account_row)
             
-            print(f"Savings view refreshed with {len(accounts)} accounts")
             
         except Exception as e:
             error_msg = f"Error refreshing savings accounts: {str(e)}"

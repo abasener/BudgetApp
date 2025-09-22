@@ -549,6 +549,12 @@ class CategoriesView(QWidget):
         if self.selected_category:
             # Update the category title to show selected category
             self.category_title.setText(f"Selected: {self.selected_category}")
+
+        # Update top row charts to highlight selected category
+        self.update_box_plot()  # Refresh box plot with highlighting
+        self.update_main_pie_chart()  # Refresh pie chart with highlighting
+        self.update_color_key()  # Refresh color key with bold text for selected category
+
         self.update_category_details()
         
     def update_category_details(self):
@@ -571,7 +577,6 @@ class CategoriesView(QWidget):
                 (t.category == self.selected_category)
             ]
             
-            print(f"Found {len(category_transactions)} transactions for category: {self.selected_category}")
             
             if not category_transactions:
                 # No transactions for this category
@@ -584,6 +589,15 @@ class CategoriesView(QWidget):
             
             # Update title
             self.category_details_title.setText(f"{self.selected_category} Details")
+
+            # Update title color to match category color
+            color_map = self.get_category_color_map()
+            category_color = color_map.get(self.selected_category, theme_manager.get_color('text_primary'))
+
+            # Remove alpha channel if present (Qt CSS might not handle 8-digit hex colors properly)
+            if len(category_color) == 9 and category_color.startswith('#'):
+                category_color = category_color[:7]  # Keep only #RRGGBB, remove alpha
+            self.category_details_title.setStyleSheet(f"color: {category_color}; padding: 5px; font-weight: bold;")
             
             # Calculate statistics
             amounts = [t.amount for t in category_transactions]
@@ -717,7 +731,11 @@ class CategoriesView(QWidget):
             sorted_weeks = sorted(weekly_daily_totals.keys())[-8:]  # Last 8 weeks
             recent_weekly_data = {week: weekly_daily_totals[week] for week in sorted_weeks}
             
-            self.category_trend_chart.update_data(recent_weekly_data)
+            # Get category color for the average line
+            color_map = self.get_category_color_map()
+            category_color = color_map.get(self.selected_category)
+
+            self.category_trend_chart.update_data(recent_weekly_data, average_line_color=category_color)
                 
         except Exception as e:
             print(f"Error updating category weekly trends: {e}")
@@ -946,6 +964,73 @@ class CategoriesView(QWidget):
         except Exception as e:
             print(f"Error populating category list: {e}")
             
+    def get_consistent_category_order(self):
+        """Get categories in consistent order for color assignment across all charts
+
+        Returns:
+            list: [(category_name, total_amount), ...] sorted by spending amount (highest first)
+        """
+        if not self.transaction_manager:
+            return []
+
+        try:
+            # Get all spending transactions
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+
+            # Calculate spending by category
+            category_spending = {}
+            for transaction in spending_transactions:
+                category = transaction.category or "Uncategorized"
+                category_spending[category] = category_spending.get(category, 0) + transaction.amount
+
+            # Sort by spending amount (highest first) - this is our master ordering
+            sorted_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)
+
+            return sorted_categories
+
+        except Exception as e:
+            print(f"Error getting consistent category order: {e}")
+            return []
+
+    def get_category_color_map(self):
+        """Get a dictionary mapping category names to consistent colors
+
+        Returns:
+            dict: {category_name: hex_color, ...}
+        """
+        sorted_categories = self.get_consistent_category_order()
+        chart_colors = theme_manager.get_chart_colors()
+
+        color_map = {}
+        for i, (category, amount) in enumerate(sorted_categories):
+            color_index = i % len(chart_colors)
+            color_map[category] = chart_colors[color_index]
+
+        return color_map
+
+    def get_category_color(self, category_name, color_map=None):
+        """Get the consistent color for a specific category
+
+        Args:
+            category_name: name of the category
+            color_map: optional pre-computed color mapping
+
+        Returns:
+            str: hex color code for this category
+        """
+        if color_map is None:
+            color_map = self.get_category_color_map()
+
+        if category_name in color_map:
+            return color_map[category_name]
+
+        # Category not found - return first color as fallback
+        chart_colors = theme_manager.get_chart_colors()
+        fallback_color = chart_colors[0] if chart_colors else "#000000"
+        print(f"DEBUG: Category '{category_name}' not found in color map, using fallback color {fallback_color}")
+        return fallback_color
+
     def update_category_stats(self):
         """Update category overview statistics"""
         if not self.transaction_manager:
@@ -982,47 +1067,50 @@ class CategoriesView(QWidget):
         """Update box plot with purchase value distribution by category"""
         if not self.transaction_manager or not self.box_plot_widget:
             return
-            
+
         try:
-            # Get all spending transactions from database
-            all_transactions = self.transaction_manager.get_all_transactions()
-            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
-            
-            print(f"Box plot: Found {len(spending_transactions)} spending transactions from database")
-            
-            # Group transactions by category
-            category_amounts = {}
-            for transaction in spending_transactions:
-                category = transaction.category or "Uncategorized"
-                if category not in category_amounts:
-                    category_amounts[category] = []
-                category_amounts[category].append(transaction.amount)
-            
-            print(f"Box plot: Grouped into {len(category_amounts)} categories: {list(category_amounts.keys())}")
-            
-            # Sort categories by total spending (highest first) - show ALL categories
-            category_totals = {cat: sum(amounts) for cat, amounts in category_amounts.items()}
-            sorted_categories = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)
-            
+            # Get consistent category ordering
+            sorted_categories = self.get_consistent_category_order()
+
             if sorted_categories:
-                # Prepare data for box plot: categories on Y-axis, values on X-axis
-                # Show ALL categories, let them be squished like on dashboard
+                # Group transactions by category
+                all_transactions = self.transaction_manager.get_all_transactions()
+                spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+
+                category_amounts = {}
+                for transaction in spending_transactions:
+                    category = transaction.category or "Uncategorized"
+                    if category not in category_amounts:
+                        category_amounts[category] = []
+                    category_amounts[category].append(transaction.amount)
+
+                # Prepare data for box plot using consistent ordering
                 plot_data = {}
                 for category, total_amount in sorted_categories:
-                    amounts = category_amounts[category]
-                    # Keep category names shorter for better fit when squished
-                    display_name = category[:10] + "..." if len(category) > 10 else category
-                    plot_data[display_name] = amounts
-                
-                print(f"Box plot data: Found {len(plot_data)} categories with real transaction data")
-                print(f"Categories being sent to box plot: {list(plot_data.keys())}")
-                
-                # The BoxPlotWidget has hardcoded category filtering - we need to work around this
-                # by making sure our categories match the expected format
-                self.box_plot_widget.update_data(plot_data)
+                    if category in category_amounts:  # Only include categories with data
+                        amounts = category_amounts[category]
+                        # Keep category names shorter for better fit when squished
+                        display_name = category[:10] + "..." if len(category) > 10 else category
+                        plot_data[display_name] = amounts
+
+                # Pass selected category for highlighting (need to handle shortened names)
+                highlight_key = None
+                if self.selected_category:
+                    # Find the matching shortened name in plot_data
+                    for key in plot_data.keys():
+                        if key.startswith(self.selected_category[:10]):
+                            highlight_key = key
+                            break
+                        if self.selected_category == key:  # Exact match for short names
+                            highlight_key = key
+                            break
+
+                # Get color map for consistent colors
+                color_map = self.get_category_color_map()
+                self.box_plot_widget.update_data(plot_data, highlight_category=highlight_key, color_map=color_map)
             else:
                 self.box_plot_widget.clear_chart()
-                
+
         except Exception as e:
             print(f"Error updating box plot: {e}")
             
@@ -1030,23 +1118,32 @@ class CategoriesView(QWidget):
         """Update main pie chart with all-time category spending"""
         if not self.transaction_manager or not self.main_pie_chart:
             return
-            
+
         try:
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
-            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
-            
-            # Calculate spending by category
-            category_spending = {}
-            for transaction in spending_transactions:
-                category = transaction.category or "Uncategorized"
-                category_spending[category] = category_spending.get(category, 0) + transaction.amount
-                
-            if category_spending:
-                self.main_pie_chart.update_data(category_spending, "All-Time Category Spending")
+            # Get consistent category ordering
+            sorted_categories = self.get_consistent_category_order()
+
+            if sorted_categories:
+                # Filter to only categories with spending data (same as box plot does)
+                filtered_categories = [(cat, amount) for cat, amount in sorted_categories if amount > 0]
+
+                # Convert to dict in the correct order for consistent colors
+                category_spending = {category: amount for category, amount in filtered_categories}
+
+                # Get consistent color mapping
+                color_map = self.get_category_color_map()
+                pie_colors = []
+                for category, amount in filtered_categories:
+                    color = color_map.get(category, "#000000")
+                    pie_colors.append(color)
+
+                # Pass selected category for highlighting and consistent colors
+                self.main_pie_chart.update_data(category_spending, "All-Time Category Spending",
+                                               highlight_category=self.selected_category,
+                                               custom_colors=pie_colors)
             else:
                 self.main_pie_chart.update_data({}, "No spending data")
-                
+
         except Exception as e:
             print(f"Error updating main pie chart: {e}")
             
@@ -1054,48 +1151,50 @@ class CategoriesView(QWidget):
         """Update color key display with actual colors"""
         if not self.main_pie_chart:
             return
-            
+
         try:
-            # Get chart colors from theme manager
-            chart_colors = theme_manager.get_chart_colors()
-            
-            # Get categories from pie chart data
-            all_transactions = self.transaction_manager.get_all_transactions()
-            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
-            
-            category_spending = {}
-            for transaction in spending_transactions:
-                category = transaction.category or "Uncategorized"
-                category_spending[category] = category_spending.get(category, 0) + transaction.amount
-            
-            # Sort categories by spending amount (highest first)
-            sorted_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)
-            
+            # Get consistent category ordering
+            sorted_categories = self.get_consistent_category_order()
+
             if not sorted_categories:
                 self.color_key_label.setText("No categories available")
                 return
-            
-            # Build color key with HTML for colors (like dashboard)
+
+            # Filter to only categories with spending data (same as pie chart and box plot)
+            filtered_categories = [(cat, amount) for cat, amount in sorted_categories if amount > 0]
+
+            if not filtered_categories:
+                self.color_key_label.setText("No categories available")
+                return
+
+            # Get consistent color mapping
+            color_map = self.get_category_color_map()
+
+            # Build color key with HTML for colors using color map
             key_html = ""
-            for i, (category, amount) in enumerate(sorted_categories):
-                if i < len(chart_colors):
-                    color = chart_colors[i]
-                    # Truncate long category names
-                    display_name = category[:12] + "..." if len(category) > 12 else category
+            for category, amount in filtered_categories:
+                color = color_map.get(category, "#000000")
+
+                # Truncate long category names
+                display_name = category[:12] + "..." if len(category) > 12 else category
+
+                # Bold the selected category for emphasis
+                if category == self.selected_category:
+                    key_html += f'<span style="color: {color}; font-weight: bold; font-size: 110%;">● {display_name}</span><br>'
+                else:
                     key_html += f'<span style="color: {color};">● {display_name}</span><br>'
-                    
+
             if not key_html:
                 key_html = "No categories available"
-                
+
             self.color_key_label.setText(key_html.rstrip('<br>'))
-            
+
         except Exception as e:
             print(f"Error updating color key: {e}")
             self.color_key_label.setText("Error loading colors")
             
     def refresh(self):
         """Refresh categories view with current data"""
-        print("Refreshing categories view...")
         self.populate_category_list()
         self.update_category_stats()
         self.update_box_plot()

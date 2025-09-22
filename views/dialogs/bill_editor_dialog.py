@@ -111,6 +111,7 @@ class BillEditorDialog(QDialog):
         fields_layout.addRow("Current Balance:", balance_layout)
         
         self.last_payment_date = QDateEdit()
+        self.last_payment_date.setDisplayFormat("MM/dd/yyyy")
         self.last_payment_date.setCalendarPopup(True)
         fields_layout.addRow("Last Payment Date:", self.last_payment_date)
         

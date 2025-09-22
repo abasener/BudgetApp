@@ -16,6 +16,7 @@ class TransactionType(Enum):
     BILL_PAY = "bill_pay"
     SAVING = "saving"
     INCOME = "income"
+    ROLLOVER = "rollover"
 
 
 class Transaction(Base):
@@ -85,6 +86,10 @@ class Transaction(Base):
     @property
     def is_income(self):
         return self.transaction_type == TransactionType.INCOME.value
+
+    @property
+    def is_rollover(self):
+        return self.transaction_type == TransactionType.ROLLOVER.value
 
     # === New helper methods ===
     @property

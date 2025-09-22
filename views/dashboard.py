@@ -183,7 +183,7 @@ class StackedAreaWidget(QWidget):
         self.update_title_styling()
         theme_manager.theme_changed.connect(self.on_theme_changed)
         
-    def update_data(self, weekly_data: dict):
+    def update_data(self, weekly_data: dict, custom_colors: dict = None):
         """Update stacked area chart with weekly category percentages"""
         self.figure.clear()
         ax = self.figure.add_subplot(111)
@@ -214,7 +214,11 @@ class StackedAreaWidget(QWidget):
                 data_matrix.append(category_percentages)
             
             # Create stacked area chart
-            colors = theme_manager.get_chart_colors()[:len(categories)]
+            if custom_colors:
+                # custom_colors is a list in same order as categories in chart_category_spending
+                colors = custom_colors[:len(categories)]
+            else:
+                colors = theme_manager.get_chart_colors()[:len(categories)]
             ax.stackplot(range(len(weeks)), *data_matrix, colors=colors, alpha=0.8)
             
             # Remove axis labels (category key serves as legend)
@@ -233,7 +237,7 @@ class StackedAreaWidget(QWidget):
                             # Parse date and format as M/D
                             from datetime import datetime
                             week_date = datetime.strptime(week_key, "%Y-%m-%d")
-                            week_labels.append(week_date.strftime("%-m/%-d"))
+                            week_labels.append(week_date.strftime("%-m/%-d/%Y"))
                     except:
                         week_labels.append(week_key)
                 
@@ -313,7 +317,70 @@ class DashboardView(QWidget):
         self.category_boxplot = None
         
         self.init_ui()
-        
+
+    def get_consistent_category_order(self):
+        """Get categories in consistent order for color assignment across all charts
+
+        Returns:
+            list: [(category_name, total_amount), ...] sorted by spending amount (highest first)
+        """
+        if not self.transaction_manager:
+            return []
+
+        try:
+            # Get all spending transactions
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+
+            # Calculate spending by category
+            category_spending = {}
+            for transaction in spending_transactions:
+                category = transaction.category or "Uncategorized"
+                category_spending[category] = category_spending.get(category, 0) + transaction.amount
+
+            # Sort by spending amount (highest first) - this is our master ordering
+            sorted_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)
+
+            return sorted_categories
+
+        except Exception as e:
+            print(f"Error getting consistent category order: {e}")
+            return []
+
+    def get_consistent_category_colors(self, chart_category_spending):
+        """Get consistent colors for categories based on overall app ordering
+
+        Args:
+            chart_category_spending: dict of category spending for this specific chart
+
+        Returns:
+            list: colors in same order as chart_category_spending keys
+        """
+        # Get the global consistent ordering from all transactions
+        sorted_categories = self.get_consistent_category_order()
+        chart_colors = theme_manager.get_chart_colors()
+
+        # Create color map from global ordering
+        color_map = {}
+        for i, (category, amount) in enumerate(sorted_categories):
+            color_index = i % len(chart_colors)
+            color_map[category] = chart_colors[color_index]
+
+        # Return colors in the same order as chart_category_spending
+        consistent_colors = []
+        for category in chart_category_spending.keys():
+            if category in color_map:
+                color = color_map[category]
+                # Remove alpha channel if present (Qt CSS compatibility)
+                if len(color) == 9 and color.startswith('#'):
+                    color = color[:7]
+                consistent_colors.append(color)
+            else:
+                # Fallback color for new categories not in global ordering
+                consistent_colors.append(chart_colors[0])
+
+        return consistent_colors
+
     def init_ui(self):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(1)  # Ultra minimal spacing for cluttered dashboard feel
@@ -506,37 +573,44 @@ class DashboardView(QWidget):
     def create_category_key(self):
         """Create category color key frame"""
         frame = QFrame()
-        frame.setFrameStyle(QFrame.Shape.Box)
         frame.setMinimumWidth(140)  # Even wider to fit text
         frame.setMinimumHeight(250)  # Much taller to show all categories
         frame.setMaximumHeight(300)  # Allow it to be tall
-        
+
         colors = theme_manager.get_colors()
         frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {colors['surface']};
-                border: 1px solid {colors['border']};
-                border-radius: 4px;
+                border: none;
                 margin: 2px;
             }}
         """)
-        
+
         layout = QVBoxLayout()
         layout.setSpacing(3)
         layout.setContentsMargins(5, 5, 5, 5)
-        
+
         key_title = QLabel("Categories")
         key_title.setFont(theme_manager.get_font("subtitle"))  # Bigger header
         key_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         key_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 3px;")
         layout.addWidget(key_title)
-        
-        # Category key will be populated in refresh
-        self.category_key_layout = QVBoxLayout()
-        self.category_key_layout.setSpacing(2)
-        layout.addLayout(self.category_key_layout)
-        # No stretch - let it fill the space
-        
+
+        # Color key display (single label with HTML like categories tab)
+        self.color_key_label = QLabel("Loading...")
+        self.color_key_label.setFont(theme_manager.get_font("small"))
+        self.color_key_label.setStyleSheet(f"""
+            QLabel {{
+                color: {colors['text_primary']};
+                background-color: transparent;
+                padding: 5px;
+            }}
+        """)
+        self.color_key_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.color_key_label.setWordWrap(True)
+        self.color_key_label.setTextFormat(Qt.TextFormat.RichText)  # Enable HTML support
+        layout.addWidget(self.color_key_label)
+
         frame.setLayout(layout)
         return frame
         
@@ -916,37 +990,63 @@ class DashboardView(QWidget):
             self.bills_status_label.setText(f"Error: {e}")
     
     def update_category_key(self):
-        """Update category color key"""
+        """Update category color key display with actual colors and dynamic font sizing"""
+        if not hasattr(self, 'color_key_label'):
+            return
+
         try:
-            # Clear existing items
-            for i in reversed(range(self.category_key_layout.count())):
-                self.category_key_layout.itemAt(i).widget().setParent(None)
-            
-            # Get categories from actual transaction data
-            categories = self.analytics_engine.get_all_categories()
-            colors = theme_manager.get_chart_colors()
+            # Get consistent category ordering
+            sorted_categories = self.get_consistent_category_order()
 
-            # Get theme colors for proper text display
-            theme_colors = theme_manager.get_colors()
-
-            # Only show categories if there are actual transactions
-            if not categories:
-                # Show empty state message
-                empty_label = QLabel(f"<span style='color: {theme_colors['text_secondary']}; font-style: italic; font-size: 11px;'>No categories yet</span>")
-                empty_label.setStyleSheet(f"padding: 10px; text-align: center;")
-                self.category_key_layout.addWidget(empty_label)
+            if not sorted_categories:
+                self.color_key_label.setText("No categories available")
                 return
 
-            for i, category in enumerate(categories):  # Show actual categories
-                color = colors[i % len(colors)]  # Chart color for the bullet
-                
-                text_color = theme_colors['text_primary']
-                key_item = QLabel(f"<span style='color: {color}; font-weight: bold;'>●</span> <span style='color: {text_color}; font-size: 11px;'>{category}</span>")
-                key_item.setStyleSheet(f"padding: 2px; background: transparent;")
-                self.category_key_layout.addWidget(key_item)
-                
+            # Filter to only categories with spending data (same as pie chart and box plot)
+            filtered_categories = [(cat, amount) for cat, amount in sorted_categories if amount > 0]
+
+            if not filtered_categories:
+                self.color_key_label.setText("No categories available")
+                return
+
+            # Get consistent color mapping
+            category_totals = {cat: amount for cat, amount in filtered_categories}
+            consistent_colors = self.get_consistent_category_colors(category_totals)
+            color_map = {cat: color for cat, color in zip(category_totals.keys(), consistent_colors)}
+
+            # Calculate dynamic font size based on number of categories
+            num_categories = len(filtered_categories)
+            available_height = 250  # Available height for categories (excluding title and padding)
+            max_font_size = 24
+            min_font_size = 4  # Much smaller minimum - readability over size
+
+            # Calculate optimal font size
+            # Assume each line needs about font_size * 2.0 pixels height (including line spacing)
+            line_height_multiplier = 2.0
+            optimal_font_size = int(available_height / (num_categories * line_height_multiplier))
+
+            # Clamp to min/max bounds
+            font_size = max(min_font_size, min(max_font_size, optimal_font_size))
+
+            # Build color key with HTML for colors using color map and dynamic font size
+            key_html = ""
+            for category, amount in filtered_categories:
+                color = color_map.get(category, "#000000")
+
+                # Truncate long category names
+                display_name = category[:12] + "..." if len(category) > 12 else category
+
+                # Use consistent styling with dynamic font size
+                key_html += f'<span style="color: {color}; font-size: {font_size}px;">● {display_name}</span><br>'
+
+            if not key_html:
+                key_html = "No categories available"
+
+            self.color_key_label.setText(key_html.rstrip('<br>'))
+
         except Exception as e:
-            print(f"Error updating category key: {e}")
+            print(f"Error updating color key: {e}")
+            self.color_key_label.setText("Error loading colors")
     
     def update_pie_charts(self):
         """Update both pie charts with different data sources"""
@@ -957,7 +1057,8 @@ class DashboardView(QWidget):
             # Update total spending pie chart with filtered data
             if self.total_pie_chart and all_time_category_spending:
                 chart_title = f"Spending by Category ({self.time_frame_filter})"
-                self.total_pie_chart.update_data(all_time_category_spending, chart_title)
+                consistent_colors = self.get_consistent_category_colors(all_time_category_spending)
+                self.total_pie_chart.update_data(all_time_category_spending, chart_title, custom_colors=consistent_colors)
             
             # Get CURRENT WEEK spending data for the small pie chart
             from datetime import datetime, timedelta
@@ -989,11 +1090,10 @@ class DashboardView(QWidget):
             # Update weekly pie chart (current week only)
             if self.weekly_pie_chart:
                 if weekly_category_spending:
-                    print(f"Current week spending data: {weekly_category_spending}")
-                    self.weekly_pie_chart.update_data(weekly_category_spending, "This Week Spending")
+                    weekly_consistent_colors = self.get_consistent_category_colors(weekly_category_spending)
+                    self.weekly_pie_chart.update_data(weekly_category_spending, "This Week Spending", custom_colors=weekly_consistent_colors)
                 else:
                     # No spending this week - show greyed out empty chart
-                    print(f"No current week spending found. Week start: {week_start.date()}, Today: {today.date()}")
                     self.weekly_pie_chart.update_data({}, "This Week Spending")
                 
         except Exception as e:
@@ -1034,9 +1134,16 @@ class DashboardView(QWidget):
             # Sort weeks chronologically and take last 8 weeks
             sorted_weeks = sorted(weekly_data.keys())[-8:]
             filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
-            
+
             if self.stacked_area_chart:
-                self.stacked_area_chart.update_data(filtered_weekly_data)
+                # Calculate category totals for consistent color mapping
+                category_totals = {}
+                for week_data in filtered_weekly_data.values():
+                    for category, amount in week_data.items():
+                        category_totals[category] = category_totals.get(category, 0) + amount
+
+                consistent_colors = self.get_consistent_category_colors(category_totals)
+                self.stacked_area_chart.update_data(filtered_weekly_data, custom_colors=consistent_colors)
                 
         except Exception as e:
             print(f"Error updating stacked area chart: {e}")
@@ -1252,9 +1359,14 @@ class DashboardView(QWidget):
             
             # Convert to dict for the widget
             category_data = dict(category_amounts)
-            
+
             if self.category_boxplot:
-                self.category_boxplot.update_data(category_data)
+                # Get consistent colors for the categories
+                category_totals = {cat: sum(amounts) for cat, amounts in category_data.items()}
+                consistent_colors = self.get_consistent_category_colors(category_totals)
+                # Convert list of colors to color_map dictionary
+                color_map = {cat: color for cat, color in zip(category_totals.keys(), consistent_colors)}
+                self.category_boxplot.update_data(category_data, color_map=color_map)
                 
         except Exception as e:
             print(f"Error updating category box plot: {e}")
@@ -1320,16 +1432,25 @@ class DashboardView(QWidget):
             self.category_key_frame.setStyleSheet(f"""
                 QFrame {{
                     background-color: {colors['surface']};
-                    border: 1px solid {colors['border']};
-                    border-radius: 4px;
+                    border: none;
                     margin: 2px;
                 }}
             """)
-            
-            # Update category key header title
+
+            # Update category key header title and color key label
             for child in self.category_key_frame.findChildren(QLabel):
                 if child.text() == "Categories":  # This is the header
                     child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 3px;")
+
+        # Update color key label styling
+        if hasattr(self, 'color_key_label'):
+            self.color_key_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {colors['text_primary']};
+                    background-color: transparent;
+                    padding: 5px;
+                }}
+            """)
         
         # Update card frames styling - find all dynamic cards
         for attr_name in ['weekly_status_label', 'account_summary_label', 'bills_status_label']:

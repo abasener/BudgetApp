@@ -45,6 +45,7 @@ class PayBillDialog(QDialog):
         # Payment date
         self.payment_date_edit = QDateEdit()
         self.payment_date_edit.setDate(QDate.currentDate())
+        self.payment_date_edit.setDisplayFormat("MM/dd/yyyy")
         self.payment_date_edit.setCalendarPopup(True)
         form_layout.addRow("Payment Date:", self.payment_date_edit)
         

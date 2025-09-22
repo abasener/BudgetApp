@@ -221,11 +221,8 @@ class TransactionManager:
         # Trigger rollover recalculation for spending and saving transactions
         # but exclude rollover transactions to prevent infinite loops
         is_rollover_transaction = (
-            transaction.description and
-            ("rollover" in transaction.description.lower() or
-             "end-of-period" in transaction.description.lower() or
-             transaction.category == "Rollover" or
-             transaction.category == "Rollover Deficit")
+            transaction.is_rollover or
+            (transaction.description and "end-of-period" in transaction.description.lower())
         )
 
         if (transaction.is_spending or transaction.is_saving) and not is_rollover_transaction and not self._disable_auto_rollover:

@@ -326,3 +326,68 @@ WEEKLY VIEW DATA ACCURACY:
 - Eliminated transaction loading discrepancies between backend calculations and UI display
 
 ================================================================================
+LATEST V2 ENHANCEMENTS (Category Color Consistency & Dynamic UI):
+================================================================================
+
+CATEGORY COLOR CONSISTENCY SYSTEM:
+- Implemented centralized category-to-color mapping across entire application
+- All charts (pie charts, box plots, line plots, stacked area charts) now use identical colors for same categories
+- Consistent colors across all tabs: Dashboard, Categories, Bills, Savings, Weekly views
+- Color consistency includes category highlighting system in Categories tab
+- Alpha channel removal for Qt CSS compatibility (fixed hex color display issues)
+
+KEY COMPONENTS:
+- get_consistent_category_order(): Creates master category ordering by total spending
+- get_consistent_category_colors(): Maps categories to consistent colors using global ordering
+- Color mapping applied to: Dashboard (4 chart locations), Categories (3 chart locations), Weekly view pie charts
+- All color keys and legends use same color mapping for perfect visual consistency
+
+CATEGORIES TAB ENHANCEMENTS:
+- Category highlighting system: Selected category emphasized in all charts (pie, box plot, color key)
+- Pie chart highlighting: Exploded slice + thick border for selected category
+- Box plot highlighting: Color + border emphasis for selected category
+- Color key highlighting: Bold text + larger font for selected category
+- Smooth integration with existing category filtering and analysis
+
+DASHBOARD COLOR KEY REDESIGN:
+- Removed borders and frames for clean text-only appearance (matches Categories tab style)
+- Single HTML label with bullet points (●) instead of multiple widget approach
+- Dynamic font sizing system: Automatically adjusts font size based on number of categories
+- Font size calculation: available_height / (num_categories * line_height_multiplier)
+- Size limits: Max 24px, Min 4px (prioritizes showing all categories over perfect readability)
+- Line height multiplier: 2.0 for optimal spacing and category visibility
+
+DYNAMIC FONT SIZING LOGIC:
+- Formula: font_size = max(4, min(24, 250 / (num_categories * 2.0)))
+- Example with 10 categories: 250 / (10 * 2.0) = 12.5px → 12px font
+- Ensures all categories visible within 250px available height
+- Automatic adjustment: Few categories = larger font, many categories = smaller font
+- Complete visibility prioritized over perfect readability
+
+THEME COMPATIBILITY FIXES:
+- Fixed alpha channel issues in theme colors (8-digit hex → 6-digit hex conversion)
+- Removed problematic alpha channels from Dark, Light, and Excel Blue themes
+- Alpha removal automatic in category color lookup for Qt CSS compatibility
+- Theme colors now properly display in category headers and UI elements
+
+TECHNICAL IMPLEMENTATION:
+- widgets/chart_widget.py: Added custom_colors/color_map support to all chart widgets
+- views/categories_view.py: Centralized color consistency methods and highlighting system
+- views/dashboard.py: Updated all 4 chart locations + redesigned color key with dynamic sizing
+- views/weekly_view.py: Added consistent category colors to pie charts
+- themes/theme_manager.py: Fixed alpha channel issues across all themes
+
+COLOR SYSTEM ARCHITECTURE:
+- Centralized color ordering prevents inconsistencies between components
+- Global category ordering based on total spending amounts (highest to lowest)
+- Color assignment cycles through theme colors using modulo arithmetic
+- Consistent color map creation in each view using shared methods
+- Color key displays match chart colors perfectly across all tabs
+
+DEBUGGING FEATURES:
+- Debug output for color assignments (can be enabled for troubleshooting)
+- Color map validation to ensure category-color matching
+- Highlighting system debug output for category selection tracking
+- Font size calculation debug output for dynamic sizing verification
+
+================================================================================

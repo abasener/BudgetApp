@@ -286,17 +286,15 @@ class BudgetApp(QMainWindow):
         
     def refresh_all_views(self):
         """Refresh all tabs - called after any data change"""
-        print("Refreshing all views...")
         try:
             # Check for and process any pending rollovers before refreshing views
             self.paycheck_processor.check_and_process_rollovers()
-            
+
             self.dashboard.refresh()
             self.bills_view.refresh()
             self.savings_view.refresh()
             self.weekly_view.refresh()
             self.categories_view.refresh()
-            print("All views refreshed successfully")
         except Exception as e:
             print(f"Error refreshing views: {e}")
         
@@ -370,7 +368,6 @@ class BudgetApp(QMainWindow):
         title_font = theme_manager.get_font("title")
         self.setFont(theme_manager.get_font("main"))
         
-        print(f"Applied theme: {theme_manager.themes[theme_manager.current_theme]['name']}")
     
     def on_theme_changed(self, theme_id):
         """Handle theme change"""

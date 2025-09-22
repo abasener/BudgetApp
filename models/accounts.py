@@ -139,26 +139,3 @@ class Account(Base):
         # In production, we might want to log a warning or raise an exception
         pass
 
-    # === Deprecated methods (for backward compatibility) ===
-    def initialize_balance_history(self, starting_balance: float = None):
-        """
-        Deprecated: Use initialize_history() instead
-        """
-        if starting_balance is None:
-            starting_balance = 0.0
-        return self.initialize_history(starting_balance=starting_balance)
-
-    @property
-    def balance_history(self):
-        """
-        Deprecated: Returns empty list for backward compatibility
-        Use get_account_history() instead
-        """
-        return []
-
-    @balance_history.setter
-    def balance_history(self, value):
-        """
-        Deprecated: Ignores assignments for backward compatibility
-        """
-        pass

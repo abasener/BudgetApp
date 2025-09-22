@@ -93,8 +93,7 @@ class PaycheckProcessor:
         # Check for and process any pending rollovers after adding new paycheck
         self.check_and_process_rollovers()
 
-        # Record balance history for all accounts at the end of this pay period
-        self.record_balance_history()
+        # Account balance history is automatically maintained through AccountHistory transactions
 
         return split
     
@@ -286,8 +285,7 @@ class PaycheckProcessor:
         base_allocated_amount = week.running_total
         rollover_income = sum(
             t.amount for t in week_transactions
-            if t.transaction_type == TransactionType.INCOME.value and
-            ("rollover" in t.description.lower() or t.category == "Rollover")
+            if t.transaction_type == TransactionType.ROLLOVER.value and t.amount > 0
         )
         allocated_amount = base_allocated_amount + rollover_income
 
@@ -348,10 +346,8 @@ class PaycheckProcessor:
         total_adjustment = rollover.rollover_amount
         for existing_tx in existing_rollover_transactions:
             # Reverse the effect of the old rollover transaction
-            if existing_tx.transaction_type == TransactionType.INCOME.value:
-                total_adjustment -= existing_tx.amount  # Remove previous positive rollover
-            else:
-                total_adjustment += existing_tx.amount  # Remove previous negative rollover
+            # For ROLLOVER type, the amount already has the correct sign, so just subtract it
+            total_adjustment -= existing_tx.amount
 
             self.db.delete(existing_tx)
 
@@ -370,12 +366,13 @@ class PaycheckProcessor:
         transaction_date = source_week.end_date if source_week else date.today()
 
         rollover_transaction = {
-            "transaction_type": TransactionType.INCOME.value if rollover.rollover_amount > 0 else TransactionType.SPENDING.value,
+            "transaction_type": TransactionType.ROLLOVER.value,
             "week_number": target_week_number,
-            "amount": abs(rollover.rollover_amount),
+            "amount": rollover.rollover_amount,  # Keep original sign
             "date": transaction_date,
             "description": rollover_description,
-            "category": "Rollover"
+            "account_id": None,  # Week-to-week rollovers don't affect specific accounts
+            "category": None  # No longer using category for rollover identification
         }
         # Temporarily disable auto-rollover to prevent infinite loops
         self.transaction_manager.set_auto_rollover_disabled(True)
@@ -509,13 +506,11 @@ class PaycheckProcessor:
 
         while iteration < max_iterations:
             iteration += 1
-            print(f"Checking for pending rollovers... (iteration {iteration})")
 
             # Get all weeks that haven't had rollover applied yet
             weeks = self.db.query(Week).filter(Week.rollover_applied == False).order_by(Week.week_number).all()
 
             if not weeks:
-                print("No rollovers needed")
                 return True
 
             processed_any = False
@@ -540,11 +535,9 @@ class PaycheckProcessor:
 
                         if is_week1_of_period and next_week:
                             # Week 1: rollover to Week 2
-                            print(f"Processing Week {week.week_number} rollover to Week {next_week.week_number}")
                             self.process_week_rollover(week.week_number, next_week.week_number)
                         elif not is_week1_of_period:
                             # Week 2: rollover to savings
-                            print(f"Processing Week {week.week_number} rollover to savings")
                             self.process_week_rollover(week.week_number)
 
                         # Mark rollover as applied
@@ -560,20 +553,8 @@ class PaycheckProcessor:
                 # No more rollovers to process, exit the loop
                 break
 
-        print("Rollover processing completed")
         return True
 
-    def record_balance_history(self):
-        """
-        Record current account balances in balance history at the end of pay period
-        NOTE: With the new AccountHistory system, balance history is automatically
-        maintained through transactions, so this method is now simplified.
-        """
-        accounts = self.transaction_manager.get_all_accounts()
-
-        for account in accounts:
-            # Get current balance from AccountHistory
-            current_balance = account.get_current_balance(self.db)
 
 
     def recalculate_period_rollovers(self, week_number: int):
@@ -650,12 +631,13 @@ class PaycheckProcessor:
         transaction_date = source_week.end_date if source_week else date.today()
 
         rollover_transaction = {
-            "transaction_type": TransactionType.INCOME.value if rollover.rollover_amount > 0 else TransactionType.SPENDING.value,
+            "transaction_type": TransactionType.ROLLOVER.value,
             "week_number": target_week_number,
-            "amount": abs(rollover.rollover_amount),
+            "amount": rollover.rollover_amount,  # Keep original sign
             "date": transaction_date,
             "description": rollover_description,
-            "category": "Rollover"
+            "account_id": None,  # Week-to-week rollovers don't affect specific accounts
+            "category": None  # No longer using category for rollover identification
         }
         # Temporarily disable auto-rollover to prevent infinite loops
         self.transaction_manager.set_auto_rollover_disabled(True)

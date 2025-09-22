@@ -41,7 +41,7 @@ class ThemeManager(QObject):
                     "text_disabled": "#6E6E6E",     # Dim gray
 
                     # Accent (choose one main highlight color — here a vivid blue)
-                    "primary": "#49A041FF",           # Bright blue highlight
+                    "primary": "#49A041",           # Bright blue highlight
                     "primary_dark": "#53E653",      # Darker blue
                     "secondary": "#8CBEFB",         # Lighter blue for hover/alt
                     "accent": "#9871F4",            # Purple accent (optional secondary pop)
@@ -51,7 +51,7 @@ class ThemeManager(QObject):
                     "chart_colors": [
                         "#44C01E", "#3F0979", "#D6CA18",
                         "#BF0AB0", "#965a3e", "#C9431E",
-                        "#60A5FA", "#48EACFDD"
+                        "#60A5FA", "#48EACF"
                     ],
 
                     # Status colors (slightly muted so they don’t overpower)
@@ -105,7 +105,7 @@ class ThemeManager(QObject):
                     "chart_colors": [
                         "#44C01E", "#3F0979", "#D6CA18",
                         "#BF0AB0", "#965a3e", "#C9431E",
-                        "#60A5FA", "#48EACFDD"
+                        "#60A5FA", "#48EACF"
                     ],
 
                     # Status colors
@@ -201,8 +201,8 @@ class ThemeManager(QObject):
                     
                     "chart_colors": [
                         "#58D831", "#3F0979", "#D6CA18",
-                        "#BF0AB0", "#965a3e", "#04941ED1",
-                        "#60A5FA", "#DA1010DD"
+                        "#BF0AB0", "#965a3e", "#04941E",
+                        "#60A5FA", "#DA1010"
                     ],             
 
                     "success": "#32CD32",
@@ -336,7 +336,6 @@ class ThemeManager(QObject):
         if theme_id in self.themes:
             self.current_theme = theme_id
             self.theme_changed.emit(theme_id)
-            print(f"Theme changed to: {self.themes[theme_id]['name']}")
     
     def get_color(self, color_name: str) -> str:
         """Get a color from the current theme"""

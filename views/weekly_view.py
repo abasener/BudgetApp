@@ -32,11 +32,74 @@ class WeekDetailWidget(QWidget):
         # Connect to theme changes
         theme_manager.theme_changed.connect(self.on_theme_changed)
 
+    def get_consistent_category_order(self):
+        """Get categories in consistent order for color assignment across all charts
+
+        Returns:
+            list: [(category_name, total_amount), ...] sorted by spending amount (highest first)
+        """
+        if not self.transaction_manager:
+            return []
+
+        try:
+            # Get all spending transactions
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+
+            # Calculate spending by category
+            category_spending = {}
+            for transaction in spending_transactions:
+                category = transaction.category or "Uncategorized"
+                category_spending[category] = category_spending.get(category, 0) + transaction.amount
+
+            # Sort by spending amount (highest first) - this is our master ordering
+            sorted_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)
+
+            return sorted_categories
+
+        except Exception as e:
+            print(f"Error getting consistent category order: {e}")
+            return []
+
+    def get_consistent_category_colors(self, week_category_spending):
+        """Get consistent colors for categories based on overall app ordering
+
+        Args:
+            week_category_spending: dict of category spending for this specific week
+
+        Returns:
+            list: colors in same order as week_category_spending keys
+        """
+        # Get the global consistent ordering from all transactions
+        sorted_categories = self.get_consistent_category_order()
+        chart_colors = theme_manager.get_chart_colors()
+
+        # Create color map from global ordering
+        color_map = {}
+        for i, (category, amount) in enumerate(sorted_categories):
+            color_index = i % len(chart_colors)
+            color_map[category] = chart_colors[color_index]
+
+        # Return colors in the same order as week_category_spending
+        consistent_colors = []
+        for category in week_category_spending.keys():
+            if category in color_map:
+                color = color_map[category]
+                # Remove alpha channel if present (Qt CSS compatibility)
+                if len(color) == 9 and color.startswith('#'):
+                    color = color[:7]
+                consistent_colors.append(color)
+            else:
+                # Fallback color for new categories not in global ordering
+                consistent_colors.append(chart_colors[0])
+
+        return consistent_colors
+
     def update_header(self):
         """Update the week header with current week data"""
         if self.week_data:
-            start_date = self.week_data.start_date.strftime('%m/%d')
-            end_date = self.week_data.end_date.strftime('%m/%d')
+            start_date = self.week_data.start_date.strftime('%m/%d/%Y')
+            end_date = self.week_data.end_date.strftime('%m/%d/%Y')
             week_title = f"Week {self.week_number}: {start_date} - {end_date}"
         else:
             week_title = f"Week {self.week_number}: No Data"
@@ -53,8 +116,8 @@ class WeekDetailWidget(QWidget):
         
         # Week header with date range
         if self.week_data:
-            start_date = self.week_data.start_date.strftime('%m/%d')
-            end_date = self.week_data.end_date.strftime('%m/%d')
+            start_date = self.week_data.start_date.strftime('%m/%d/%Y')
+            end_date = self.week_data.end_date.strftime('%m/%d/%Y')
             week_title = f"Week {self.week_number}: {start_date} - {end_date}"
         else:
             week_title = f"Week {self.week_number}: No Data"
@@ -443,7 +506,7 @@ class WeekDetailWidget(QWidget):
         spending_transactions = [
             t for t in self.transactions
             if (t.is_spending or t.is_bill_pay)
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
         total_spent = sum(t.amount for t in spending_transactions)
@@ -453,7 +516,7 @@ class WeekDetailWidget(QWidget):
         if self.week_data:
             base_allocation = self.week_data.running_total
             # Add rollover income transactions (positive rollover from previous week)
-            rollover_income = [t for t in self.transactions if t.transaction_type == "income" and "rollover" in t.description.lower()]
+            rollover_income = [t for t in self.transactions if t.is_rollover and t.amount > 0]
             rollover_income_total = sum(t.amount for t in rollover_income)
             # Subtract rollover deficit transactions (negative rollover from previous week)
             rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
@@ -502,7 +565,7 @@ class WeekDetailWidget(QWidget):
                 t for t in self.transactions
                 if t.is_spending
                 and t.amount > 0
-                and t.category != "Rollover"
+                and not t.is_rollover
                 and not (t.description and "rollover" in t.description.lower())
                 and not (t.description and "allocation" in t.description.lower())
             ]
@@ -520,9 +583,7 @@ class WeekDetailWidget(QWidget):
             # Calculate rollover income for this week (positive rollover from previous week)
             rollover_transactions = [
                 t for t in self.transactions
-                if t.transaction_type == "income"
-                and t.amount > 0
-                and ("rollover" in t.description.lower() or t.category == "Rollover")
+                if t.is_rollover and t.amount > 0
             ]
             week_rollover = sum(t.amount for t in rollover_transactions)
 
@@ -596,7 +657,9 @@ class WeekDetailWidget(QWidget):
             category = transaction.category or "Uncategorized"
             category_spending[category] = category_spending.get(category, 0) + transaction.amount
 
-        self.category_pie_chart.update_data(category_spending, "Category Spending")
+        # Use consistent category-to-color mapping like Categories tab
+        consistent_colors = self.get_consistent_category_colors(category_spending)
+        self.category_pie_chart.update_data(category_spending, "Category Spending", custom_colors=consistent_colors)
         
     def update_week_progress_bars(self):
         """Update progress bars for this specific week"""
@@ -605,7 +668,7 @@ class WeekDetailWidget(QWidget):
         spending_transactions = [
             t for t in self.transactions
             if (t.is_spending or t.is_bill_pay)
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
         total_spent = sum(t.amount for t in spending_transactions)
@@ -614,7 +677,7 @@ class WeekDetailWidget(QWidget):
         if self.week_data:
             base_allocation = self.week_data.running_total
             # Add rollover income transactions (positive rollover from previous week)
-            rollover_income = [t for t in self.transactions if t.transaction_type == "income" and "rollover" in t.description.lower()]
+            rollover_income = [t for t in self.transactions if t.is_rollover and t.amount > 0]
             rollover_income_total = sum(t.amount for t in rollover_income)
             # Subtract rollover deficit transactions (negative rollover from previous week)
             rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
@@ -656,7 +719,7 @@ class WeekDetailWidget(QWidget):
         spending_transactions = [
             t for t in self.transactions
             if (t.is_spending or t.is_bill_pay)
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
 
@@ -1828,7 +1891,7 @@ class WeeklyView(QWidget):
 
         for period in bi_weekly_periods:
             start_date = period['start_date']
-            item_text = f"Pay Period {period['period_id']}\n{start_date.strftime('%m/%d')}"
+            item_text = f"Pay Period {period['period_id']}\n{start_date.strftime('%m/%d/%Y')}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, period)
             self.week_list.addItem(item)

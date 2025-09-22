@@ -297,7 +297,6 @@ class BillsView(QWidget):
                 self.bills_layout.insertWidget(self.bills_layout.count() - 1, bill_row)
                 self.bill_rows.append(bill_row)
             
-            print(f"Bills view refreshed with {len(bills)} bills")
             
         except Exception as e:
             error_msg = f"Error refreshing bills: {str(e)}"

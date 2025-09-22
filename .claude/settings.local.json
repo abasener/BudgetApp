@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(del check_savings.py)"
+      "Bash(del check_savings.py)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

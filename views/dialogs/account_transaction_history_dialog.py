@@ -17,6 +17,7 @@ class DateEditDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         try:
             editor = QDateEdit(parent)
+            editor.setDisplayFormat("MM/dd/yyyy")
             editor.setCalendarPopup(True)
             editor.setDate(QDate.currentDate())
             return editor
@@ -150,12 +151,11 @@ class AccountTransactionHistoryDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # ID
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Running Total
 
-        # Disable custom delegates for now to prevent crashes
-        # TODO: Re-enable delegates once crash is fixed
-        # date_delegate = DateEditDelegate()
-        # amount_delegate = AmountEditDelegate()
-        # self.table.setItemDelegateForColumn(0, date_delegate)
-        # self.table.setItemDelegateForColumn(1, amount_delegate)
+        # Enable custom delegates for better editing experience
+        date_delegate = DateEditDelegate()
+        amount_delegate = AmountEditDelegate()
+        self.table.setItemDelegateForColumn(0, date_delegate)
+        self.table.setItemDelegateForColumn(1, amount_delegate)
 
         # Enable right-click context menu for row deletion
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
