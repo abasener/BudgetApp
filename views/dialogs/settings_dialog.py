@@ -117,7 +117,7 @@ class SettingsDialog(QDialog):
         # Calculator settings group (RIGHT)
         calculator_group = QGroupBox("Calculator Settings")
         calculator_layout = QFormLayout()
-        
+
         # Default hourly rate
         self.hourly_rate_spin = QDoubleSpinBox()
         self.hourly_rate_spin.setMinimum(0.01)
@@ -127,9 +127,22 @@ class SettingsDialog(QDialog):
         self.hourly_rate_spin.setSuffix(" $/hour")
         self.hourly_rate_spin.setToolTip("Default hourly rate for the hour calculator")
         calculator_layout.addRow("Default Hourly Rate:", self.hourly_rate_spin)
-        
+
         calculator_group.setLayout(calculator_layout)
         right_column.addWidget(calculator_group)
+
+        # Feature toggles group (RIGHT)
+        features_group = QGroupBox("Features")
+        features_layout = QFormLayout()
+
+        # Tax feature toggle
+        self.tax_feature_checkbox = QCheckBox("Enable Tax Features")
+        self.tax_feature_checkbox.setChecked(False)  # Default to false
+        self.tax_feature_checkbox.setToolTip("Enable the Taxes tab for tax tracking and management")
+        features_layout.addRow("", self.tax_feature_checkbox)
+
+        features_group.setLayout(features_layout)
+        right_column.addWidget(features_group)
 
         # Add columns to main layout
         columns_layout.addLayout(left_column)
@@ -228,7 +241,8 @@ class SettingsDialog(QDialog):
             "dashboard_chart2_account": "random",
             "default_hourly_rate": 50.00,
             "default_analytics_only": True,
-            "time_frame_filter": "All Time"
+            "time_frame_filter": "All Time",
+            "enable_tax_features": False
         }
     
     def load_settings(self):
@@ -292,6 +306,10 @@ class SettingsDialog(QDialog):
         time_frame_index = self.time_frame_combo.findText(time_frame)
         if time_frame_index >= 0:
             self.time_frame_combo.setCurrentIndex(time_frame_index)
+
+        # Set tax features checkbox state
+        enable_tax = self.current_settings.get("enable_tax_features", False)
+        self.tax_feature_checkbox.setChecked(enable_tax)
     
     def get_ui_settings(self):
         """Get current settings from UI controls"""
@@ -303,7 +321,8 @@ class SettingsDialog(QDialog):
             "dashboard_chart2_account": self.chart2_account_combo.currentData(),
             "default_hourly_rate": self.hourly_rate_spin.value(),
             "default_analytics_only": self.default_analytics_checkbox.isChecked(),
-            "time_frame_filter": self.time_frame_combo.currentText()
+            "time_frame_filter": self.time_frame_combo.currentText(),
+            "enable_tax_features": self.tax_feature_checkbox.isChecked()
         }
     
     def reset_to_defaults(self):
@@ -1120,7 +1139,8 @@ def load_app_settings():
         "dashboard_chart2_account": "random",
         "default_hourly_rate": 50.00,
         "default_analytics_only": True,
-        "time_frame_filter": "All Time"
+        "time_frame_filter": "All Time",
+        "enable_tax_features": False
     }
 
 

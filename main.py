@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QVBoxLayout,
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 
-
 from views.dialogs.add_transaction_dialog import AddTransactionDialog
 from views.dialogs.add_paycheck_dialog import AddPaycheckDialog
 from views.dialogs.pay_bill_dialog import PayBillDialog
@@ -18,10 +17,11 @@ from views.dialogs.add_bill_dialog import AddBillDialog
 from views.dialogs.settings_dialog import SettingsDialog, load_app_settings
 
 from views.dashboard import DashboardView
-from views.bills_view import BillsView 
+from views.bills_view import BillsView
 from views.weekly_view import WeeklyView
 from views.savings_view import SavingsView
 from views.categories_view import CategoriesView
+from views.taxes_view import TaxesView
 from services.transaction_manager import TransactionManager
 from services.analytics import AnalyticsEngine
 from services.paycheck_processor import PaycheckProcessor
@@ -78,13 +78,25 @@ class BudgetApp(QMainWindow):
             transaction_manager=self.transaction_manager,
             analytics_engine=self.analytics_engine
         )
-        
+
+        # Initialize taxes view (will be added conditionally)
+        self.taxes_view = TaxesView(
+            transaction_manager=self.transaction_manager,
+            analytics_engine=self.analytics_engine
+        )
+
         # Add tabs
         self.tabs.addTab(self.dashboard, "Dashboard")
         self.tabs.addTab(self.bills_view, "Bills")
         self.tabs.addTab(self.savings_view, "Savings")
         self.tabs.addTab(self.weekly_view, "Weekly")
         self.tabs.addTab(self.categories_view, "Categories")
+
+        # Add Taxes tab if enabled in settings
+        if self.app_settings.get("enable_tax_features", False):
+            self.taxes_tab_index = self.tabs.addTab(self.taxes_view, "Taxes")
+        else:
+            self.taxes_tab_index = -1
         
         # Layout
         layout = QVBoxLayout()
@@ -295,6 +307,10 @@ class BudgetApp(QMainWindow):
             self.savings_view.refresh()
             self.weekly_view.refresh()
             self.categories_view.refresh()
+
+            # Refresh taxes view if enabled
+            if self.taxes_tab_index >= 0:
+                self.taxes_view.refresh()
         except Exception as e:
             print(f"Error refreshing views: {e}")
         
@@ -355,7 +371,21 @@ class BudgetApp(QMainWindow):
     def on_settings_saved(self):
         """Handle when settings are saved"""
         # Reload settings
+        old_tax_enabled = self.taxes_tab_index >= 0
         self.app_settings = load_app_settings()
+        new_tax_enabled = self.app_settings.get("enable_tax_features", False)
+
+        # Update tax tab visibility if it changed
+        if old_tax_enabled != new_tax_enabled:
+            if new_tax_enabled:
+                # Add the Taxes tab at the end
+                self.taxes_tab_index = self.tabs.addTab(self.taxes_view, "Taxes")
+            else:
+                # Remove the Taxes tab
+                if self.taxes_tab_index >= 0:
+                    self.tabs.removeTab(self.taxes_tab_index)
+                    self.taxes_tab_index = -1
+
         # Refresh all views to apply new sorting settings
         self.refresh_all_views()
     

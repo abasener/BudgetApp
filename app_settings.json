@@ -6,5 +6,6 @@
   "dashboard_chart2_account": "random",
   "default_hourly_rate": 50.0,
   "default_analytics_only": true,
-  "time_frame_filter": "All Time"
+  "time_frame_filter": "All Time",
+  "enable_tax_features": true
 }
