@@ -934,16 +934,16 @@ class DashboardView(QWidget):
             # Calculate week spending total
             week_spent = sum(t.amount for t in current_week_spending)
             
-            # Get weekly budget/allowance (try to get from paycheck processing or use default)
+            # Get actual current week allocation from V2.0 rollover system
             try:
-                # Try to get weekly spending allowance from recent paycheck
-                income_summary = self.transaction_manager.get_income_vs_spending_summary()
-                # Estimate weekly budget as 1/4 of total spending capability
-                estimated_weekly_budget = income_summary.get('total_income', 400) / 4
+                current_week = self.transaction_manager.get_current_week()
+                if current_week:
+                    week_started = current_week.running_total
+                else:
+                    # No week exists yet - use default
+                    week_started = 200  # Default weekly budget
             except:
-                estimated_weekly_budget = 200  # Default weekly budget
-            
-            week_started = estimated_weekly_budget
+                week_started = 200  # Default weekly budget
             week_remaining = max(0, week_started - week_spent)
             
             # Calculate daily remaining
