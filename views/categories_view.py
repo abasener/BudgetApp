@@ -1028,7 +1028,6 @@ class CategoriesView(QWidget):
         # Category not found - return first color as fallback
         chart_colors = theme_manager.get_chart_colors()
         fallback_color = chart_colors[0] if chart_colors else "#000000"
-        print(f"DEBUG: Category '{category_name}' not found in color map, using fallback color {fallback_color}")
         return fallback_color
 
     def update_category_stats(self):

@@ -189,9 +189,11 @@ TRANSACTION HISTORY DIALOGS:
 - Direct table editing: Date, Amount, Description columns editable
 - Read-only columns: ID, Running Total (calculated from AccountHistory)
 - Delete row functionality with starting balance protection
-- Save all changes with confirmation dialogs
+- Visual feedback: Hover effects, edited cell highlighting (warning color), deleted row highlighting (red)
+- Testing mode integration: Pre-save change preview and post-save verification reports
 - Automatic recalculation and reordering after saves
 - Real-time balance updates throughout the interface
+- Theme color integration for consistent UI appearance
 
 DATA INTEGRITY FIXES:
 - Eliminated stale running_total usage in widgets
@@ -285,11 +287,12 @@ WEEKLY VIEW TRANSACTION LOADING REDESIGN:
 - Eliminates transaction display bugs caused by week_number mismatches
 
 TRANSACTION TABLE FILTERING IMPROVEMENTS:
-- Fixed transaction filtering to include both SPENDING and BILL_PAY transactions
+- Fixed transaction filtering to show ONLY SPENDING transactions (not bill pays)
+- BILL_PAY transactions are excluded from weekly spending displays
 - Consistent filtering logic across all weekly view calculations (table, charts, progress bars)
 - Only shows transactions within the actual week date range (10/21/2024 - 10/27/2024 format)
 - Excludes rollover and allocation transactions from spending calculations
-- Shows all non-rollover transactions regardless of include_in_analytics flag
+- Shows all non-rollover spending transactions regardless of include_in_analytics flag
 
 PIE CHART ENHANCEMENTS:
 - Improved category pie chart to handle positive-only spending transactions
@@ -389,5 +392,292 @@ DEBUGGING FEATURES:
 - Color map validation to ensure category-color matching
 - Highlighting system debug output for category selection tracking
 - Font size calculation debug output for dynamic sizing verification
+
+================================================================================
+LATEST V2 ENHANCEMENTS (Bill Payment Logic & Chart Improvements):
+================================================================================
+
+BILL PAYMENT TRANSACTION LOGIC FIX:
+- CRITICAL FIX: Bill payments (BILL_PAY transaction type) no longer reduce weekly spending money
+- OLD BEHAVIOR: Bill payments were incorrectly counted as both bill account deduction AND weekly spending
+- NEW BEHAVIOR: Bill payments ONLY deduct from bill accounts, NOT from weekly allocations
+- Money flow clarification: Bill Account → Outside World (e.g., paying Xfinity), NOT from weekly budget
+- Rollover calculation fix: spent_amount now excludes BILL_PAY transactions
+- Weekly view displays fix: Bill payments removed from transaction tables and spending totals
+- Progress bar fix: Weekly spending progress no longer includes bill payments
+- Requires rollover recalculation after update to fix historical data
+
+BILL PAYMENT VS BILL SAVING:
+- SAVING transaction (positive amount, bill_id): Money going INTO bill account from paycheck
+- BILL_PAY transaction (amount, bill_id): Money leaving bill account to pay external bill
+- Weekly SPENDING: Regular purchases from weekly allocation (groceries, gas, etc.)
+- Clear separation: Bill payments are NOT weekly spending, they're bill account operations
+
+LINE CHART X-AXIS IMPROVEMENTS:
+- Dynamic tick spacing based on chart width to prevent date label overlap
+- Algorithm: max_ticks = max(10, min(30, chart_width_pixels // 50))
+- Adapts to different screen sizes and window widths automatically
+- Creates evenly spaced time intervals across data range
+- Finds closest actual data point to each target time for accurate labeling
+- Always includes first and last dates for complete time context
+- All data points remain plotted (only tick labels are reduced)
+
+STARTING BALANCE HANDLING:
+- Starting balance entries now automatically adjust when historical transactions added
+- If transaction added before starting balance date, starting balance moves to day before earliest transaction
+- Starting balance excluded from line chart plots (only "real" transactions shown as dots)
+- Maintains correct running total calculations while keeping charts clean
+- Dynamic adjustment prevents starting balance appearing mid-timeline
+
+CHART WIDGET ENHANCEMENTS:
+- LineChartWidget: Separate logic for Bill Balance, Running Total, and Account Balance series
+- Bill Balance and Running Total charts use dynamic tick spacing
+- Account Balance charts maintain 20-tick maximum for savings displays
+- Date formatting: MM/DD/YYYY format with 45° rotation for readability
+- Proper handling of single-point data (edge case for new accounts)
+
+TRANSACTION TYPE CLARIFICATION:
+- SPENDING: Reduces weekly allocation, no account association
+- BILL_PAY: Reduces bill account balance, does NOT reduce weekly allocation
+- SAVING: Increases bill/savings account balance from weekly allocation
+- INCOME: Paycheck transaction, increases week allocation
+- ROLLOVER: Week-to-week or week-to-savings money transfer
+
+CODE LOCATIONS FOR BILL PAYMENT FIX:
+- services/paycheck_processor.py:292-297: Rollover spent_amount calculation
+- views/weekly_view.py:504-512: Week text info spending calculation
+- views/weekly_view.py:666-674: Week progress bar spending calculation
+- views/weekly_view.py:716-724: Transaction table filtering
+- All locations now exclude TransactionType.BILL_PAY from weekly spending totals
+
+================================================================================
+TAX TRACKING FEATURES (Tax Tab):
+================================================================================
+
+OVERVIEW:
+The Tax tab provides comprehensive tracking and visualization of tax savings and payments.
+Designed for US tax system (Jan 1 - Dec 31 tax year, payments in following year around tax day).
+
+YEAR-COLOR MAPPING:
+- Each year assigned consistent color from theme's chart_colors array
+- First year (earliest data) = chart_colors[0], second year = chart_colors[1], etc.
+- Colors persist across all visualizations: year titles, line plots, bar charts
+- Visual consistency helps identify year patterns across different views
+
+TAX PAYMENT TYPES:
+Categorized by keywords in transaction descriptions (case-insensitive):
+- Federal: Contains "federal" in description
+- State: Contains "state" in description
+- Service: Contains "service" in description (e.g., TurboTax, tax preparation)
+- Other: Bill_pay transactions from Taxes bill without above keywords (e.g., rebalancing)
+
+Only Federal/State/Service counted in "Expected Tax" calculations.
+Other transactions (like rebalancing) affect account balance but not tax projections.
+
+SUMMARY METRICS (Top Bar):
+- Expected Tax: Average annual tax payments (Federal + State + Service) across historical years
+- Expected Percent: Average effective tax rate (tax spending / income) across years
+- Current Saved: Total balance in Taxes bill account (includes all rollover)
+- [Year] Saved: Amount saved in current year only (no rollover)
+
+PROGRESS BARS:
+- Year Progress: Percentage of calendar year completed (Jan 1 to Dec 31)
+- Tax Savings: Current year savings vs expected spending (with rollover shown as background)
+
+YEAR OVERVIEW BOXES (Left Column):
+- One box per year with colored title (2024, 2025, etc.)
+- Shows: Avg Income, Avg Saved, Saved %, Spent (if available), Remaining
+- Sorted newest on top, oldest on bottom
+- Title font size: 1.5x header font, bold, year-specific color
+
+INCOME BY YEAR PLOT:
+- Line chart showing paycheck amounts throughout the year
+- Each year plotted as separate line with year-specific color
+- X-axis: Months (Jan-Dec), all years aligned for comparison
+- Y-axis: Dollar amounts
+- Legend shows which color = which year
+
+TAX PAYMENTS BY YEAR BAR CHART:
+- Grouped by payment type: Federal, State, Service, Other
+- Within each group: Bars ordered left to right (oldest to newest year)
+- Each bar colored by year for consistency
+- Dynamic spacing between groups (adjusts as years added)
+- X-axis labels: Payment type names
+- Y-axis: Dollar amounts
+
+YEAR-OVER-YEAR COMPARISON TABLE:
+- Columns: Year | Income | Saved | Federal | State | Service | Other | Remaining
+- Shows "---" for incomplete years (no payment data yet)
+- Remaining = Saved - All Deductions (for that year only, no rollover)
+- Right-aligned dollar amounts for easy scanning
+
+BREAKDOWN PIE CHART:
+- Shows average distribution: Federal, State, Service, Other, Remaining
+- Remaining = (Saved - Deductions) per year, averaged across years
+- Only shows Remaining if positive (negative values excluded)
+- Uses accent colors from theme (not chart_colors to avoid year confusion)
+- Legend positioned below pie chart in 2 columns
+- Legend text uses text_primary color for visibility
+
+DATA FLOW:
+- Tax savings: Positive "saving" transactions to Taxes bill during tax year
+- Tax payments: "bill_pay" transactions from Taxes bill in following year
+- Example: 2024 tax year → save Jan-Dec 2024 → pay taxes in 2025
+- Rollovers from previous years included in current balance, excluded from pie chart
+
+STARTING BALANCE HANDLING:
+- Starting balance entries automatically adjusted if historical transactions added
+- Moved to day before earliest transaction to maintain chronological integrity
+- Excluded from line chart plots (only real transaction data shown)
+
+CODE LOCATIONS:
+- views/taxes_view.py: Main tax tab implementation
+- Year color mapping: get_year_color() method (lines 103-115)
+- Tax payment filtering: get_tax_spending_data() (lines 947-1005)
+- Summary table: update_summary_table() (lines 1165-1244)
+- Pie chart: generate_pie_chart() (lines 1246-1332)
+
+SETUP REQUIREMENTS:
+- Create "Taxes" bill in Bills tab
+- Set starting balance if needed
+- Add tax savings transactions (saving type, bill_id = Taxes bill)
+- Add tax payment transactions with proper descriptions:
+  * "Federal Taxes" or similar with "federal" keyword
+  * "State Taxes" or similar with "state" keyword
+  * "TurboTax Service" or similar with "service" keyword
+- Future feature: Info popup in Settings to guide user setup
+
+================================================================================
+PART 5: LIVE ROLLOVER SYSTEM (October 2025 Update)
+================================================================================
+
+OVERVIEW:
+The rollover system now works in REAL-TIME. Rollovers are created immediately
+when a paycheck is added and update automatically as spending changes, without
+waiting for weeks to end.
+
+LIVE ROLLOVER BEHAVIOR:
+
+When Paycheck Added ($5000 example):
+- Bills deducted: $3582.50
+- Remaining: $1417.50
+- Week 1 allocation: $708.75
+- Week 2 allocation: $708.75
+- IMMEDIATELY CREATED:
+  * Week 1 → Week 2 rollover: $708.75 (dated to Week 1 end)
+  * Week 2 → Emergency Fund: $1417.50 (dated to Week 2 end - FUTURE DATE)
+
+When Spending Added to Week 1 ($75.50):
+- Week 1 remaining: $633.25
+- Week 1 → Week 2 rollover UPDATES: $633.25
+- Week 2 → Emergency Fund UPDATES: $1342.00
+- All happens AUTOMATICALLY
+
+When Spending Added to Week 2 ($120):
+- Week 2 remaining: $588.75
+- Week 2 → Emergency Fund UPDATES: $1222.00
+- Automatic recalculation
+
+When Transactions Edited/Deleted:
+- Any change to Week 1 spending → recalculates both rollovers
+- Any change to Week 2 spending → recalculates Emergency Fund rollover
+- Works even for historical transactions (after period ends)
+
+FUTURE-DATED TRANSACTIONS:
+- Emergency Fund rollover dated to Week 2 end date
+- Shows as "pending" or "in flux" in transaction history
+- Reminds user that amount will change as they spend during the period
+- Final amount locked when Week 3 is created (next pay period starts)
+
+KEY FEATURES:
+- No waiting for week/period to end
+- Always see current projections
+- Edit historical data anytime, everything recalculates
+- Single transaction per rollover (updates in place, no duplicates)
+- Works with add, edit, and delete operations
+
+TECHNICAL IMPLEMENTATION:
+- Paycheck processor creates rollover transactions immediately
+- Transaction manager triggers recalculation on add/edit/delete
+- Rollover calculation uses current spending to determine amounts
+- Emergency Fund transaction uses Week 2's end date (may be in future)
+
+CODE LOCATIONS:
+- services/paycheck_processor.py:
+  * _create_live_week1_to_week2_rollover() (lines 481-506)
+  * _create_live_week2_to_savings_rollover() (lines 508-535)
+  * recalculate_period_rollovers() (main recalc entry point)
+- services/transaction_manager.py:
+  * trigger_rollover_recalculation() (lines 244-253)
+  * delete_transaction() - triggers recalc on delete (lines 311-332)
+  * update_transaction() - triggers recalc on edit (lines 334-405)
+
+================================================================================
+PART 6: DASHBOARD & VISUALIZATION UPDATES (October 2025)
+================================================================================
+
+TIME FRAME FILTER:
+- Global setting: All Time | Last Year | Last Month | Last 20 Entries
+- Applies ONLY to timeline charts (charts with time on x-axis):
+  * Stacked area chart (weekly category %)
+  * Dashboard line charts (account balances)
+  * Bills tab line charts (bill balances)
+  * Savings tab line charts (account balances)
+- Does NOT apply to summary charts:
+  * Pie charts (need all data for accurate breakdown)
+  * Heatmap (needs all data for averages)
+  * Histogram (needs all data for distribution)
+  * Weekly trends (shows average pattern, needs all data)
+  * Box plots (needs all data for distribution)
+
+X-AXIS TICK LIMITING:
+- Dynamic tick spacing based on chart width
+- Dashboard charts: Half density (100 pixels/tick) - less noise
+- Bills/Savings tabs: Full density (50 pixels/tick) - more detail
+- Stacked area chart: Evenly spaced weeks, always includes last week
+- Line charts: Evenly spaced dates, always includes first and last
+- Dashboard savings charts: No x-axis ticks (visual trends only)
+
+CHART COLOR CONSISTENCY:
+- Categories sorted by total spending amount (highest to lowest)
+- Same category always gets same color across all charts
+- Year colors consistent across Tax tab (chart_colors array)
+- Tax payment bars use tax year color (payment year - 1)
+- Stacked area chart categories match color order
+
+DASHBOARD LINE CHARTS:
+- Show account/bill balances over time
+- X-axis: Dates (actual transaction dates)
+- No x-axis labels (visual trends only, details on Bills/Savings tabs)
+- Light grid lines for reference
+- Respects time frame filter
+
+THEME INTEGRATION:
+- All charts refresh on theme change
+- Tax tab: Year boxes, summary table, and pie chart update
+- Color mappings use theme's chart_colors and accent colors
+- Text colors use text_primary and text_secondary
+
+BUG FIXES:
+- Fixed: Bill payments were using "spending" instead of "bill_pay" type
+- Fixed: Tax bar chart colors now use tax year (payment year - 1)
+- Fixed: Stacked area chart color mapping (alphabetical vs amount order)
+- Fixed: Time frame filter scope (only timeline charts, not summary)
+
+CODE LOCATIONS:
+- views/dashboard.py:
+  * get_timeline_filtered_spending_transactions() (lines 775-785)
+  * get_filtered_spending_transactions() (lines 755-773)
+  * update_stacked_area_chart() (lines 1148-1197)
+  * Dynamic tick spacing (lines 239-275)
+- views/taxes_view.py:
+  * refresh_plots() with table and pie chart (lines 1500-1534)
+  * Tax year color mapping (lines 1127-1132)
+- widgets/chart_widget.py:
+  * LineChartWidget date formatting (lines 344-435)
+- widgets/bill_row_widget.py & account_row_widget.py:
+  * Time frame filter integration (lines 487-507)
+
+================================================================================
 
 ================================================================================

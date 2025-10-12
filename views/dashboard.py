@@ -183,13 +183,19 @@ class StackedAreaWidget(QWidget):
         self.update_title_styling()
         theme_manager.theme_changed.connect(self.on_theme_changed)
         
-    def update_data(self, weekly_data: dict, custom_colors: dict = None):
-        """Update stacked area chart with weekly category percentages"""
+    def update_data(self, weekly_data: dict, custom_colors: dict = None, category_order: list = None):
+        """Update stacked area chart with weekly category percentages
+
+        Args:
+            weekly_data: dict of {week_key: {category: amount}}
+            custom_colors: list of colors in same order as category_order
+            category_order: list of categories in desired order (should match custom_colors order)
+        """
         self.figure.clear()
         ax = self.figure.add_subplot(111)
-        
+
         if not weekly_data:
-            ax.text(0.5, 0.5, 'No weekly data available', 
+            ax.text(0.5, 0.5, 'No weekly data available',
                    ha='center', va='center', transform=ax.transAxes,
                    fontsize=12, color=theme_manager.get_color('text_secondary'))
             ax.set_xlim(0, 1)
@@ -198,10 +204,15 @@ class StackedAreaWidget(QWidget):
         else:
             # Prepare data for stacked area
             weeks = list(weekly_data.keys())
-            categories = set()
-            for week_data in weekly_data.values():
-                categories.update(week_data.keys())
-            categories = sorted(list(categories))
+
+            # Use provided category order if available, otherwise collect and sort alphabetically
+            if category_order:
+                categories = category_order
+            else:
+                categories = set()
+                for week_data in weekly_data.values():
+                    categories.update(week_data.keys())
+                categories = sorted(list(categories))
             
             # Create percentage matrix
             data_matrix = []
@@ -225,23 +236,42 @@ class StackedAreaWidget(QWidget):
             ax.set_ylim(0, 100)
             ax.set_xlim(0, len(weeks)-1)
             
-            # Add week start dates on x-axis
+            # Add week start dates on x-axis with dynamic tick spacing (dashboard = half density)
             if weeks:
+                # Calculate max ticks based on chart width (half density for dashboard)
+                chart_width_pixels = self.figure.get_figwidth() * self.figure.dpi
+                max_ticks = max(5, min(15, int(chart_width_pixels // 100)))  # Half of 50 pixels per tick
+
+                num_weeks = len(weeks)
+
+                if num_weeks <= max_ticks:
+                    # Show all weeks if we have few enough
+                    selected_indices = list(range(num_weeks))
+                else:
+                    # Select evenly spaced weeks
+                    step = num_weeks / (max_ticks - 1)
+                    selected_indices = [int(i * step) for i in range(max_ticks - 1)]
+                    selected_indices.append(num_weeks - 1)  # Always include last week
+
+                # Build labels for selected weeks
                 week_labels = []
-                for week_key in weeks:
+                tick_positions = []
+
+                for idx in selected_indices:
+                    week_key = weeks[idx]
                     try:
-                        # Extract date from week key and format as M/D/YY
+                        # Parse date and format as M/D
+                        from datetime import datetime
                         if "Week" in week_key:
                             week_labels.append(week_key)
                         else:
-                            # Parse date and format as M/D
-                            from datetime import datetime
                             week_date = datetime.strptime(week_key, "%Y-%m-%d")
-                            week_labels.append(week_date.strftime("%-m/%-d/%Y"))
+                            week_labels.append(week_date.strftime("%-m/%-d"))
                     except:
                         week_labels.append(week_key)
-                
-                ax.set_xticks(range(len(weeks)))
+                    tick_positions.append(idx)
+
+                ax.set_xticks(tick_positions)
                 ax.set_xticklabels(week_labels, rotation=45, ha='right', fontsize=9)
             
             # No legend (category key serves as legend)
@@ -723,7 +753,11 @@ class DashboardView(QWidget):
         return transactions
 
     def get_filtered_spending_transactions(self):
-        """Get spending transactions with analytics, time, and rollover filtering applied"""
+        """Get spending transactions with ONLY analytics and rollover filtering (NO time filter)
+
+        Use this for summary charts like pie charts, heatmaps, histograms, etc.
+        For timeline charts, use get_timeline_filtered_spending_transactions() instead.
+        """
         transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
 
         # Filter out rollover transactions (category = "Rollover" or description contains "rollover")
@@ -736,6 +770,18 @@ class DashboardView(QWidget):
             if not is_rollover:
                 filtered_transactions.append(t)
 
+        return filtered_transactions
+
+    def get_timeline_filtered_spending_transactions(self):
+        """Get spending transactions with analytics, rollover, AND time frame filtering
+
+        Use this ONLY for charts with timeline x-axes (stacked area chart, line charts).
+        For summary charts, use get_filtered_spending_transactions() instead.
+        """
+        # Get base filtered transactions (analytics + rollover filtering)
+        filtered_transactions = self.get_filtered_spending_transactions()
+
+        # Apply time frame filter
         return self.apply_time_frame_filter(filtered_transactions)
 
     def calculate_category_spending_from_filtered(self):
@@ -1051,12 +1097,12 @@ class DashboardView(QWidget):
     def update_pie_charts(self):
         """Update both pie charts with different data sources"""
         try:
-            # Get spending data by category for the big pie chart (respects time filtering)
+            # Get spending data by category for the big pie chart (uses ALL data, not time filtered)
             all_time_category_spending = self.calculate_category_spending_from_filtered()
-            
-            # Update total spending pie chart with filtered data
+
+            # Update total spending pie chart with all-time data
             if self.total_pie_chart and all_time_category_spending:
-                chart_title = f"Spending by Category ({self.time_frame_filter})"
+                chart_title = "Spending by Category"  # Shows all-time data
                 consistent_colors = self.get_consistent_category_colors(all_time_category_spending)
                 self.total_pie_chart.update_data(all_time_category_spending, chart_title, custom_colors=consistent_colors)
             
@@ -1103,9 +1149,9 @@ class DashboardView(QWidget):
         """Update stacked area chart with real weekly category percentages"""
         try:
             from datetime import datetime, timedelta
-            
-            # Get spending transactions using proper filtering
-            spending_transactions = self.get_filtered_spending_transactions()
+
+            # Get spending transactions with TIMELINE filtering (this chart shows time on x-axis)
+            spending_transactions = self.get_timeline_filtered_spending_transactions()
             spending_transactions = [
                 t for t in spending_transactions
                 if t.amount > 0  # Exclude $0 placeholder transactions
@@ -1131,9 +1177,21 @@ class DashboardView(QWidget):
                 category = getattr(transaction, 'category', 'Miscellaneous') or 'Miscellaneous'
                 weekly_data[week_key][category] = weekly_data[week_key].get(category, 0) + transaction.amount
             
-            # Sort weeks chronologically and take last 8 weeks
-            sorted_weeks = sorted(weekly_data.keys())[-8:]
-            filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
+            # Sort weeks chronologically
+            sorted_weeks = sorted(weekly_data.keys())
+
+            # Apply time frame limit based on setting
+            if self.time_frame_filter == "All Time":
+                # Show all weeks
+                filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
+            elif self.time_frame_filter == "Last 20 Entries":
+                # Take last 20 weeks
+                sorted_weeks = sorted_weeks[-20:]
+                filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
+            else:
+                # For "Last Year" and "Last Month", transactions are already filtered
+                # Just show all resulting weeks
+                filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
 
             if self.stacked_area_chart:
                 # Calculate category totals for consistent color mapping
@@ -1142,8 +1200,12 @@ class DashboardView(QWidget):
                     for category, amount in week_data.items():
                         category_totals[category] = category_totals.get(category, 0) + amount
 
+                # Get colors and matching category order
                 consistent_colors = self.get_consistent_category_colors(category_totals)
-                self.stacked_area_chart.update_data(filtered_weekly_data, custom_colors=consistent_colors)
+                # Category order matches the order of keys in category_totals dict
+                category_order = list(category_totals.keys())
+
+                self.stacked_area_chart.update_data(filtered_weekly_data, custom_colors=consistent_colors, category_order=category_order)
                 
         except Exception as e:
             print(f"Error updating stacked area chart: {e}")
@@ -1635,29 +1697,31 @@ class DashboardView(QWidget):
             if account_transactions:
                 account_transactions.sort(key=lambda t: t.date)
             
-            # Calculate running totals over time
+            # Calculate running totals over time with DATES on x-axis
             data_points = []
             running_total = 0
-            
+
             if account_type == 'account':
                 # For savings accounts: start at 0, add deposits, subtract withdrawals
-                for i, transaction in enumerate(account_transactions):
+                for transaction in account_transactions:
                     running_total += transaction.amount  # Positive for deposits, negative for withdrawals
-                    data_points.append((i, running_total))
+                    data_points.append((transaction.date, running_total))
             else:
                 # For bills: show accumulation then spending pattern
                 # This tracks how much has been saved/allocated for this bill over time
                 if not account_transactions:
                     # If no transactions, show the current bill running total as a flat line
+                    from datetime import date as date_type, timedelta
                     current_total = getattr(account_obj, 'running_total', 0)
-                    data_points = [(0, current_total), (1, current_total)]
+                    today = date_type.today()
+                    data_points = [(today - timedelta(days=30), current_total), (today, current_total)]
                 else:
-                    for i, transaction in enumerate(account_transactions):
+                    for transaction in account_transactions:
                         if transaction.transaction_type == "bill_pay":
                             running_total -= transaction.amount  # Money spent on bill
                         elif transaction.transaction_type == "saving":
                             running_total += transaction.amount  # Money saved for bill
-                        data_points.append((i, running_total))
+                        data_points.append((transaction.date, running_total))
             
             return data_points
             

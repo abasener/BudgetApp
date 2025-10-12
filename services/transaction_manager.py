@@ -61,7 +61,8 @@ class TransactionManager:
         # Initialize AccountHistory with starting balance using a reasonable start date
         # Use a date well in the past so transactions will naturally come after it
         from datetime import datetime
-        start_date = date(2024, 1, 1)  # Start of year for initial balance
+        current_year = datetime.now().year
+        start_date = date(current_year, 1, 1)  # Start of current year for initial balance
         account.initialize_history(self.db, starting_balance=initial_balance, start_date=start_date)
         self.db.commit()
 
@@ -145,7 +146,9 @@ class TransactionManager:
 
         # Initialize AccountHistory with starting balance using a reasonable start date
         # Use a date well in the past so transactions will naturally come after it
-        start_date = date(2024, 1, 1)  # Start of year for initial balance
+        from datetime import datetime
+        current_year = datetime.now().year
+        start_date = date(current_year, 1, 1)  # Start of current year for initial balance
         bill.initialize_history(self.db, starting_balance=initial_balance, start_date=start_date)
         self.db.commit()
 
@@ -309,12 +312,22 @@ class TransactionManager:
         """Delete a transaction and its AccountHistory entry"""
         transaction = self.db.query(Transaction).filter(Transaction.id == transaction_id).first()
         if transaction:
+            # Store week number before deletion for rollover recalculation
+            week_number = transaction.week_number
+            is_spending_or_saving = transaction.is_spending or transaction.is_saving
+            is_rollover = transaction.is_rollover or (transaction.description and "end-of-period" in transaction.description.lower())
+
             # Remove AccountHistory entry if it exists
             if transaction.affects_account:
                 self.history_manager.delete_transaction_change(transaction_id)
 
             self.db.delete(transaction)
             self.db.commit()
+
+            # Trigger rollover recalculation if this was a spending/saving transaction
+            if is_spending_or_saving and not is_rollover and not self._disable_auto_rollover:
+                self.trigger_rollover_recalculation(week_number)
+
             return True
         return False
 
@@ -379,6 +392,16 @@ class TransactionManager:
 
         self.db.commit()
         self.db.refresh(transaction)
+
+        # Trigger rollover recalculation if this is a spending/saving transaction
+        is_rollover_transaction = (
+            transaction.is_rollover or
+            (transaction.description and "end-of-period" in transaction.description.lower())
+        )
+
+        if (transaction.is_spending or transaction.is_saving) and not is_rollover_transaction and not self._disable_auto_rollover:
+            self.trigger_rollover_recalculation(transaction.week_number)
+
         return transaction
     
     # Analytics and summary methods

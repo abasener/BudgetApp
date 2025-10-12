@@ -141,6 +141,12 @@ class SettingsDialog(QDialog):
         self.tax_feature_checkbox.setToolTip("Enable the Taxes tab for tax tracking and management")
         features_layout.addRow("", self.tax_feature_checkbox)
 
+        # Testing mode toggle
+        self.testing_mode_checkbox = QCheckBox("Testing Mode")
+        self.testing_mode_checkbox.setChecked(False)  # Default to false
+        self.testing_mode_checkbox.setToolTip("Enable testing mode for development and debugging")
+        features_layout.addRow("", self.testing_mode_checkbox)
+
         features_group.setLayout(features_layout)
         right_column.addWidget(features_group)
 
@@ -242,7 +248,8 @@ class SettingsDialog(QDialog):
             "default_hourly_rate": 50.00,
             "default_analytics_only": True,
             "time_frame_filter": "All Time",
-            "enable_tax_features": False
+            "enable_tax_features": False,
+            "testing_mode": False
         }
     
     def load_settings(self):
@@ -310,6 +317,10 @@ class SettingsDialog(QDialog):
         # Set tax features checkbox state
         enable_tax = self.current_settings.get("enable_tax_features", False)
         self.tax_feature_checkbox.setChecked(enable_tax)
+
+        # Set testing mode checkbox state
+        testing_mode = self.current_settings.get("testing_mode", False)
+        self.testing_mode_checkbox.setChecked(testing_mode)
     
     def get_ui_settings(self):
         """Get current settings from UI controls"""
@@ -322,7 +333,8 @@ class SettingsDialog(QDialog):
             "default_hourly_rate": self.hourly_rate_spin.value(),
             "default_analytics_only": self.default_analytics_checkbox.isChecked(),
             "time_frame_filter": self.time_frame_combo.currentText(),
-            "enable_tax_features": self.tax_feature_checkbox.isChecked()
+            "enable_tax_features": self.tax_feature_checkbox.isChecked(),
+            "testing_mode": self.testing_mode_checkbox.isChecked()
         }
     
     def reset_to_defaults(self):
@@ -686,16 +698,56 @@ class SettingsDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # Math verification
-        answer, ok = QInputDialog.getInt(
-            self,
-            "Math Verification Required",
-            f"To confirm this action, solve:\n\n{num1} × {num2} = ?",
-            0, 0, 999999, 1
-        )
+        # Math verification with hidden answer
+        from PyQt6.QtWidgets import QLineEdit
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Math Verification Required")
+        dialog_layout = QVBoxLayout()
 
-        if not ok:
+        # Get background color for hiding the answer
+        colors = theme_manager.get_colors()
+        bg_color = colors['surface']
+
+        # Create label with hidden answer (answer is same color as background)
+        prompt_label = QLabel()
+        prompt_label.setTextFormat(Qt.TextFormat.RichText)
+        prompt_label.setText(
+            f"To confirm this action, solve:<br><br>"
+            f"{num1} × {num2} = ?<span style='color: {bg_color};'>{correct_answer}</span>"
+        )
+        prompt_label.setFont(theme_manager.get_font("main"))
+        prompt_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        dialog_layout.addWidget(prompt_label)
+
+        # Input field
+        input_field = QLineEdit()
+        input_field.setPlaceholderText("Enter answer")
+        dialog_layout.addWidget(input_field)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        dialog_layout.addLayout(button_layout)
+
+        dialog.setLayout(dialog_layout)
+
+        # Connect buttons
+        ok_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+
+        # Show dialog
+        result = dialog.exec()
+        if result != QDialog.DialogCode.Accepted:
             return
+
+        # Get the answer
+        try:
+            answer = int(input_field.text())
+        except ValueError:
+            answer = -1
 
         if answer != correct_answer:
             QMessageBox.critical(
@@ -707,7 +759,16 @@ class SettingsDialog(QDialog):
 
         # Perform the test reset
         try:
-            db = get_db()
+            # Close transaction manager's database connection
+            if hasattr(self.transaction_manager, 'db'):
+                self.transaction_manager.db.close()
+
+            # Close any existing database connections first
+            from models.database import engine, SessionLocal
+            engine.dispose()
+
+            # Create new session for this operation
+            db = SessionLocal()
 
             # Count items before deletion
             transaction_count = db.query(Transaction).count()
@@ -759,6 +820,9 @@ class SettingsDialog(QDialog):
             db.query(Transaction).delete()
             db.query(Week).delete()
 
+            # Commit deletions before adding new entries
+            db.commit()
+
             # Create starting balance entries for accounts using preserved values
             from models.account_history import AccountHistory
 
@@ -782,6 +846,10 @@ class SettingsDialog(QDialog):
 
             db.commit()
             db.close()
+
+            # Reconnect transaction_manager to database
+            from models import get_db
+            self.transaction_manager.db = get_db()
 
             QMessageBox.information(
                 self,
@@ -947,19 +1015,28 @@ class SettingsDialog(QDialog):
                 paychecks_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[5, 6, 7])
                 paychecks_df = paychecks_df.dropna(how='all')
 
+                # Read BillPays table (columns 9-11)
+                try:
+                    billpays_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[9, 10, 11])
+                    billpays_df = billpays_df.dropna(how='all')
+                except:
+                    # BillPays table is optional
+                    billpays_df = pd.DataFrame()
+
             except Exception as e:
                 QMessageBox.warning(
                     self,
                     "File Format Error",
                     f"Step 2 Failed: Could not read expected table structure.\n\n"
                     f"Error: {e}\n\n"
-                    f"Expected: Two tables side by side in the Excel file."
+                    f"Expected: Tables in the Excel file (Spending, Paychecks, and optionally BillPays)."
                 )
                 return
 
             # Step 3: Verify headers
             expected_spending_headers = ["Date", "Day", "Catigorie", "Amount"]
             expected_paycheck_headers = ["Start date", "Pay Date", "Amount.1"]
+            expected_billpays_headers = ["Date.1", "Bill", "Amount.2"]
 
             spending_headers = list(spending_df.columns)
             paycheck_headers = list(paychecks_df.columns)
@@ -986,14 +1063,30 @@ class SettingsDialog(QDialog):
                 )
                 return
 
+            # Check BillPays headers if table exists
+            if not billpays_df.empty:
+                billpays_headers = list(billpays_df.columns)
+                if billpays_headers != expected_billpays_headers:
+                    QMessageBox.warning(
+                        self,
+                        "Header Validation Failed",
+                        f"Step 3 Failed: BillPays table headers don't match.\n\n"
+                        f"Expected: {expected_billpays_headers}\n"
+                        f"Found: {billpays_headers}\n\n"
+                        f"Please check the Excel file format."
+                    )
+                    return
+
             # All validation passed - confirm import
+            billpays_count = len(billpays_df) if not billpays_df.empty else 0
             reply = QMessageBox.question(
                 self,
                 "Import Test Data",
                 f"All validation checks passed!\n\n"
                 f"Found:\n"
                 f"• {len(spending_df)} spending transactions\n"
-                f"• {len(paychecks_df)} paychecks\n\n"
+                f"• {len(paychecks_df)} paychecks\n"
+                f"• {billpays_count} bill payments\n\n"
                 f"This will import the test data into your current database.\n"
                 f"Are you sure you want to proceed?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1026,6 +1119,7 @@ class SettingsDialog(QDialog):
             import pandas as pd
             from services.transaction_manager import TransactionManager
             from services.paycheck_processor import PaycheckProcessor
+            from models import get_db, Bill
             from datetime import datetime
 
             transaction_manager = TransactionManager()
@@ -1037,6 +1131,13 @@ class SettingsDialog(QDialog):
 
             paychecks_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[5, 6, 7])
             paychecks_df = paychecks_df.dropna(how='all')
+
+            # Read BillPays table (optional)
+            try:
+                billpays_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[9, 10, 11])
+                billpays_df = billpays_df.dropna(how='all')
+            except:
+                billpays_df = pd.DataFrame()
 
             # Import paychecks first
             paycheck_count = 0
@@ -1094,20 +1195,96 @@ class SettingsDialog(QDialog):
                     print(f"Error adding transaction: {e}")
                     continue
 
+            # Import bill payments
+            billpay_count = 0
+            unmatched_bills = set()
+
+            if not billpays_df.empty:
+                # Get all existing bills for matching
+                db = get_db()
+                existing_bills = {bill.name.lower(): bill for bill in db.query(Bill).all()}
+                db.close()
+
+                for idx, row in billpays_df.iterrows():
+                    if pd.isna(row["Date.1"]) or pd.isna(row["Bill"]) or pd.isna(row["Amount.2"]):
+                        continue
+
+                    transaction_date = pd.to_datetime(row["Date.1"]).date()
+                    bill_name = str(row["Bill"]).strip()
+                    amount = float(row["Amount.2"])
+
+                    # Find matching bill (case-insensitive)
+                    bill_name_lower = bill_name.lower()
+                    if bill_name_lower not in existing_bills:
+                        unmatched_bills.add(bill_name)
+                        continue
+
+                    matched_bill = existing_bills[bill_name_lower]
+
+                    # Determine which week this transaction belongs to
+                    week_number = transaction_manager.get_week_number_for_date(transaction_date)
+                    if week_number is None:
+                        continue
+
+                    # Determine transaction type based on amount sign
+                    # Positive = adding to bill (savings), Negative = paying bill
+                    if amount < 0:
+                        # Negative amount = bill payment (deduction)
+                        transaction_data = {
+                            "transaction_type": "bill_pay",  # Use enum value
+                            "week_number": week_number,
+                            "amount": abs(amount),  # Use absolute value
+                            "date": transaction_date,
+                            "description": f"Payment for {bill_name}",
+                            "bill_id": matched_bill.id,
+                            "bill_type": matched_bill.bill_type
+                        }
+                    else:
+                        # Positive amount = bill saving (addition)
+                        transaction_data = {
+                            "transaction_type": "saving",  # Match auto bill savings format
+                            "week_number": week_number,
+                            "amount": amount,  # Keep positive
+                            "date": transaction_date,
+                            "description": f"Manual savings for {bill_name}",
+                            "bill_id": matched_bill.id,
+                            "bill_type": matched_bill.bill_type
+                        }
+
+                    try:
+                        transaction_manager.add_transaction(transaction_data)
+                        billpay_count += 1
+                    except Exception as e:
+                        print(f"Error adding bill payment: {e}")
+                        continue
+
             transaction_manager.close()
             paycheck_processor.close()
+
+            # Build success message
+            message = f"Test data imported successfully!\n\n"
+            message += f"Imported:\n"
+            message += f"• {paycheck_count} paychecks\n"
+            message += f"• {transaction_count} spending transactions\n"
+            message += f"  - {transaction_count - negative_count} positive (included in analytics)\n"
+            message += f"  - {negative_count} negative (excluded from analytics)\n"
+
+            if not billpays_df.empty:
+                message += f"• {billpay_count} bill payments\n"
+
+            if unmatched_bills:
+                message += f"\n⚠️ Unmatched Bills (not imported):\n"
+                for bill in sorted(unmatched_bills):
+                    message += f"  - {bill}\n"
+                message += "\nThese bills don't exist in your system."
+
+            message += "\nThe application data has been updated with the test dataset."
 
             # Show success message
             QMessageBox.information(
                 self,
                 "Import Successful",
-                f"Test data imported successfully!\n\n"
-                f"Imported:\n"
-                f"• {paycheck_count} paychecks\n"
-                f"• {transaction_count} spending transactions\n"
-                f"  - {transaction_count - negative_count} positive (included in analytics)\n"
-                f"  - {negative_count} negative (excluded from analytics)\n\n"
-                f"The application data has been updated with the test dataset."
+                message
             )
 
             # Signal that data changed so main window refreshes
@@ -1140,7 +1317,8 @@ def load_app_settings():
         "default_hourly_rate": 50.00,
         "default_analytics_only": True,
         "time_frame_filter": "All Time",
-        "enable_tax_features": False
+        "enable_tax_features": False,
+        "testing_mode": False
     }
 
 

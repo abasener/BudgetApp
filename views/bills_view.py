@@ -358,14 +358,15 @@ class BillsView(QWidget):
         try:
             from views.dialogs.bill_transaction_history_dialog import BillTransactionHistoryDialog
 
-            dialog = BillTransactionHistoryDialog(bill, self.transaction_manager, self)
+            dialog = BillTransactionHistoryDialog(bill, self.transaction_manager, parent=self)
             dialog.bill_updated.connect(self.on_bill_updated)
             dialog.exec()
-            
+
         except Exception as e:
-            print(f"Error opening transaction history: {e}")
             import traceback
             traceback.print_exc()
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error Opening History", f"Failed to open transaction history:\n{str(e)}\n\nCheck console for details.")
     
     def on_bill_updated(self, updated_bill):
         """Handle when bill data is updated from dialogs"""

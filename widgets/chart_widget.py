@@ -347,33 +347,84 @@ class LineChartWidget(BaseChartWidget):
                         # Handle date formatting differently for each series type
                         if len(x_vals) > 1:
                             if series_name == "Running Total" or series_name == "Bill Balance":
-                                # Only show ticks where running total/bill balance actually changes
-                                change_points = []
-                                change_dates = []
-                                
-                                for j in range(len(y_vals)):
-                                    if j == 0 or y_vals[j] != y_vals[j-1]:  # First point or value changed
-                                        change_points.append(j)
-                                        change_dates.append(x_vals[j])
-                                
-                                # Limit to max 100 ticks
-                                if len(change_dates) > 100:
-                                    step = len(change_dates) // 100
-                                    change_dates = change_dates[::step]
-                                
-                                # Set custom tick locations
-                                ax.set_xticks(change_dates)
+                                # Dynamic tick selection based on chart width
+                                chart_width_pixels = self.figure.get_figwidth() * self.figure.dpi
+                                max_ticks = max(10, min(30, int(chart_width_pixels // 50)))
+
+                                # Calculate time intervals
+                                from datetime import timedelta
+                                first_date = x_vals[0]
+                                last_date = x_vals[-1]
+                                total_days = (last_date - first_date).days
+
+                                if total_days > 0 and max_ticks > 1:
+                                    # Create evenly spaced target times
+                                    interval_days = total_days / (max_ticks - 1)
+                                    target_dates = []
+
+                                    for i in range(max_ticks):
+                                        target_date = first_date + timedelta(days=i * interval_days)
+                                        target_dates.append(target_date)
+
+                                    # Find closest actual data point to each target
+                                    selected_dates = []
+                                    for target_date in target_dates:
+                                        # Find closest date in x_vals
+                                        closest_date = min(x_vals, key=lambda d: abs((d - target_date).days))
+                                        if closest_date not in selected_dates:
+                                            selected_dates.append(closest_date)
+
+                                    # Ensure first and last dates are included
+                                    if first_date not in selected_dates:
+                                        selected_dates.insert(0, first_date)
+                                    if last_date not in selected_dates:
+                                        selected_dates.append(last_date)
+
+                                    # Set custom tick locations
+                                    ax.set_xticks(selected_dates)
+                                else:
+                                    # Single day or single tick - show all
+                                    ax.set_xticks(x_vals)
                             
                             elif series_name == "Account Balance":
-                                # For Account Balance, show evenly spaced dates
-                                # Show at most 20 ticks, evenly spaced
-                                if len(x_vals) > 20:
-                                    step = len(x_vals) // 20
-                                    tick_dates = x_vals[::step]
+                                # Dynamic tick selection based on chart width (same as Bill Balance)
+                                chart_width_pixels = self.figure.get_figwidth() * self.figure.dpi
+                                max_ticks = max(10, min(30, int(chart_width_pixels // 50)))
+
+                                # Calculate time intervals
+                                from datetime import timedelta
+                                first_date = x_vals[0]
+                                last_date = x_vals[-1]
+                                total_days = (last_date - first_date).days
+
+                                if total_days > 0 and max_ticks > 1:
+                                    # Create evenly spaced target times
+                                    interval_days = total_days / (max_ticks - 1)
+                                    target_dates = []
+
+                                    for i in range(max_ticks):
+                                        target_date = first_date + timedelta(days=i * interval_days)
+                                        target_dates.append(target_date)
+
+                                    # Find closest actual data point to each target
+                                    selected_dates = []
+                                    for target_date in target_dates:
+                                        # Find closest date in x_vals
+                                        closest_date = min(x_vals, key=lambda d: abs((d - target_date).days))
+                                        if closest_date not in selected_dates:
+                                            selected_dates.append(closest_date)
+
+                                    # Ensure first and last dates are included
+                                    if first_date not in selected_dates:
+                                        selected_dates.insert(0, first_date)
+                                    if last_date not in selected_dates:
+                                        selected_dates.append(last_date)
+
+                                    # Set custom tick locations
+                                    ax.set_xticks(selected_dates)
                                 else:
-                                    tick_dates = x_vals
-                                
-                                ax.set_xticks(tick_dates)
+                                    # Single day or single tick - show all
+                                    ax.set_xticks(x_vals)
                             
                             # Apply date formatting to both
                             ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%Y'))
@@ -382,20 +433,16 @@ class LineChartWidget(BaseChartWidget):
                             # Single point - just show that date
                             ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%Y'))
                             plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-            
+
             # Clean formatting - no labels for savings charts
             if self.is_savings_rate_chart:
-                # Remove axis labels and legends for savings charts
-                
-                # Remove x-axis ticks for top savings chart but add vertical grid lines
-                if "1" in self.title:
-                    ax.set_xticks([])
-                    ax.grid(True, alpha=0.3, axis='y')  # Only horizontal grid lines
-                    ax.grid(True, alpha=0.2, axis='x')  # Light vertical grid lines
-                else:
-                    # Bottom chart keeps x-axis labels
-                    ax.grid(True, alpha=0.3)
-                    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+                # Remove axis labels and legends for dashboard savings charts
+                # These are for visual trends only, not detailed analysis
+
+                # Remove x-axis ticks from both charts but add grid lines
+                ax.set_xticks([])
+                ax.grid(True, alpha=0.3, axis='y')  # Only horizontal grid lines
+                ax.grid(True, alpha=0.2, axis='x')  # Light vertical grid lines
             else:
                 # Keep formatting for other line charts
                 ax.set_xlabel(xlabel)

@@ -4,11 +4,12 @@ Budget App - Desktop application for tracking expenses, bills, savings, and inco
 """
 
 import sys
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QVBoxLayout, 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QVBoxLayout,
                              QWidget, QMenuBar, QMenu, QToolBar, QPushButton, QDialog, QHBoxLayout)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 
+from utils.error_handler import handle_exception, show_error, is_testing_mode
 from views.dialogs.add_transaction_dialog import AddTransactionDialog
 from views.dialogs.add_paycheck_dialog import AddPaycheckDialog
 from views.dialogs.pay_bill_dialog import PayBillDialog
@@ -21,7 +22,13 @@ from views.bills_view import BillsView
 from views.weekly_view import WeeklyView
 from views.savings_view import SavingsView
 from views.categories_view import CategoriesView
-from views.taxes_view import TaxesView
+# Conditional import for optional tax features
+try:
+    from views.taxes_view import TaxesView
+    TAX_MODULE_AVAILABLE = True
+except ImportError as e:
+    # Only show in console, not as error dialog since this is optional
+    TAX_MODULE_AVAILABLE = False
 from services.transaction_manager import TransactionManager
 from services.analytics import AnalyticsEngine
 from services.paycheck_processor import PaycheckProcessor
@@ -80,10 +87,13 @@ class BudgetApp(QMainWindow):
         )
 
         # Initialize taxes view (will be added conditionally)
-        self.taxes_view = TaxesView(
-            transaction_manager=self.transaction_manager,
-            analytics_engine=self.analytics_engine
-        )
+        if TAX_MODULE_AVAILABLE:
+            self.taxes_view = TaxesView(
+                transaction_manager=self.transaction_manager,
+                analytics_engine=self.analytics_engine
+            )
+        else:
+            self.taxes_view = None
 
         # Add tabs
         self.tabs.addTab(self.dashboard, "Dashboard")
@@ -92,8 +102,8 @@ class BudgetApp(QMainWindow):
         self.tabs.addTab(self.weekly_view, "Weekly")
         self.tabs.addTab(self.categories_view, "Categories")
 
-        # Add Taxes tab if enabled in settings
-        if self.app_settings.get("enable_tax_features", False):
+        # Add Taxes tab if enabled in settings and module available
+        if TAX_MODULE_AVAILABLE and self.app_settings.get("enable_tax_features", False):
             self.taxes_tab_index = self.tabs.addTab(self.taxes_view, "Taxes")
         else:
             self.taxes_tab_index = -1
@@ -312,7 +322,7 @@ class BudgetApp(QMainWindow):
             if self.taxes_tab_index >= 0:
                 self.taxes_view.refresh()
         except Exception as e:
-            print(f"Error refreshing views: {e}")
+            show_error(self, "Refresh Error", e, "refreshing application views")
         
     def open_add_transaction_dialog(self):
         """Open dialog to add new transaction"""
@@ -321,7 +331,7 @@ class BudgetApp(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_all_views()
         except Exception as e:
-            print(f"Error opening add transaction dialog: {e}")
+            show_error(self, "Dialog Error", e, "opening Add Transaction dialog")
     
     def open_add_paycheck_dialog(self):
         """Open dialog to add paycheck with bi-weekly processing"""
@@ -330,7 +340,7 @@ class BudgetApp(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_all_views()
         except Exception as e:
-            print(f"Error opening add paycheck dialog: {e}")
+            show_error(self, "Dialog Error", e, "opening Add Paycheck dialog")
     
     def open_pay_bill_dialog(self):
         """Open dialog to pay a bill"""
@@ -339,7 +349,7 @@ class BudgetApp(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_all_views()
         except Exception as e:
-            print(f"Error opening pay bill dialog: {e}")
+            show_error(self, "Dialog Error", e, "opening Pay Bill dialog")
     
     def open_add_account_dialog(self):
         """Open dialog to add new account (admin function)"""
@@ -348,7 +358,7 @@ class BudgetApp(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_all_views()
         except Exception as e:
-            print(f"Error opening add account dialog: {e}")
+            show_error(self, "Dialog Error", e, "opening Add Account dialog")
     
     def open_add_bill_dialog(self):
         """Open dialog to add new bill (admin function)"""
@@ -357,7 +367,7 @@ class BudgetApp(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_all_views()
         except Exception as e:
-            print(f"Error opening add bill dialog: {e}")
+            show_error(self, "Dialog Error", e, "opening Add Bill dialog")
     
     def open_settings_dialog(self):
         """Open settings dialog"""
@@ -366,18 +376,18 @@ class BudgetApp(QMainWindow):
             dialog.settings_saved.connect(self.on_settings_saved)
             dialog.exec()
         except Exception as e:
-            print(f"Error opening settings dialog: {e}")
+            show_error(self, "Dialog Error", e, "opening Settings dialog")
     
     def on_settings_saved(self):
         """Handle when settings are saved"""
         # Reload settings
         old_tax_enabled = self.taxes_tab_index >= 0
         self.app_settings = load_app_settings()
-        new_tax_enabled = self.app_settings.get("enable_tax_features", False)
+        new_tax_enabled = self.app_settings.get("enable_tax_features", False) and TAX_MODULE_AVAILABLE
 
         # Update tax tab visibility if it changed
         if old_tax_enabled != new_tax_enabled:
-            if new_tax_enabled:
+            if new_tax_enabled and self.taxes_view:
                 # Add the Taxes tab at the end
                 self.taxes_tab_index = self.tabs.addTab(self.taxes_view, "Taxes")
             else:
@@ -419,7 +429,7 @@ class BudgetApp(QMainWindow):
             if hasattr(self.categories_view, 'on_theme_changed'):
                 self.categories_view.on_theme_changed(theme_id)
         except Exception as e:
-            print(f"Error applying theme to views: {e}")
+            show_error(self, "Theme Error", e, "applying theme changes")
     
     def closeEvent(self, event):
         """Clean up resources when closing the application"""
@@ -427,23 +437,37 @@ class BudgetApp(QMainWindow):
             self.transaction_manager.close()
             self.analytics_engine.close()
             self.paycheck_processor.close()
-        except:
-            pass  # Ignore cleanup errors
+        except Exception as e:
+            # In testing mode, show technical error; otherwise silently continue
+            if is_testing_mode():
+                show_error(self, "Cleanup Error", e, "cleaning up resources")
         event.accept()
 
 
 def main():
     app = QApplication(sys.argv)
-    
+
     # Set application style
     app.setStyle('Fusion')
-    
+
+    # Set up global exception handler
+    def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
+        # Get the main window if it exists
+        window = None
+        for widget in app.topLevelWidgets():
+            if isinstance(widget, BudgetApp):
+                window = widget
+                break
+        handle_exception(exc_type, exc_value, exc_traceback, window)
+
+    sys.excepthook = handle_uncaught_exception
+
     window = BudgetApp()
     window.show()
-    
+
     # Refresh all views after startup to ensure data loads properly
     window.refresh_all_views()
-    
+
     sys.exit(app.exec())
 
 

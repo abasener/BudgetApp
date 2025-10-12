@@ -442,6 +442,7 @@ class BillRowWidget(QWidget):
         try:
             # Get AccountHistory entries directly for this bill
             from models.account_history import AccountHistoryManager
+            from datetime import timedelta
 
             history_manager = AccountHistoryManager(self.transaction_manager.db)
             account_history = history_manager.get_account_history(self.bill.id, "bill")
@@ -455,14 +456,55 @@ class BillRowWidget(QWidget):
                 self.running_total_chart.update_data(chart_data, "", "")
                 return
 
-            # Build balance points from AccountHistory (date, running_total)
+            # Find starting balance entry and transaction entries
+            starting_balance_entry = None
+            transaction_entries = []
+
+            for entry in account_history:
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    starting_balance_entry = entry
+                else:
+                    transaction_entries.append(entry)
+
+            # If we have transactions before the starting balance date, move starting balance back
+            if starting_balance_entry and transaction_entries:
+                earliest_transaction_date = min(entry.transaction_date for entry in transaction_entries)
+
+                if starting_balance_entry.transaction_date >= earliest_transaction_date:
+                    # Move starting balance to day before earliest transaction
+                    new_start_date = earliest_transaction_date - timedelta(days=1)
+                    starting_balance_entry.transaction_date = new_start_date
+                    self.transaction_manager.db.flush()
+
+            # Build balance points from AccountHistory, excluding starting balance from plot
             balance_points = []
             for entry in account_history:
+                # Skip starting balance entry - don't plot it
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    continue
                 balance_points.append((entry.transaction_date, entry.running_total))
 
+            # Apply time frame filter from settings
+            from views.dialogs.settings_dialog import get_setting
+            from datetime import datetime, date as date_type
 
-            # If more than 50 entries, show the most recent 50 for performance
-            if len(balance_points) > 50:
+            time_frame_filter = get_setting("time_frame_filter", "All Time")
+
+            if time_frame_filter != "All Time" and balance_points:
+                today = date_type.today()
+
+                if time_frame_filter == "Last Year":
+                    cutoff_date = today - timedelta(days=365)
+                    balance_points = [(d, v) for d, v in balance_points if d >= cutoff_date]
+                elif time_frame_filter == "Last Month":
+                    cutoff_date = today - timedelta(days=30)
+                    balance_points = [(d, v) for d, v in balance_points if d >= cutoff_date]
+                elif time_frame_filter == "Last 20 Entries":
+                    # Take last 20 entries
+                    balance_points = balance_points[-20:]
+
+            # Legacy fallback: If more than 50 entries and no time filter, show the most recent 50 for performance
+            if time_frame_filter == "All Time" and len(balance_points) > 50:
                 balance_points = balance_points[-50:]
 
             # Build chart data

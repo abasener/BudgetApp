@@ -501,11 +501,11 @@ class WeekDetailWidget(QWidget):
             
     def update_week_text_info(self):
         """Update the 4-line text display with week financial info"""
-        # Calculate spending for this week
-        # Include both SPENDING and BILL_PAY transactions, exclude rollovers and bill/savings allocations
+        # Calculate spending for this week (spending only, not bill pays)
+        # Bill pays come from bill accounts, not weekly spending money
         spending_transactions = [
             t for t in self.transactions
-            if (t.is_spending or t.is_bill_pay)
+            if t.is_spending
             and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
@@ -663,11 +663,11 @@ class WeekDetailWidget(QWidget):
         
     def update_week_progress_bars(self):
         """Update progress bars for this specific week"""
-        # Money progress (similar to bi-weekly but for single week)
-        # Include both SPENDING and BILL_PAY transactions, exclude rollovers and bill/savings allocations
+        # Money progress (spending only, not bill pays)
+        # Bill pays come from bill accounts, not weekly spending money
         spending_transactions = [
             t for t in self.transactions
-            if (t.is_spending or t.is_bill_pay)
+            if t.is_spending
             and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
@@ -713,12 +713,12 @@ class WeekDetailWidget(QWidget):
         
     def update_transaction_table(self):
         """Update transaction table with week's spending transactions only"""
-        # Filter to only spending transactions (exclude paychecks, income, savings allocations)
+        # Filter to only spending transactions (exclude paychecks, income, savings allocations, bill pays)
         # Show ALL spending transactions regardless of analytics flag, exclude rollovers and allocations
-        # Include both SPENDING and BILL_PAY transaction types since both reduce available money
+        # Bill pays are excluded since they come from bill accounts, not weekly spending money
         spending_transactions = [
             t for t in self.transactions
-            if (t.is_spending or t.is_bill_pay)
+            if t.is_spending
             and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]

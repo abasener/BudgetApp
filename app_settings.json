@@ -1,5 +1,5 @@
 {
-  "default_theme": "excel_blue",
+  "default_theme": "dark",
   "bills_sort_order": "Amount (High to Low)",
   "savings_sort_order": "Goal Progress",
   "dashboard_chart1_account": "random",
@@ -7,5 +7,6 @@
   "default_hourly_rate": 50.0,
   "default_analytics_only": true,
   "time_frame_filter": "All Time",
-  "enable_tax_features": true
+  "enable_tax_features": true,
+  "testing_mode": true
 }
