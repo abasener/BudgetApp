@@ -2,10 +2,10 @@
 Bi-weekly Tab - Complete bi-weekly budget tracking with historical view
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QScrollArea, QListWidget, QListWidgetItem, QProgressBar,
                              QSizePolicy, QTableWidget, QTableWidgetItem, QCheckBox,
-                             QPushButton, QMessageBox)
+                             QPushButton, QMessageBox, QToolButton)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import PieChartWidget
@@ -389,22 +389,24 @@ class WeekDetailWidget(QWidget):
         # Buttons on the right side of header
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(10)
-        
-        # Save Changes button
-        self.save_changes_btn = QPushButton("Save Changes")
-        self.save_changes_btn.setStyleSheet("padding: 5px 10px;")
+
+        # Save button
+        self.save_changes_btn = QPushButton("Save")
+        self.save_changes_btn.setFixedHeight(31)
+        self.save_changes_btn.setFixedWidth(65)
+        self.save_changes_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         buttons_layout.addWidget(self.save_changes_btn)
-        
-        # Delete Row button
-        self.delete_row_btn = QPushButton("Delete Row")
-        self.delete_row_btn.setStyleSheet("padding: 5px 10px;")
+
+        # Delete Transaction button
+        self.delete_row_btn = QPushButton("Delete Transaction")
+        self.delete_row_btn.setFixedHeight(31)
+        self.delete_row_btn.setFixedWidth(125)
+        self.delete_row_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         buttons_layout.addWidget(self.delete_row_btn)
-        
-        # Ignore Changes button
-        self.ignore_changes_btn = QPushButton("Ignore Changes")
-        self.ignore_changes_btn.setStyleSheet("padding: 5px 10px;")
-        buttons_layout.addWidget(self.ignore_changes_btn)
-        
+
+        # Apply button styling (subtle outlined style like account buttons)
+        self.apply_table_button_theme()
+
         # Add buttons to header with stretch to push them right
         header_layout.addStretch()
         header_layout.addLayout(buttons_layout)
@@ -466,7 +468,6 @@ class WeekDetailWidget(QWidget):
         # Connect button functionality
         self.save_changes_btn.clicked.connect(self.save_changes)
         self.delete_row_btn.clicked.connect(self.delete_selected_row)
-        self.ignore_changes_btn.clicked.connect(self.ignore_changes)
         
         table_frame.setLayout(table_layout)
         parent_layout.addWidget(table_frame)
@@ -477,10 +478,12 @@ class WeekDetailWidget(QWidget):
             return
 
         try:
-            # Get transactions for this week using date range instead of week_number
-            self.transactions = self.transaction_manager.get_transactions_by_date_range(
-                self.week_data.start_date,
-                self.week_data.end_date
+            # CRITICAL: Must use get_transactions_by_week(), NOT get_transactions_by_date_range()
+            # Reason: Rollover transactions are DATED to Week 1's END date but ASSIGNED to Week 2's week_number
+            # Using date_range would show Week 1's rollover-out as if it's rollover-in, making Week 1 look bigger than Week 2
+            # Using week_number ensures rollover transactions appear in the RECEIVING week, not the source week
+            self.transactions = self.transaction_manager.get_transactions_by_week(
+                self.week_data.week_number
             )
             
             # Update text display
@@ -510,17 +513,35 @@ class WeekDetailWidget(QWidget):
             and not (t.description and "allocation" in t.description.lower())
         ]
         total_spent = sum(t.amount for t in spending_transactions)
-        
-        # Calculate effective starting amount: base allocation + rollover income - rollover deficits
-        # Note: Bill/savings allocation transactions are already deducted from base_allocation
+
+        # Calculate starting amount correctly:
+        # CRITICAL UNDERSTANDING: Week.running_total = BASE ALLOCATION ONLY (half of spendable income)
+        # Week.running_total does NOT and NEVER includes rollovers!
+        # Rollovers are separate transactions that we ADD to the base for display purposes
+        #
+        # Formula: Starting = base_allocation + rollover_in - rollover_out
+        # - base_allocation: From Week.running_total (set when paycheck processed)
+        # - rollover_in: Positive rollover transactions (Week 1→Week 2 rollover)
+        # - rollover_out: Negative rollover transactions (deficit scenarios)
+        #
+        # Example: Pay period with $908.91 spendable
+        #   Week 1 (57): base=$454.46, rollover_in=$0, starting=$454.46
+        #   Week 2 (58): base=$454.46, rollover_in=$312.76, starting=$767.22
+        #
         if self.week_data:
-            base_allocation = self.week_data.running_total
-            # Add rollover income transactions (positive rollover from previous week)
-            rollover_income = [t for t in self.transactions if t.is_rollover and t.amount > 0]
+            base_allocation = self.week_data.running_total  # Base allocation ONLY (never includes rollovers)
+
+            # Get rollover transactions INTO this week (positive rollovers only)
+            rollover_income = [t for t in self.transactions
+                             if t.is_rollover and t.amount > 0]
             rollover_income_total = sum(t.amount for t in rollover_income)
-            # Subtract rollover deficit transactions (negative rollover from previous week)
-            rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
-            rollover_deficit_total = sum(t.amount for t in rollover_deficits)
+
+            # Get rollover deficits (negative rollovers from previous week)
+            rollover_deficits = [t for t in self.transactions
+                               if t.is_rollover and t.amount < 0]
+            rollover_deficit_total = abs(sum(t.amount for t in rollover_deficits))
+
+            # Calculate final starting amount (base + rollovers)
             starting_amount = base_allocation + rollover_income_total - rollover_deficit_total
         else:
             # Fallback to calculated amount if no week data
@@ -937,10 +958,41 @@ class WeekDetailWidget(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
             print(f"Error applying changes: {e}")
     
+    def apply_table_button_theme(self):
+        """Apply theme styling to table buttons (Save, Delete Transaction)"""
+        colors = theme_manager.get_colors()
+
+        # Style for both buttons - subtle outlined style with tighter sizing
+        button_style = f"""
+            QPushButton {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+                border: 2px solid {colors['border']};
+                border-radius: 6px;
+                font-weight: normal;
+                padding: 7px 11px;
+            }}
+            QPushButton:hover {{
+                background-color: {colors['surface_variant']};
+                border-color: {colors['primary']};
+                color: {colors['primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {colors['hover']};
+                border-color: {colors['primary']};
+            }}
+        """
+
+        if hasattr(self, 'save_changes_btn'):
+            self.save_changes_btn.setStyleSheet(button_style)
+        if hasattr(self, 'delete_row_btn'):
+            self.delete_row_btn.setStyleSheet(button_style)
+
     def on_theme_changed(self, theme_id):
         """Handle theme change for week detail widget"""
         try:
             self.update_week_detail_styling(theme_id)
+            self.apply_table_button_theme()  # Update button styling
         except Exception as e:
             print(f"Error applying theme to week detail widget: {e}")
     
@@ -1053,24 +1105,6 @@ class WeekDetailWidget(QWidget):
                 }}
             """)
         
-        # Update button styling
-        for button in [getattr(self, 'save_changes_btn', None),
-                      getattr(self, 'delete_row_btn', None),
-                      getattr(self, 'ignore_changes_btn', None)]:
-            if button:
-                button.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {colors['surface']};
-                        color: {colors['text_primary']};
-                        border: 1px solid {colors['border']};
-                        border-radius: 4px;
-                        padding: 5px 10px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {colors['hover']};
-                    }}
-                """)
-        
         # Update table title color
         for child in self.findChildren(QLabel):
             if child.text() == "Week Transactions":
@@ -1121,13 +1155,32 @@ class WeeklyView(QWidget):
         content_layout.setSpacing(10)
         content_layout.setContentsMargins(10, 10, 10, 10)
         
+        # Header with title and refresh button
+        header_layout = QHBoxLayout()
+
         # Title
         title = QLabel("📅 Bi-weekly Tab")
         title.setFont(theme_manager.get_font("title"))
         colors = theme_manager.get_colors()
         title.setStyleSheet(f"color: {colors['text_primary']};")
-        content_layout.addWidget(title)
-        
+        header_layout.addWidget(title)
+
+        # Refresh button - compact tool button with just emoji (left justified next to title)
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("🔄")
+        self.refresh_button.setToolTip("Refresh Weekly View")
+        self.refresh_button.setFixedSize(40, 30)
+        self.refresh_button.clicked.connect(self.refresh)
+        # Styling applied in on_theme_changed method
+        header_layout.addWidget(self.refresh_button)
+
+        header_layout.addStretch()
+
+        content_layout.addLayout(header_layout)
+
+        # Apply initial theme to refresh button
+        self.apply_header_theme()
+
         # TOP ROW (1/4 of screen) - Week selector and info columns
         top_row = self.create_top_row()
         content_layout.addWidget(top_row)
@@ -1904,6 +1957,30 @@ class WeeklyView(QWidget):
             if self.selected_week:
                 self.week_title.setText(f"Pay Period {self.selected_week['period_id']}")
             
+    def apply_header_theme(self):
+        """Apply theme styling to header elements (refresh button)"""
+        colors = theme_manager.get_colors()
+
+        # Style refresh button (QToolButton)
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                    font-size: 16px;
+                }}
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
     def refresh(self):
         """Refresh weekly data"""
         self.populate_week_list()
@@ -1914,6 +1991,7 @@ class WeeklyView(QWidget):
         try:
             # Update UI styling without recalculating data
             self.update_view_styling()
+            self.apply_header_theme()  # Update refresh button styling
             # Week detail widgets will auto-update via their own theme_changed signals
         except Exception as e:
             print(f"Error applying theme to weekly view: {e}")

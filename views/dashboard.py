@@ -2,9 +2,9 @@
 Enhanced Dashboard View - Complete layout matching user diagram
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
-                             QCheckBox, QPushButton, QGridLayout, QDialog)
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+                             QCheckBox, QPushButton, QGridLayout, QDialog, QLCDNumber)
+from PyQt6.QtCore import Qt, QDate
 from themes import theme_manager
 from widgets import (PieChartWidget, LineChartWidget, BarChartWidget, 
                     ProgressChartWidget, HeatmapWidget, AnimatedGifWidget, HistogramWidget, WeeklySpendingTrendWidget, BoxPlotWidget)
@@ -359,7 +359,7 @@ class DashboardView(QWidget):
 
         try:
             # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            all_transactions = getattr(self, '_cached_all_transactions', None) or self.transaction_manager.get_all_transactions()
             spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
 
             # Calculate spending by category
@@ -419,20 +419,35 @@ class DashboardView(QWidget):
         # Header section
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
-        
+
         # Title
         title = QLabel("💰 Financial Control Panel")
         title.setFont(theme_manager.get_font("title"))
         header_layout.addWidget(title)
-        
+
         header_layout.addStretch()
-        
-        # Analytics toggle
+
+        # LCD Date Display
+        self.date_lcd = QLCDNumber()
+        self.date_lcd.setDigitCount(10)  # MM/DD/YYYY = 10 characters
+        self.date_lcd.setSegmentStyle(QLCDNumber.SegmentStyle.Flat)
+        self.date_lcd.setFixedHeight(30)
+        self.date_lcd.setFixedWidth(120)
+        current_date = QDate.currentDate().toString("MM/dd/yyyy")
+        self.date_lcd.display(current_date)
+        self.date_lcd.setToolTip("Current Date")
+        header_layout.addWidget(self.date_lcd)
+
+        # Analytics toggle - styled checkbox
         self.analytics_toggle = QCheckBox("Normal Spending Only")
         self.analytics_toggle.setChecked(self.include_analytics_only)  # Use setting from file
         self.analytics_toggle.toggled.connect(self.toggle_analytics_mode)
         self.analytics_toggle.setToolTip("Filter abnormal transactions from analytics")
+        self.analytics_toggle.setFont(theme_manager.get_font("main"))
         header_layout.addWidget(self.analytics_toggle)
+
+        # Apply initial theme styling to date LCD and checkbox
+        self.apply_header_theme()
         
         main_layout.addLayout(header_layout)
         
@@ -578,11 +593,16 @@ class DashboardView(QWidget):
         rings_heatmap_container.addWidget(self.heatmap_chart)
         
         bottom_row.addLayout(rings_heatmap_container)
-        
-        # Central GIF holder
-        self.gif_widget = AnimatedGifWidget("dashboard", (150, 100))
-        bottom_row.addWidget(self.gif_widget)
-        
+
+        # Central GIF holder - maximize available space
+        # Height should match left section (rings 65px + heatmap ~200-300px = ~265-365px total)
+        self.gif_widget = AnimatedGifWidget("dashboard", (200, 365))  # Increased size to match full available space
+        self.gif_widget.setMinimumWidth(150)  # Minimum width
+        self.gif_widget.setMaximumWidth(250)  # Maximum width to prevent it from getting too wide
+        self.gif_widget.setMinimumHeight(265)  # Minimum height (rings + min heatmap)
+        # No max height - let it expand to fill available space
+        bottom_row.addWidget(self.gif_widget, stretch=1)  # Allow it to stretch
+
         # Savings progress bars
         self.savings_progress_chart = SavingsProgressWidget("Savings Goals")
         self.savings_progress_chart.setMinimumWidth(150)
@@ -724,6 +744,43 @@ class DashboardView(QWidget):
         
         return frame
         
+    def apply_header_theme(self):
+        """Apply theme styling to header elements (LCD date and checkbox)"""
+        colors = theme_manager.get_colors()
+
+        # Style LCD date display
+        self.date_lcd.setStyleSheet(f"""
+            QLCDNumber {{
+                background-color: {colors['surface']};
+                color: {colors['primary']};
+                border: 2px solid {colors['border']};
+                border-radius: 4px;
+            }}
+        """)
+
+        # Style checkbox
+        self.analytics_toggle.setStyleSheet(f"""
+            QCheckBox {{
+                color: {colors['text_primary']};
+                spacing: 8px;
+                font-weight: normal;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 2px solid {colors['border']};
+                border-radius: 3px;
+                background-color: {colors['surface']};
+            }}
+            QCheckBox::indicator:hover {{
+                border: 2px solid {colors['primary']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border-color: {colors['primary']};
+            }}
+        """)
+
     def toggle_analytics_mode(self, checked):
         """Toggle between normal and all spending analytics"""
         self.include_analytics_only = checked
@@ -758,7 +815,7 @@ class DashboardView(QWidget):
         Use this for summary charts like pie charts, heatmaps, histograms, etc.
         For timeline charts, use get_timeline_filtered_spending_transactions() instead.
         """
-        transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+        transactions = getattr(self, '_cached_spending', None) or self.transaction_manager.get_spending_transactions(self.include_analytics_only)
 
         # Filter out rollover transactions (category = "Rollover" or description contains "rollover")
         filtered_transactions = []
@@ -849,7 +906,7 @@ class DashboardView(QWidget):
                 days_left_in_week = 7 - (today.weekday() + 1)
                 
                 # Get current week spending using analytics and rollover filtering (ignore time frame)
-                spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+                spending_transactions = getattr(self, '_cached_spending', None) or self.transaction_manager.get_spending_transactions(self.include_analytics_only)
 
                 # Filter out rollover transactions and get current week data
                 current_week_spending = []
@@ -899,7 +956,14 @@ class DashboardView(QWidget):
             # Reload settings from file (in case they changed)
             from views.dialogs.settings_dialog import get_setting
             self.time_frame_filter = get_setting("time_frame_filter", "All Time")
-            # Update all sections
+
+            # Cache frequently-used data at start to avoid multiple DB queries
+            self._cached_accounts = self.transaction_manager.get_all_accounts()
+            self._cached_bills = self.transaction_manager.get_all_bills()
+            self._cached_spending = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+            self._cached_all_transactions = self.transaction_manager.get_all_transactions()
+
+            # Update all sections (they can now use cached data)
             self.update_accounts_display()
             self.update_weekly_status()
             self.update_bills_status()
@@ -914,7 +978,17 @@ class DashboardView(QWidget):
             self.update_weekly_spending_trends()
             self.update_category_boxplot()
             self.update_hour_calc_display()
-            
+
+            # Refresh GIF widget with a new random GIF
+            if hasattr(self, 'gif_widget') and self.gif_widget:
+                self.gif_widget.load_gif()
+
+            # Clear cache after refresh to free memory
+            self._cached_accounts = None
+            self._cached_bills = None
+            self._cached_spending = None
+            self._cached_all_transactions = None
+
         except Exception as e:
             error_msg = f"Error refreshing dashboard: {str(e)}"
             print(error_msg)
@@ -928,11 +1002,22 @@ class DashboardView(QWidget):
             self.weekly_status_label.setText(error_msg)
         if hasattr(self, 'bills_status_label'):
             self.bills_status_label.setText(error_msg)
-    
+
+    def showEvent(self, event):
+        """
+        Called when dashboard tab is shown
+        Refresh the GIF to show a new random one each time user switches to this tab
+        """
+        super().showEvent(event)
+        # Load a new random GIF when dashboard is shown
+        if hasattr(self, 'gif_widget') and self.gif_widget:
+            self.gif_widget.load_gif()
+
     def update_accounts_display(self):
         """Update account summary display"""
         try:
-            accounts = self.transaction_manager.get_all_accounts()
+            # Use cached data if available, otherwise fetch
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
             
             if not accounts:
                 self.account_summary_label.setText("No accounts found")
@@ -1015,7 +1100,7 @@ class DashboardView(QWidget):
     def update_bills_status(self):
         """Update bills status display"""
         try:
-            bills = self.transaction_manager.get_all_bills()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
             
             if not bills:
                 self.bills_status_label.setText("No bills configured")
@@ -1236,7 +1321,7 @@ class DashboardView(QWidget):
         """Update ring charts showing account progress"""
         try:
             # Get all bills from database (rings now represent bills)
-            bills = self.transaction_manager.get_all_bills()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
             
             # Update each ring with bill progress (running_total / typical_amount)
             for i, ring_chart in enumerate(self.ring_charts):
@@ -1309,7 +1394,7 @@ class DashboardView(QWidget):
         """Update savings progress chart with real account data"""
         try:
             # Get all savings accounts from database
-            accounts = self.transaction_manager.get_all_accounts()
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
             
             if self.savings_progress_chart:
                 self.savings_progress_chart.update_data(accounts)
@@ -1439,13 +1524,14 @@ class DashboardView(QWidget):
             # Update UI element styling (fast)
             self.update_frame_styling()
             self.apply_hour_calc_button_theme()
-            
+            self.apply_header_theme()  # Update LCD date and checkbox styling
+
             # Update visual theme elements without recalculating data
             self.update_category_key()  # Only updates colors, not data
-            
+
             # Force chart theme updates - they need to redraw with new colors
             self.update_chart_themes_only()
-            
+
         except Exception as e:
             print(f"Error applying theme to dashboard: {e}")
     
@@ -1542,7 +1628,7 @@ class DashboardView(QWidget):
         """Setup dynamic bill rings based on available bills"""
         try:
             # Get all bills from database
-            bills = self.transaction_manager.get_all_bills()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
             
             # Limit to max 7 rings to better utilize space
             max_rings = 7
@@ -1658,7 +1744,7 @@ class DashboardView(QWidget):
             from datetime import datetime, timedelta
             
             # Get transactions for this account
-            all_transactions = self.transaction_manager.get_all_transactions()
+            all_transactions = getattr(self, '_cached_all_transactions', None) or self.transaction_manager.get_all_transactions()
 
             # Apply time filtering to all transactions
             all_transactions = self.apply_time_frame_filter(all_transactions)
@@ -1733,33 +1819,51 @@ class DashboardView(QWidget):
         """Automatically select account or bill for a savings chart based on settings"""
         try:
             import random
-            
+
             # Get available accounts and bills
-            accounts = self.transaction_manager.get_all_accounts()
-            bills = self.transaction_manager.get_all_bills()
-            
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
+
             # Get setting for this chart
             setting_key = f"dashboard_chart{chart_index + 1}_account"
             preferred_account = get_setting(setting_key, "random")
-            
+
             # Combine accounts and bills into options
             options = []
             for account in accounts:
                 options.append(('account', account, account.name))
             for bill in bills:
                 options.append(('bill', bill, bill.name))
-            
+
             if not options:
                 # No accounts or bills available
                 if chart_index < len(self.savings_line_charts):
                     self.savings_line_charts[chart_index].clear_chart()
                 return
-            
+
+            # Get what the OTHER chart has selected to avoid duplicates
+            other_chart_index = 1 if chart_index == 0 else 0
+            other_chart_selection = None
+            if other_chart_index < len(self.selected_accounts) and self.selected_accounts[other_chart_index]:
+                other_chart_selection = self.selected_accounts[other_chart_index]
+
             # Select option based on settings
             selected_option = None
             if preferred_account == "random":
-                # Random selection (original behavior)
-                selected_option = random.choice(options)
+                # Random selection - avoid selecting what the other chart has
+                available_options = options.copy()
+
+                # Remove the other chart's selection from available options
+                if other_chart_selection:
+                    other_type, other_obj = other_chart_selection
+                    available_options = [opt for opt in available_options
+                                       if not (opt[0] == other_type and opt[1] == other_obj)]
+
+                # If we filtered out everything (only 1 account exists), use original options
+                if not available_options:
+                    available_options = options
+
+                selected_option = random.choice(available_options)
             else:
                 # Look for specific account/bill by name
                 for option in options:
@@ -1767,10 +1871,22 @@ class DashboardView(QWidget):
                     if account_name == preferred_account:
                         selected_option = option
                         break
-                
-                # If preferred account not found, fall back to random
+
+                # If preferred account not found, fall back to random (avoiding duplicates)
                 if selected_option is None:
-                    selected_option = random.choice(options)
+                    available_options = options.copy()
+
+                    # Remove the other chart's selection from available options
+                    if other_chart_selection:
+                        other_type, other_obj = other_chart_selection
+                        available_options = [opt for opt in available_options
+                                           if not (opt[0] == other_type and opt[1] == other_obj)]
+
+                    # If we filtered out everything, use original options
+                    if not available_options:
+                        available_options = options
+
+                    selected_option = random.choice(available_options)
             
             account_type, account_obj, account_name = selected_option
             

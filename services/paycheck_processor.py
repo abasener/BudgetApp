@@ -1,6 +1,41 @@
 """
 Paycheck Processor - Handles bi-weekly paycheck logic and rollover handling
 Based on the NewWeekFlowChart.png flowchart
+
+CRITICAL UNDERSTANDING: ROLLOVER FLOW IS SIMPLE
+================================================
+
+Money flows in exactly TWO directions:
+1. Week 1 → Week 2 (one rollover transaction per pay period)
+2. Week 2 → Savings (one rollover transaction per pay period)
+
+NO OTHER ROLLOVERS EXIST!
+
+How it works:
+- Paycheck arrives and is split 50/50 between Week 1 and Week 2
+- Week 1 allocation goes into Week.running_total (base only, no rollover)
+- Week 2 allocation goes into Week.running_total (base only, no rollover)
+- Rollover transactions are created IMMEDIATELY and UPDATED LIVE as spending changes
+- When Week 1 spending happens, Week 1→Week 2 rollover updates automatically
+- When Week 2 spending happens, Week 2→Savings rollover updates automatically
+
+Example:
+- Paycheck: $4237.50
+- Bills: $3328.59
+- Spendable: $908.91
+- Week 1 base: $454.46 (set in Week.running_total)
+- Week 2 base: $454.46 (set in Week.running_total)
+- Week 1 spending: $141.70
+- Week 1 rollover to Week 2: $312.76 (separate transaction)
+- Week 2 total: $454.46 + $312.76 = $767.22 (base + rollover)
+- Week 2 spending: $0.00
+- Week 2 rollover to Savings: $767.22 (separate transaction)
+
+IMPORTANT:
+- Week.running_total NEVER includes rollovers
+- Rollovers are stored as separate transactions
+- Display logic ADDS rollover transactions to base for "Starting" amount
+- Live updates happen automatically via recalculate_period_rollovers()
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -480,6 +515,16 @@ class PaycheckProcessor:
 
     def _create_live_week1_to_week2_rollover(self, week1: Week, week2: Week):
         """Create immediate Week 1 -> Week 2 rollover transaction (will update live as spending changes)"""
+        # Check if rollover already exists for this direction
+        existing_rollover = self.db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.ROLLOVER.value,
+            Transaction.week_number == week2.week_number,
+            Transaction.description.like(f"%Week {week1.week_number}%")
+        ).first()
+
+        if existing_rollover:
+            return  # Already exists, don't create duplicate
+
         # Calculate Week 1's expected rollover (its full budget initially)
         week1_rollover = self.calculate_week_rollover(week1.week_number)
 
@@ -511,6 +556,17 @@ class PaycheckProcessor:
         if not default_savings_account:
             print("Warning: No default savings account found for live rollover")
             return
+
+        # Check if savings rollover already exists for this week
+        existing_savings = self.db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.SAVING.value,
+            Transaction.week_number == week2.week_number,
+            Transaction.account_id == default_savings_account.id,
+            Transaction.description.like(f"%Week {week2.week_number}%")
+        ).first()
+
+        if existing_savings:
+            return  # Already exists, don't create duplicate
 
         # Calculate Week 2's expected rollover (Week 2 budget + Week 1 budget - Week 1 spending)
         # This is the total amount that will go to savings at the end
@@ -663,8 +719,9 @@ class PaycheckProcessor:
 
     def _remove_period_rollover_transactions(self, week1_number: int, week2_number: int):
         """Remove all rollover transactions for a bi-weekly period"""
-        # Remove Week 1 -> Week 2 rollover transactions
+        # Remove Week 1 -> Week 2 rollover transactions (more specific filter)
         week1_to_week2_rollovers = self.db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.ROLLOVER.value,
             Transaction.week_number == week2_number,
             Transaction.description.like(f"%rollover from Week {week1_number}")
         ).all()
@@ -672,17 +729,21 @@ class PaycheckProcessor:
         for tx in week1_to_week2_rollovers:
             self.transaction_manager.delete_transaction(tx.id)
 
-        # Remove Week 2 -> savings rollover transactions
-        week2_to_savings_rollovers = self.db.query(Transaction).filter(
-            Transaction.week_number == week2_number,
-            or_(
-                Transaction.description.like(f"End-of-period surplus from Week {week2_number}"),
-                Transaction.description.like(f"End-of-period deficit from Week {week2_number}")
-            )
-        ).all()
+        # Remove Week 2 -> savings rollover transactions (more specific filter)
+        default_savings_account = self.transaction_manager.get_default_savings_account()
+        if default_savings_account:
+            week2_to_savings_rollovers = self.db.query(Transaction).filter(
+                Transaction.transaction_type == TransactionType.SAVING.value,
+                Transaction.week_number == week2_number,
+                Transaction.account_id == default_savings_account.id,
+                or_(
+                    Transaction.description.like(f"End-of-period surplus from Week {week2_number}"),
+                    Transaction.description.like(f"End-of-period deficit from Week {week2_number}")
+                )
+            ).all()
 
-        for tx in week2_to_savings_rollovers:
-            self.transaction_manager.delete_transaction(tx.id)
+            for tx in week2_to_savings_rollovers:
+                self.transaction_manager.delete_transaction(tx.id)
 
     def _create_rollover_transaction(self, rollover: WeekRollover, target_week_number: int):
         """Create a rollover transaction from one week to another"""

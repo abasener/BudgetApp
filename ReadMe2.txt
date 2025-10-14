@@ -679,5 +679,203 @@ CODE LOCATIONS:
   * Time frame filter integration (lines 487-507)
 
 ================================================================================
+PART 7: WEEK ROLLOVER & ACCOUNT HISTORY FIXES (October 2025)
+================================================================================
+
+CRITICAL BUG FIXES - WEEK DISPLAY & SAVINGS STARTING BALANCE:
+
+ISSUE 1: Week Display Using Date Range Instead of Week Number
+PROBLEM:
+- weekly_view.py was using get_transactions_by_date_range() to load transactions
+- Rollover transactions are dated to Week 1's END date but assigned to Week 2
+- Result: Week 1 displayed the rollover LEAVING it, making it look like rollover coming IN
+- Week 1 showed higher starting amount than Week 2 (backwards!)
+
+SOLUTION:
+- Changed weekly_view.py line 482 to use get_transactions_by_week(week_number)
+- Now transactions are filtered by week_number field, not date range
+- Rollover transactions properly attributed to receiving week
+- Week 1 Starting: $454.46 (base only)
+- Week 2 Starting: $454.46 + $312.76 rollover = $767.22 ✓
+
+CODE LOCATION:
+- views/weekly_view.py:482-484
+- OLD: get_transactions_by_date_range(start_date, end_date)
+- NEW: get_transactions_by_week(week_number)
+
+ISSUE 2: Savings Account Starting Balance Not Included in Running Totals
+PROBLEM:
+- Starting balance entry existed but was dated AFTER all transactions (2025-10-12)
+- First transaction showed running_total = $92.72 instead of $4296.73
+- Starting balance was ignored in all calculations
+
+ROOT CAUSE:
+- Starting balance was added AFTER historical data was imported
+- AccountHistory entries are sorted by date - starting balance came LAST chronologically
+- _get_balance_at_date() returned 0 for transactions before starting balance date
+
+SOLUTION:
+- Updated starting balance entry date to 2024-09-21 (before first transaction)
+- Recalculated ALL running totals in chronological order
+- Starting balance now FIRST entry in AccountHistory
+- All subsequent running totals now include starting balance
+
+VERIFICATION:
+- Before: First transaction running_total = $92.72
+- After: First transaction running_total = $4296.73 ($4204.01 + $92.72) ✓
+
+CODE LOCATIONS:
+- models/account_history.py:115-137: add_transaction_change()
+- models/account_history.py:177-201: _update_running_totals_from_entry()
+- Fix script: fix_starting_balance_date.py
+
+WEEK ROLLOVER SYSTEM - COMPLETE SPECIFICATION:
+
+MONEY FLOW (Simple Version):
+1. Week 1 → Week 2 (one rollover transaction)
+2. Week 2 → Savings (one rollover transaction)
+3. NO OTHER ROLLOVERS
+
+WEEK CALCULATIONS:
+- Week.running_total = BASE ALLOCATION ONLY (half of spendable income)
+- Week Display Starting = running_total + rollover_in - rollover_out
+- Week Display Current = Starting - Spending
+- Week Display Daily = Current / max(days_left, 1)
+- Spending does NOT affect Starting, only Current
+
+EXAMPLE WITH NUMBERS:
+Pay Period 4 (Weeks 57-58):
+- Paycheck: $4237.50
+- Bills/Taxes: $3328.59
+- Spendable: $908.91
+- Week 57 base: $454.46 (half of spendable)
+- Week 58 base: $454.46 (half of spendable)
+
+Week 57 (Week 1):
+- Base allocation (running_total): $454.46
+- Rollover IN: $0.00 (Week 1 doesn't receive rollovers)
+- Starting: $454.46
+- Spending: $141.70
+- Current: $312.76
+- Rollover OUT to Week 58: $312.76
+
+Week 58 (Week 2):
+- Base allocation (running_total): $454.46
+- Rollover IN: $312.76 (from Week 57)
+- Starting: $767.22 ($454.46 + $312.76)
+- Spending: $0.00
+- Current: $767.22
+- Rollover OUT to Savings: $767.22
+
+CRITICAL: Week.running_total NEVER includes rollovers!
+- It's ONLY the base allocation from paycheck split
+- Rollovers are separate transactions with their own entries
+- Display logic ADDS rollover transactions to base for "Starting" amount
+
+ROLLOVER TRANSACTIONS:
+- Week 1 → Week 2: transaction_type="rollover", week_number=58, description="Rollover from Week 57"
+- Week 2 → Savings: transaction_type="saving", week_number=58, account_id=1, description="End-of-period surplus from Week 58"
+- Dated to source week's END date
+- Updated in place when spending changes (no duplicates)
+
+ACCOUNT HISTORY - COMPLETE SPECIFICATION:
+
+PURPOSE:
+AccountHistory tracks ALL balance changes for ALL account types (savings and bills).
+Every transaction that affects an account creates an AccountHistory entry.
+Running totals are maintained in chronological order by transaction_date.
+
+SCHEMA:
+- id: Primary key
+- transaction_id: FK to transactions table (NULL for starting balance)
+- account_id: ID of affected account (bill or savings)
+- account_type: "bill" or "savings"
+- change_amount: Dollar change (positive or negative)
+- running_total: Cumulative balance AFTER this change
+- transaction_date: Date of the change (from transaction or manual)
+- description: For non-transaction entries (e.g., "Starting balance")
+
+STARTING BALANCE ENTRIES:
+- transaction_id = NULL (no associated transaction)
+- change_amount = starting balance amount
+- running_total = starting balance amount (first entry)
+- transaction_date = MUST BE BEFORE ALL TRANSACTIONS
+- description = "Starting balance for [type] account"
+
+CRITICAL: Starting balance date MUST be chronologically first!
+- If transactions exist before starting balance date, calculations will be wrong
+- Starting balance should be dated one day before earliest transaction
+- When adding historical transactions, check if they predate starting balance
+
+AUTO-UPDATE BEHAVIOR:
+When transaction added/edited/deleted at ANY point in history:
+1. Find the insertion point in chronological order (by transaction_date)
+2. Calculate running_total = previous_entry.running_total + change_amount
+3. Update ALL subsequent entries' running_totals
+4. This ensures historical edits propagate forward automatically
+
+EXAMPLE:
+Entries before adding $100 transaction on 2024-10-01:
+- ID 1: Start balance $4204.01 on 2024-09-21, running=$4204.01
+- ID 151: +$92.72 on 2024-09-22, running=$4296.73
+- ID 152: -$64.66 on 2024-10-06, running=$4232.07
+
+After adding $100 transaction on 2024-10-01:
+- ID 1: Start balance $4204.01 on 2024-09-21, running=$4204.01
+- ID 151: +$92.72 on 2024-09-22, running=$4296.73
+- ID 213: +$100.00 on 2024-10-01, running=$4396.73 (NEW)
+- ID 152: -$64.66 on 2024-10-06, running=$4332.07 (UPDATED +$100)
+- All following entries also increased by $100 automatically
+
+CODE METHODS:
+- add_transaction_change(): Adds new entry, triggers auto-update
+- update_transaction_change(): Updates existing entry, triggers auto-update
+- delete_transaction_change(): Removes entry, triggers auto-update
+- _update_running_totals_from_entry(): Recalculates all subsequent running_totals
+- recalculate_account_history(): Full recalculation (for fixing data issues)
+
+TESTING ACCOUNT HISTORY:
+To verify auto-update works:
+1. Add transaction in the PAST (before existing transactions)
+2. Check that ALL subsequent running_totals increased by the amount
+3. Edit that transaction to different amount
+4. Check that ALL subsequent running_totals updated again
+5. Delete that transaction
+6. Check that ALL subsequent running_totals decreased by the amount
+
+PREVENTING FUTURE BREAKS:
+
+1. NEVER use get_transactions_by_date_range() for weekly view
+   - USE: get_transactions_by_week(week_number)
+   - Date ranges can pick up wrong rollover transactions
+
+2. NEVER modify Week.running_total to include rollovers
+   - Week.running_total = BASE ALLOCATION ONLY
+   - Display calculations ADD rollover transactions separately
+
+3. ALWAYS date starting balance BEFORE first transaction
+   - Check earliest transaction date first
+   - Set starting balance to day before earliest
+   - Use recalculate_account_history() if order wrong
+
+4. UNDERSTAND that running_totals update automatically
+   - Don't manually set running_total values
+   - Trust _update_running_totals_from_entry() to propagate changes
+   - Historical edits work automatically
+
+5. REMEMBER the rollover flow is simple
+   - Week 1 → Week 2 (one transaction)
+   - Week 2 → Savings (one transaction)
+   - No other rollovers exist
+
+CODE LOCATIONS FOR FUTURE REFERENCE:
+- views/weekly_view.py:482: Transaction loading (use week_number!)
+- views/weekly_view.py:514-531: Week starting amount calculation
+- models/account_history.py:115-137: Transaction addition with auto-update
+- models/account_history.py:177-201: Running total propagation logic
+- services/paycheck_processor.py:481-556: Live rollover creation
+- services/transaction_manager.py:213-219: AccountHistory integration
+
+================================================================================
 
 ================================================================================

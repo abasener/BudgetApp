@@ -309,8 +309,8 @@ class BudgetApp(QMainWindow):
     def refresh_all_views(self):
         """Refresh all tabs - called after any data change"""
         try:
-            # Check for and process any pending rollovers before refreshing views
-            self.paycheck_processor.check_and_process_rollovers()
+            # Old rollover system removed - live rollover system handles everything now
+            # self.paycheck_processor.check_and_process_rollovers()
 
             self.dashboard.refresh()
             self.bills_view.refresh()

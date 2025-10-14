@@ -2,8 +2,8 @@
 Categories View - Category analysis and details
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
-                             QScrollArea, QListWidget, QListWidgetItem, QPushButton, QDialog)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+                             QScrollArea, QListWidget, QListWidgetItem, QPushButton, QDialog, QToolButton)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import PieChartWidget, BoxPlotWidget, HistogramWidget, WeeklySpendingTrendWidget
@@ -72,7 +72,16 @@ class CategoriesView(QWidget):
         
         # Add stretch to push buttons to the right
         header_layout.addStretch()
-        
+
+        # Refresh button - compact tool button with just emoji
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("🔄")
+        self.refresh_button.setToolTip("Refresh Categories")
+        self.refresh_button.setFixedSize(40, 30)
+        self.refresh_button.clicked.connect(self.refresh)
+        # Styling applied in apply_header_theme method
+        header_layout.addWidget(self.refresh_button)
+
         # Add Category button
         self.add_category_btn = QPushButton("➕ Add Category")
         self.add_category_btn.setFixedHeight(35)
@@ -94,8 +103,8 @@ class CategoriesView(QWidget):
             }}
         """)
         header_layout.addWidget(self.add_category_btn)
-        
-        # Remove Category button  
+
+        # Remove Category button
         self.remove_category_btn = QPushButton("🗑️ Remove Category")
         self.remove_category_btn.setFixedHeight(35)
         self.remove_category_btn.setFixedWidth(155)
@@ -117,7 +126,10 @@ class CategoriesView(QWidget):
         header_layout.addWidget(self.remove_category_btn)
         
         content_layout.addLayout(header_layout)
-        
+
+        # Apply initial theme to refresh button
+        self.apply_header_theme()
+
         # TOP ROW - Category selector, stats, box plot, pie chart, color key
         top_row = self.create_top_row()
         content_layout.addWidget(top_row)
@@ -141,10 +153,10 @@ class CategoriesView(QWidget):
         colors = theme_manager.get_colors()
         top_frame.setStyleSheet(f"""
             QFrame {{
-                background-color: {colors['surface']};
-                border: 2px solid {colors['border']};
+                background-color: {colors['surface_variant']};
+                border: 1px solid {colors['border']};
                 border-radius: 8px;
-                padding: 5px;
+                padding: 10px;
             }}
         """)
         
@@ -176,24 +188,35 @@ class CategoriesView(QWidget):
     def create_category_selector_column(self):
         """Create scrollable category list (similar to week selector)"""
         column_frame = QFrame()
+        colors = theme_manager.get_colors()
+
+        # Style column frame with surface background to stand out from surface_variant parent
+        column_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 6px;
+                padding: 8px;
+            }}
+        """)
+
         column_layout = QVBoxLayout()
-        
+
         # Column title
         self.category_title = QLabel("Categories")
         self.category_title.setFont(theme_manager.get_font("subtitle"))
-        colors = theme_manager.get_colors()
         self.category_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
         column_layout.addWidget(self.category_title)
-        
+
         # Scrollable list of categories
         self.category_list = QListWidget()
         self.category_list.setMaximumHeight(200)
         self.category_list.itemClicked.connect(self.on_category_selected)
-        
+
         # Style the list
         self.category_list.setStyleSheet(f"""
             QListWidget {{
-                background-color: {colors['surface_variant']};
+                background-color: {colors['background']};
                 border: 1px solid {colors['border']};
                 border-radius: 4px;
             }}
@@ -215,22 +238,33 @@ class CategoriesView(QWidget):
     def create_combined_stats_column(self):
         """Create combined category statistics and box plot column"""
         column_frame = QFrame()
+        colors = theme_manager.get_colors()
+
+        # Style column frame
+        column_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 6px;
+                padding: 8px;
+            }}
+        """)
+
         column_layout = QVBoxLayout()
-        
+
         # Column title
         stats_title = QLabel("Category Overview")
         stats_title.setFont(theme_manager.get_font("subtitle"))
-        colors = theme_manager.get_colors()
         stats_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
         column_layout.addWidget(stats_title)
-        
+
         # Statistics display - compact horizontal layout
         self.stats_label = QLabel("Loading...")
         self.stats_label.setFont(theme_manager.get_font("small"))
         self.stats_label.setStyleSheet(f"""
-            color: {colors['text_primary']}; 
-            background-color: {colors['surface']}; 
-            padding: 8px; 
+            color: {colors['text_primary']};
+            background-color: {colors['background']};
+            padding: 8px;
             border-radius: 4px;
             border: 1px solid {colors['border']};
         """)
@@ -308,10 +342,10 @@ class CategoriesView(QWidget):
         colors = theme_manager.get_colors()
         bottom_frame.setStyleSheet(f"""
             QFrame {{
-                background-color: {colors['surface']};
-                border: 2px solid {colors['border']};
+                background-color: {colors['surface_variant']};
+                border: 1px solid {colors['border']};
                 border-radius: 8px;
-                padding: 5px;
+                padding: 10px;
             }}
         """)
         
@@ -336,8 +370,8 @@ class CategoriesView(QWidget):
             QFrame {{
                 background-color: {colors['surface']};
                 border: 1px solid {colors['border']};
-                border-radius: 4px;
-                padding: 10px;
+                border-radius: 6px;
+                padding: 12px;
             }}
         """)
         avg_cost_layout = QVBoxLayout()
@@ -363,8 +397,8 @@ class CategoriesView(QWidget):
             QFrame {{
                 background-color: {colors['surface']};
                 border: 1px solid {colors['border']};
-                border-radius: 4px;
-                padding: 10px;
+                border-radius: 6px;
+                padding: 12px;
             }}
         """)
         variance_layout = QVBoxLayout()
@@ -1192,6 +1226,30 @@ class CategoriesView(QWidget):
             print(f"Error updating color key: {e}")
             self.color_key_label.setText("Error loading colors")
             
+    def apply_header_theme(self):
+        """Apply theme styling to header elements (refresh button)"""
+        colors = theme_manager.get_colors()
+
+        # Style refresh button (QToolButton)
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                    font-size: 16px;
+                }}
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
     def refresh(self):
         """Refresh categories view with current data"""
         self.populate_category_list()
@@ -1199,12 +1257,13 @@ class CategoriesView(QWidget):
         self.update_box_plot()
         self.update_main_pie_chart()
         self.update_color_key()
-        
+
     def on_theme_changed(self, theme_id):
         """Handle theme change for categories view"""
         try:
             self.update_view_styling()
-            
+            self.apply_header_theme()  # Update refresh button styling
+
             # Force regeneration of all charts to apply new theme colors
             if self.selected_category:
                 # Regenerate charts that use category colors

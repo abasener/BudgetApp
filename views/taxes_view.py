@@ -3,7 +3,7 @@ Taxes View - Tax tracking and management interface with yearly history
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QGroupBox, QScrollArea, QFrame, QProgressBar)
+                             QGroupBox, QScrollArea, QFrame, QProgressBar, QToolButton)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QColor
 from datetime import datetime, date
@@ -155,11 +155,11 @@ class TaxesView(QWidget):
         self.info_label.setVisible(False)  # Hide since we're not using it
         right_layout.addWidget(self.info_label)
 
-        # Progress bars section
-        self.create_progress_bars(right_layout)
-
-        # Tax summary header row
+        # Tax summary header row (moved to top)
         self.create_tax_summary_row(right_layout)
+
+        # Progress bars section (moved below summary)
+        self.create_progress_bars(right_layout)
 
         # Income plot area
         self.create_income_plot(right_layout)
@@ -250,9 +250,22 @@ class TaxesView(QWidget):
         self.year_saved_label.setFont(font)
         summary_layout.addWidget(self.year_saved_label)
 
-        summary_layout.addStretch()  # Push everything to left
+        summary_layout.addStretch()  # Push items left
+
+        # Refresh button - compact tool button with just emoji (rightmost position)
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("🔄")
+        self.refresh_button.setToolTip("Refresh Taxes")
+        self.refresh_button.setFixedSize(40, 30)
+        self.refresh_button.clicked.connect(self.refresh)
+        # Styling applied in apply_header_theme method
+        summary_layout.addWidget(self.refresh_button)
+
         summary_frame.setLayout(summary_layout)
         parent_layout.addWidget(summary_frame)
+
+        # Apply initial theme to refresh button
+        self.apply_header_theme()
 
     def create_income_plot(self, parent_layout):
         """Create the income line plot area"""
@@ -1350,6 +1363,30 @@ class TaxesView(QWidget):
         except Exception as e:
             print(f"Error generating pie chart: {e}")
 
+    def apply_header_theme(self):
+        """Apply theme styling to header elements (refresh button)"""
+        colors = theme_manager.get_colors()
+
+        # Style refresh button (QToolButton)
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                    font-size: 16px;
+                }}
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
     def refresh(self):
         """Refresh the tax view data"""
         # Update progress bars and summary
@@ -1495,6 +1532,9 @@ class TaxesView(QWidget):
             # Just ensure the size is correct
             if hasattr(self, 'tax_savings_progress_bar'):
                 self.tax_savings_progress_bar.setFixedHeight(25)
+
+            # Apply header theme for refresh button
+            self.apply_header_theme()
 
         except Exception as e:
             print(f"Error applying theme to taxes view: {e}")

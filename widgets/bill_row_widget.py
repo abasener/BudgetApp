@@ -152,21 +152,24 @@ class BillRowWidget(QWidget):
         self.see_history_button.setFixedWidth(120)  # Fixed width for buttons
         self.see_history_button.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        # Style buttons
+        # Style buttons - subtle outlined style instead of solid color
         button_style = f"""
             QPushButton {{
-                background-color: {colors['primary']};
-                color: {colors['surface']};
-                border: none;
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+                border: 2px solid {colors['border']};
                 border-radius: 6px;
-                font-weight: bold;
+                font-weight: normal;
                 padding: 8px 16px;
             }}
             QPushButton:hover {{
-                background-color: {self.lighten_color(colors['primary'], 1.1)};
+                background-color: {colors['surface_variant']};
+                border-color: {colors['primary']};
+                color: {colors['primary']};
             }}
             QPushButton:pressed {{
-                background-color: {self.lighten_color(colors['primary'], 0.9)};
+                background-color: {colors['hover']};
+                border-color: {colors['primary']};
             }}
         """
         self.see_more_button.setStyleSheet(button_style)
@@ -324,24 +327,27 @@ class BillRowWidget(QWidget):
                     }}
                 """)
             
-            # Update buttons
+            # Update buttons - subtle outlined style
             button_style = f"""
                 QPushButton {{
-                    background-color: {colors['primary']};
-                    color: {colors['surface']};
-                    border: none;
+                    background-color: {colors['background']};
+                    color: {colors['text_primary']};
+                    border: 2px solid {colors['border']};
                     border-radius: 6px;
-                    font-weight: bold;
+                    font-weight: normal;
                     padding: 8px 16px;
                 }}
                 QPushButton:hover {{
-                    background-color: {self.lighten_color(colors['primary'], 1.1)};
+                    background-color: {colors['surface_variant']};
+                    border-color: {colors['primary']};
+                    color: {colors['primary']};
                 }}
                 QPushButton:pressed {{
-                    background-color: {self.lighten_color(colors['primary'], 0.9)};
+                    background-color: {colors['hover']};
+                    border-color: {colors['primary']};
                 }}
             """
-            
+
             if hasattr(self, 'see_more_button'):
                 self.see_more_button.setStyleSheet(button_style)
             if hasattr(self, 'see_history_button'):

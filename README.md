@@ -127,10 +127,22 @@ Choose from 5 carefully crafted themes:
 
 ## 🚧 Development Status
 
-**Current Version**: Active Development  
-**Status**: Feature-complete core with ongoing enhancements  
-**Next Release**: Enhanced chart areas and additional financial insights
+**Current Version**: V2.0 Active Development
+**Status**: Feature-complete core with ongoing enhancements
+**Latest Updates**:
+- Fixed week rollover display logic (Week 2 now correctly shows higher starting balance)
+- Fixed savings account starting balance integration with running totals
+- Enhanced live rollover system with automatic updates
+- Comprehensive documentation in ReadMe2.txt
+
+**Next Release**: Year Overview tab for long-term financial pattern analysis
 
 ---
 
 *Built with ❤️ for personal financial management and data-driven budgeting*
+
+**For detailed technical documentation**, see [ReadMe2.txt](ReadMe2.txt) which contains:
+- Complete rollover system specification
+- AccountHistory auto-update mechanism
+- Week calculation formulas with examples
+- Critical bug fixes and prevention guidelines

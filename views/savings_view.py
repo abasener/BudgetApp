@@ -2,8 +2,8 @@
 Savings View - Individual savings account rows with progress bars, charts, and details
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
-                             QScrollArea, QPushButton, QComboBox)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+                             QScrollArea, QPushButton, QComboBox, QToolButton)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import AccountRowWidget
@@ -40,6 +40,7 @@ class SavingsView(QWidget):
         
         # Slim toolbar
         self.create_toolbar()
+        self.apply_toolbar_theme()  # Apply initial theme styling
         main_layout.addWidget(self.toolbar)
         
         # Create scroll area for account rows
@@ -103,29 +104,14 @@ class SavingsView(QWidget):
         toolbar_layout = QHBoxLayout(self.toolbar)
         toolbar_layout.setSpacing(8)
         toolbar_layout.setContentsMargins(8, 4, 8, 4)
-        
-        # Refresh button - slim design
-        self.refresh_button = QPushButton("🔄 Refresh")
-        self.refresh_button.setFixedHeight(30)
-        self.refresh_button.setFixedWidth(90)
+
+        # Refresh button - compact tool button with just emoji
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("🔄")
+        self.refresh_button.setToolTip("Refresh Savings")
+        self.refresh_button.setFixedSize(40, 30)
         self.refresh_button.clicked.connect(self.refresh)
-        self.refresh_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {colors['primary']};
-                color: {colors['surface']};
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 12px;
-                padding: 2px 8px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.lighten_color(colors['primary'], 1.1)};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.lighten_color(colors['primary'], 0.9)};
-            }}
-        """)
+        # Styling applied in on_theme_changed method
         toolbar_layout.addWidget(self.refresh_button)
         
         # Separator
@@ -195,6 +181,30 @@ class SavingsView(QWidget):
         except:
             return color
     
+    def apply_toolbar_theme(self):
+        """Apply theme styling to toolbar elements"""
+        colors = theme_manager.get_colors()
+
+        # Style refresh button (QToolButton)
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                    font-size: 16px;
+                }}
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
     def on_sort_changed(self, sort_option):
         """Handle sort option change"""
         self.current_sort = sort_option
@@ -374,23 +384,23 @@ class SavingsView(QWidget):
                 }}
             """)
         
-        # Update refresh button
+        # Update refresh button (QToolButton)
         if hasattr(self, 'refresh_button'):
             self.refresh_button.setStyleSheet(f"""
-                QPushButton {{
+                QToolButton {{
                     background-color: {colors['primary']};
-                    color: {colors['surface']};
-                    border: none;
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
                     border-radius: 4px;
-                    font-weight: bold;
-                    font-size: 12px;
-                    padding: 2px 8px;
+                    padding: 4px;
+                    font-size: 16px;
                 }}
-                QPushButton:hover {{
-                    background-color: {self.lighten_color(colors['primary'], 1.1)};
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
                 }}
-                QPushButton:pressed {{
-                    background-color: {self.lighten_color(colors['primary'], 0.9)};
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
                 }}
             """)
         
