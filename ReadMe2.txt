@@ -1,6 +1,16 @@
 ================================================================================
 BudgetApp V2 - Dynamic Rollover System Documentation
 ================================================================================
+Last Updated: 2024-10-20
+
+RECENT FIXES & ADDITIONS (2024-10-20):
+- Fixed: TransactionManager missing get_transaction_by_id method
+- Fixed: AccountHistory starting balance auto-adjusts date when importing old data
+- Added: Dashboard "Total Accounted" display (sum of bills + savings balances)
+- Added: Dashboard stale data detection (Week card shows "-X weeks ago" when outdated)
+- Added: Dashboard weekly pie chart auto-hides when data is stale or no spending
+- Added: Year Overview tab with year-by-year financial breakdown boxes
+- Note: Year boxes always show ALL data; analytics toggle only affects future charts
 
 PART 1: LOGIC OVERVIEW (Human-Readable)
 ================================================================================
@@ -875,7 +885,93 @@ CODE LOCATIONS FOR FUTURE REFERENCE:
 - models/account_history.py:177-201: Running total propagation logic
 - services/paycheck_processor.py:481-556: Live rollover creation
 - services/transaction_manager.py:213-219: AccountHistory integration
+- services/transaction_manager.py:259: get_transaction_by_id (for test verification)
+- views/dashboard.py:1076-1097: Total Accounted calculation
+- views/dashboard.py:1113-1221: Stale data detection logic
+- views/year_overview_view.py:120-240: Year financial data calculation
 
 ================================================================================
+YEAR OVERVIEW TAB SPECIFICATION
+================================================================================
+
+PURPOSE:
+Year-over-year financial analysis showing income, spending, bills, and savings
+patterns across multiple years. Helps identify trends like holiday spending spikes,
+bill increases over time, and savings rate improvements.
+
+LEFT PANEL - YEAR BOXES:
+Each year gets a colored box (newest first) with 4 rows:
+1. Income:  Total paychecks        (no %, YoY change)
+2. Spent:   Weekly spending        (% of income, YoY change)
+3. Bills:   Bills actually paid    (% of income, YoY change)
+4. Saving:  Net savings increase   (% of income, YoY change)
+
+CRITICAL: Understanding the Financial Categories
+=================================================
+The rollover system means Income = Spent + Bills + Saving (always balanced)
+
+INCOME: All paycheck transactions (type: "income")
+- Simple sum of all paychecks in the year
+
+SPENT: All weekly budget spending (type: "spending")
+- Includes normal AND abnormal spending (include_in_analytics flag ignored)
+- Does NOT include withdrawals from savings (those become spending transactions)
+
+BILLS: Money actually PAID from bill accounts (type: "bill_pay")
+- NOT deposits to bill accounts (those are savings)
+- Only actual bills paid (negative transactions from bill accounts)
+
+SAVING: Net increase in all savings/bill account balances
+- Formula: (Deposits to savings/bills) - (Bills paid) - (Withdrawals from savings)
+- Includes:
+  * Weekly budget rollover to savings
+  * Explicit deposits to savings/bill accounts
+  * Money saved in bills (deposited but not yet spent)
+- Excludes:
+  * Bills actually paid (already counted in BILLS)
+  * Emergency withdrawals from savings
+
+WHY IT WORKS:
+Because of automatic rollover, all income is either:
+  a) Spent from weekly budget (Spent)
+  b) Paid as bills (Bills)
+  c) Everything else stays in savings/bills (Saving)
+
+DISPLAY FORMAT:
+Example year box (2024 in colored header):
+Income:  $  45,000          ↑3.2%
+Spent:   $  22,500   50.0%  ─
+Bills:   $  11,250   25.0%  ↓4.1%
+Saving:  $  11,250   25.0%  ↑6.5%
+
+- Monospace font for perfect alignment
+- % of income can exceed 100% if overspending (negative saving)
+- First year shows ─ for YoY change (no previous year)
+- ↑ = increase, ↓ = decrease from previous year
+
+RIGHT PANEL - VISUALIZATIONS:
+- Refresh button (🔄) - refreshes entire tab
+- Analytics toggle - filters abnormal spending from CHARTS ONLY (not year boxes)
+- Future: Income trends, spending patterns, bill cost increases, seasonal analysis
+
+YEAR BOXES ALWAYS SHOW ALL DATA:
+The analytics toggle only affects right panel charts. Left panel year boxes
+always show complete financial picture including abnormal spending.
+
+DATA COLLECTION:
+Transaction types used:
+- "income": Paychecks → INCOME
+- "spending": Weekly budget → SPENT
+- "bill_pay": Bills paid from bill accounts → BILLS
+- "saving": Deposits to savings/bill accounts → SAVING (deposits part)
+- "spending_from_savings": Withdrawals from savings → SAVING (withdrawal part)
+
+Year boundaries: Jan 1 - Dec 31 (calendar year, not pay period aligned)
+
+CODE STRUCTURE:
+- get_year_data(): Queries transactions, calculates 4 categories per year
+- create_year_box(): Builds UI with monospace alignment, YoY comparisons
+- get_year_color(): Assigns consistent colors across years (from chart_colors)
+- refresh(): Finds all years with data, creates boxes newest-first
 
 ================================================================================

@@ -255,6 +255,16 @@ class TransactionManager:
     def get_all_transactions(self) -> List[Transaction]:
         """Get all transactions"""
         return self.db.query(Transaction).order_by(desc(Transaction.date)).all()
+
+    def get_transaction_by_id(self, transaction_id: int) -> Optional[Transaction]:
+        """
+        Get transaction by ID
+
+        Added: 2024-10-20
+        Purpose: Used by AddTransactionDialog in testing mode to verify transaction
+                 was saved correctly to database. Was missing causing save errors.
+        """
+        return self.db.query(Transaction).filter(Transaction.id == transaction_id).first()
     
     def get_transactions_by_week(self, week_number: int) -> List[Transaction]:
         """Get all transactions for a specific week"""

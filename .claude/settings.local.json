@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(C:/Users/arrow/miniforge3/python.exe check_paycheck_avg.py)"
+      "Bash(C:/Users/arrow/miniforge3/python.exe check_paycheck_avg.py)",
+      "Bash(dir:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

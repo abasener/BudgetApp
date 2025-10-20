@@ -151,6 +151,29 @@ class AccountHistoryManager:
 
         This is why historical edits "just work" - the auto-update propagates changes forward.
         """
+        # CRITICAL FIX (2024-10-20): Check if this transaction predates the starting balance
+        # When importing historical data, transactions may be dated before the initial
+        # starting balance entry. We must automatically move the starting balance to
+        # remain the oldest entry, otherwise running totals won't include the starting amount.
+        #
+        # Example: Starting balance set to 2024-01-01, then import transaction from 2024-09-21
+        # Solution: Auto-move starting balance to 2024-09-20, recalculate all running totals
+        from datetime import timedelta
+
+        starting_balance_entry = self.db.query(AccountHistory).filter(
+            AccountHistory.account_id == account_id,
+            AccountHistory.account_type == account_type,
+            AccountHistory.transaction_id.is_(None)  # Starting balance has no transaction_id
+        ).first()
+
+        if starting_balance_entry and transaction_date <= starting_balance_entry.transaction_date:
+            # Transaction is older than or same date as starting balance
+            # Move starting balance to day before this transaction
+            new_starting_date = transaction_date - timedelta(days=1)
+            print(f"Moving starting balance from {starting_balance_entry.transaction_date} to {new_starting_date}")
+            starting_balance_entry.transaction_date = new_starting_date
+            self.db.flush()
+
         # Get balance as of the transaction date (not the absolute latest)
         # This finds the balance BEFORE this transaction, accounting for chronological order
         balance_at_date = self._get_balance_at_date(account_id, account_type, transaction_date)
@@ -170,7 +193,13 @@ class AccountHistoryManager:
 
         # CRITICAL: Update all subsequent entries' running totals
         # This is what makes historical edits work automatically
-        self._update_running_totals_from_entry(history_entry, change_amount)
+        # If we moved the starting balance, we need to recalculate from the beginning
+        if starting_balance_entry and transaction_date <= starting_balance_entry.transaction_date + timedelta(days=1):
+            # Recalculate everything from scratch since starting balance moved
+            self.recalculate_account_history(account_id, account_type)
+        else:
+            # Normal case: just update from this entry forward
+            self._update_running_totals_from_entry(history_entry, change_amount)
 
         return history_entry
 

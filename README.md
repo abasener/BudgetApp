@@ -129,13 +129,13 @@ Choose from 5 carefully crafted themes:
 
 **Current Version**: V2.0 Active Development
 **Status**: Feature-complete core with ongoing enhancements
-**Latest Updates**:
-- Fixed week rollover display logic (Week 2 now correctly shows higher starting balance)
-- Fixed savings account starting balance integration with running totals
-- Enhanced live rollover system with automatic updates
-- Comprehensive documentation in ReadMe2.txt
+**Latest Updates** (2024-10-20):
+- ✅ **Year Overview Tab**: Year-by-year financial breakdown with income/spending/bills/savings
+- ✅ **Dashboard Enhancements**: Total Accounted display, stale data detection, smart pie chart hiding
+- ✅ **Bug Fixes**: Transaction saving verification, AccountHistory historical data import handling
+- See ReadMe2.txt for complete technical documentation
 
-**Next Release**: Year Overview tab for long-term financial pattern analysis
+**Next Priorities**: Year Overview visualizations (income trends, seasonal patterns, bill cost analysis)
 
 ---
 

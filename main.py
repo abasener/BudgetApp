@@ -22,6 +22,7 @@ from views.bills_view import BillsView
 from views.weekly_view import WeeklyView
 from views.savings_view import SavingsView
 from views.categories_view import CategoriesView
+from views.year_overview_view import YearOverviewView
 # Conditional import for optional tax features
 try:
     from views.taxes_view import TaxesView
@@ -85,6 +86,10 @@ class BudgetApp(QMainWindow):
             transaction_manager=self.transaction_manager,
             analytics_engine=self.analytics_engine
         )
+        self.year_overview_view = YearOverviewView(
+            transaction_manager=self.transaction_manager,
+            analytics_engine=self.analytics_engine
+        )
 
         # Initialize taxes view (will be added conditionally)
         if TAX_MODULE_AVAILABLE:
@@ -101,6 +106,7 @@ class BudgetApp(QMainWindow):
         self.tabs.addTab(self.savings_view, "Savings")
         self.tabs.addTab(self.weekly_view, "Weekly")
         self.tabs.addTab(self.categories_view, "Categories")
+        self.tabs.addTab(self.year_overview_view, "Yearly")
 
         # Add Taxes tab if enabled in settings and module available
         if TAX_MODULE_AVAILABLE and self.app_settings.get("enable_tax_features", False):
@@ -317,6 +323,7 @@ class BudgetApp(QMainWindow):
             self.savings_view.refresh()
             self.weekly_view.refresh()
             self.categories_view.refresh()
+            self.year_overview_view.refresh()
 
             # Refresh taxes view if enabled
             if self.taxes_tab_index >= 0:
@@ -428,6 +435,8 @@ class BudgetApp(QMainWindow):
                 self.weekly_view.on_theme_changed(theme_id)
             if hasattr(self.categories_view, 'on_theme_changed'):
                 self.categories_view.on_theme_changed(theme_id)
+            if hasattr(self.year_overview_view, 'on_theme_changed'):
+                self.year_overview_view.on_theme_changed(theme_id)
         except Exception as e:
             show_error(self, "Theme Error", e, "applying theme changes")
     

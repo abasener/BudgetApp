@@ -436,6 +436,12 @@ class DashboardView(QWidget):
         self.date_lcd.setToolTip("Current Date")
         header_layout.addWidget(self.date_lcd)
 
+        # Total Accounted display - sum of all savings and bill account balances
+        self.total_accounted_label = QLabel("Total: $0.00")
+        self.total_accounted_label.setFont(theme_manager.get_font("main"))
+        self.total_accounted_label.setToolTip("Sum of all savings and bill account balances")
+        header_layout.addWidget(self.total_accounted_label)
+
         # Refresh button - compact tool button with just emoji
         self.refresh_button = QToolButton()
         self.refresh_button.setText("🔄")
@@ -700,12 +706,12 @@ class DashboardView(QWidget):
         layout.setSpacing(3)  # Reduced spacing
         layout.setContentsMargins(5, 3, 5, 3)  # Reduced margins
         
-        # Title - bigger header 
+        # Title - bigger header
         title_label = QLabel(title)
         title_label.setFont(theme_manager.get_font("subtitle"))  # Bigger font
         title_label.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
         layout.addWidget(title_label)
-        
+
         # Content label - dynamic height
         content_label = QLabel("Loading...")
         content_label.setFont(theme_manager.get_font("monospace"))
@@ -713,12 +719,13 @@ class DashboardView(QWidget):
         content_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         content_label.setStyleSheet(f"color: {colors['text_primary']}; padding: 2px;")
         layout.addWidget(content_label)
-        
+
         frame.setLayout(layout)
-        
-        # Store reference for updating
+
+        # Store references for updating (both title and content)
         setattr(self, f"{content_type}_label", content_label)
-        
+        setattr(self, f"{content_type}_title_label", title_label)
+
         return frame
         
     def create_placeholder_chart(self, title: str):
@@ -809,6 +816,19 @@ class DashboardView(QWidget):
                 border-color: {colors['primary']};
             }}
         """)
+
+        # Style total accounted label
+        if hasattr(self, 'total_accounted_label'):
+            self.total_accounted_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {colors['accent']};
+                    background-color: {colors['surface']};
+                    border: 2px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px 8px;
+                    font-weight: bold;
+                }}
+            """)
 
     def toggle_analytics_mode(self, checked):
         """Toggle between normal and all spending analytics"""
@@ -993,6 +1013,7 @@ class DashboardView(QWidget):
             self._cached_all_transactions = self.transaction_manager.get_all_transactions()
 
             # Update all sections (they can now use cached data)
+            self.update_total_accounted()
             self.update_accounts_display()
             self.update_weekly_status()
             self.update_bills_status()
@@ -1065,7 +1086,30 @@ class DashboardView(QWidget):
             
         except Exception as e:
             self.account_summary_label.setText(f"Error: {e}")
-    
+
+    def update_total_accounted(self):
+        """Update the total accounted for display (sum of all savings and bill account balances)"""
+        try:
+            total = 0.0
+
+            # Sum all savings account balances (using cached data)
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
+            for account in accounts:
+                balance = account.get_current_balance()
+                total += balance
+
+            # Sum all bill account balances (using cached data)
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
+            for bill in bills:
+                balance = bill.get_current_balance()
+                total += balance
+
+            # Update label with formatted total (includes negative balances)
+            self.total_accounted_label.setText(f"Total: ${total:,.2f}")
+
+        except Exception as e:
+            self.total_accounted_label.setText(f"Total: Error")
+
     def update_weekly_status(self):
         """Update weekly status display with current week tracking"""
         try:
@@ -1074,55 +1118,108 @@ class DashboardView(QWidget):
             week_start = today - timedelta(days=today.weekday())  # Monday of current week
             days_into_week = today.weekday() + 1  # 1-7 (Monday = 1)
             days_left_in_week = 7 - days_into_week
-            
-            # Get current week transactions using analytics and rollover filtering (ignore time frame)
-            spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
 
-            # Filter out rollover transactions and get current week data
-            current_week_spending = []
-            for t in spending_transactions:
-                if (t.amount > 0 and  # Exclude placeholder transactions
-                    t.date >= week_start.date()):
-                    # Check if it's a rollover transaction
-                    is_rollover = (
-                        (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
-                        (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
-                    )
-                    if not is_rollover:
-                        current_week_spending.append(t)
-            
-            # Calculate week spending total
-            week_spent = sum(t.amount for t in current_week_spending)
-            
-            # Get actual current week allocation from V2.0 rollover system
-            try:
-                current_week = self.transaction_manager.get_current_week()
+            # Get the most recent week from the database
+            current_week = self.transaction_manager.get_current_week()
+
+            # STALE DATA DETECTION (Added 2024-10-20):
+            # If user hasn't added their latest paycheck, show warning in Week card
+            # Motivates user to add new paycheck to see current data
+            # Also hides weekly pie chart when data is stale (no current week to show)
+            weeks_overdue = 0
+            data_is_stale = False
+
+            if current_week:
+                # Check if today is after the end date of the most recent week
+                if today.date() > current_week.end_date:
+                    # Calculate how many weeks overdue we are
+                    days_overdue = (today.date() - current_week.end_date).days
+                    weeks_overdue = (days_overdue // 7) + 1  # Round up to show full weeks
+                    data_is_stale = True
+
+            # Update the title based on whether data is stale
+            if hasattr(self, 'weekly_status_title_label'):
+                if data_is_stale:
+                    self.weekly_status_title_label.setText(f"Week: -{weeks_overdue} weeks ago")
+                else:
+                    self.weekly_status_title_label.setText("Week:")
+
+            # If data is stale, zero out remaining and daily
+            if data_is_stale:
+                # Get week data for display but show zeros for remaining/daily
+                if current_week:
+                    week_started = current_week.running_total
+                else:
+                    week_started = 0
+
+                # Get spending from the last tracked week
+                spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+                week_spent = 0
+                if current_week:
+                    for t in spending_transactions:
+                        if (t.amount > 0 and
+                            current_week.start_date <= t.date <= current_week.end_date):
+                            # Check if it's a rollover transaction
+                            is_rollover = (
+                                (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                                (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                            )
+                            if not is_rollover:
+                                week_spent += t.amount
+
+                # Format with zeros for remaining and daily
+                status_text = f"Started: ${week_started:.0f}\n"
+                status_text += f"Spent: ${week_spent:.0f}\n"
+                status_text += f"Remaining: $0\n"
+                status_text += f"Daily: $0"
+
+            else:
+                # Normal case: data is current
+                # Get current week transactions using analytics and rollover filtering (ignore time frame)
+                spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+                # Filter out rollover transactions and get current week data
+                current_week_spending = []
+                for t in spending_transactions:
+                    if (t.amount > 0 and  # Exclude placeholder transactions
+                        t.date >= week_start.date()):
+                        # Check if it's a rollover transaction
+                        is_rollover = (
+                            (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                            (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                        )
+                        if not is_rollover:
+                            current_week_spending.append(t)
+
+                # Calculate week spending total
+                week_spent = sum(t.amount for t in current_week_spending)
+
+                # Get actual current week allocation from V2.0 rollover system
                 if current_week:
                     week_started = current_week.running_total
                 else:
                     # No week exists yet - use default
                     week_started = 200  # Default weekly budget
-            except:
-                week_started = 200  # Default weekly budget
-            week_remaining = max(0, week_started - week_spent)
-            
-            # Calculate daily remaining
-            if days_left_in_week > 0:
-                daily_remaining = week_remaining / days_left_in_week
-            else:
-                daily_remaining = 0
-            
-            # Format the display
-            status_text = f"Started: ${week_started:.0f}\n"
-            status_text += f"Spent: ${week_spent:.0f}\n"
-            status_text += f"Remaining: ${week_remaining:.0f}\n"
-            if days_left_in_week > 0:
-                status_text += f"Daily: ${daily_remaining:.0f}"
-            else:
-                status_text += "Week done"
-            
+
+                week_remaining = max(0, week_started - week_spent)
+
+                # Calculate daily remaining
+                if days_left_in_week > 0:
+                    daily_remaining = week_remaining / days_left_in_week
+                else:
+                    daily_remaining = 0
+
+                # Format the display
+                status_text = f"Started: ${week_started:.0f}\n"
+                status_text += f"Spent: ${week_spent:.0f}\n"
+                status_text += f"Remaining: ${week_remaining:.0f}\n"
+                if days_left_in_week > 0:
+                    status_text += f"Daily: ${daily_remaining:.0f}"
+                else:
+                    status_text += "Week done"
+
             self.weekly_status_label.setText(status_text)
-            
+
         except Exception as e:
             self.weekly_status_label.setText(f"Error: {e}")
     
@@ -1219,11 +1316,17 @@ class DashboardView(QWidget):
                 chart_title = "Spending by Category"  # Shows all-time data
                 consistent_colors = self.get_consistent_category_colors(all_time_category_spending)
                 self.total_pie_chart.update_data(all_time_category_spending, chart_title, custom_colors=consistent_colors)
-            
+
             # Get CURRENT WEEK spending data for the small pie chart
             from datetime import datetime, timedelta
             today = datetime.now()
             week_start = today - timedelta(days=today.weekday())  # Monday of current week
+
+            # Check if data is stale (same logic as Week card)
+            current_week_db = self.transaction_manager.get_current_week()
+            data_is_stale = False
+            if current_week_db and today.date() > current_week_db.end_date:
+                data_is_stale = True
 
             # Get spending transactions using ONLY analytics filtering (ignore time frame for current week)
             spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
@@ -1240,22 +1343,24 @@ class DashboardView(QWidget):
                     )
                     if not is_rollover:
                         current_week_transactions.append(t)
-            
+
             # Calculate current week category spending
             weekly_category_spending = {}
             for transaction in current_week_transactions:
                 category = getattr(transaction, 'category', 'Miscellaneous') or 'Miscellaneous'
                 weekly_category_spending[category] = weekly_category_spending.get(category, 0) + transaction.amount
-            
+
             # Update weekly pie chart (current week only)
             if self.weekly_pie_chart:
-                if weekly_category_spending:
+                # Hide the chart if data is stale OR no spending this week
+                if data_is_stale or not weekly_category_spending:
+                    self.weekly_pie_chart.setVisible(False)
+                else:
+                    # Show the chart and update with data
+                    self.weekly_pie_chart.setVisible(True)
                     weekly_consistent_colors = self.get_consistent_category_colors(weekly_category_spending)
                     self.weekly_pie_chart.update_data(weekly_category_spending, "This Week Spending", custom_colors=weekly_consistent_colors)
-                else:
-                    # No spending this week - show greyed out empty chart
-                    self.weekly_pie_chart.update_data({}, "This Week Spending")
-                
+
         except Exception as e:
             print(f"Error updating pie charts: {e}")
     
