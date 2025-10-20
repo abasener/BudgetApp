@@ -2,12 +2,13 @@
 Add Transaction Dialog - Dynamic form based on transaction type
 """
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QComboBox, QLineEdit, QDoubleSpinBox, QDateEdit,
                              QCheckBox, QPushButton, QLabel, QTextEdit, QMessageBox)
 from PyQt6.QtCore import QDate
 from datetime import date
 from themes import theme_manager
+from views.dialogs.settings_dialog import get_setting
 
 from models import TransactionType
 
@@ -18,7 +19,7 @@ class AddTransactionDialog(QDialog):
         self.transaction_manager = transaction_manager
         self.setWindowTitle("Add Transaction")
         self.setModal(True)
-        self.resize(400, 500)
+        self.resize(400, 420)  # Reduced height from 500 to 420 due to tighter spacing
         
         # Transaction data
         self.transaction_data = {}
@@ -29,11 +30,13 @@ class AddTransactionDialog(QDialog):
     
     def init_ui(self):
         layout = QVBoxLayout()
-        
+        layout.setSpacing(5)  # Reduce spacing to minimize whitespace
+
         # Form layout
         form_layout = QFormLayout()
-        
-        # Mode Selection (3 modes for different types of money movement)
+        form_layout.setVerticalSpacing(8)  # Tighter vertical spacing
+
+        # Mode Selection - renamed to "Transaction Type"
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([
             "Spending",
@@ -41,8 +44,8 @@ class AddTransactionDialog(QDialog):
             "Savings"
         ])
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
-        form_layout.addRow("Transaction Mode:", self.mode_combo)
-        
+        form_layout.addRow("Transaction Type:", self.mode_combo)
+
         # Basic fields (always visible)
         amount_layout = QHBoxLayout()
         self.amount_spin = QDoubleSpinBox()
@@ -56,51 +59,66 @@ class AddTransactionDialog(QDialog):
         self.amount_note.setStyleSheet("color: gray; font-size: 11px; font-style: italic;")
         amount_layout.addWidget(self.amount_note)
         form_layout.addRow("Amount ($):", amount_layout)
-        
+
         self.date_edit = QDateEdit()
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.setDisplayFormat("MM/dd/yyyy")
         self.date_edit.setCalendarPopup(True)
         form_layout.addRow("Date:", self.date_edit)
-        
-        self.notes_edit = QLineEdit()
-        self.notes_edit.setPlaceholderText("e.g., 'Paid someone else's gas, will get reimbursed'")
-        form_layout.addRow("Notes:", self.notes_edit)
-        
-        # Dynamic fields container
+
+        # Dynamic fields container (mode-specific fields)
         self.dynamic_layout = QFormLayout()
-        
+        self.dynamic_layout.setVerticalSpacing(8)
+
         # Spending mode fields
         self.category_combo = QComboBox()
         self.category_combo.setEditable(True)  # Allow typing new categories
         self.category_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)  # Don't auto-add to list
-        self.analytics_checkbox = QCheckBox("Include in analytics")
-        self.analytics_checkbox.setChecked(True)
 
         # Bills mode fields
         self.bill_combo = QComboBox()
 
         # Savings mode fields
         self.account_combo = QComboBox()
-        
+
         layout.addLayout(form_layout)
         layout.addLayout(self.dynamic_layout)
-        
-        # Buttons
+
+        # Analytics toggle checkbox (only enabled for Spending mode)
+        self.analytics_checkbox = QCheckBox("Include in Analytics")
+        self.analytics_checkbox.setChecked(True)
+        layout.addWidget(self.analytics_checkbox)
+
+        # Notes field - moved to bottom with multi-line text edit
+        notes_label = QLabel("Notes:")
+        notes_label.setMaximumHeight(20)  # Make label slim/same height as other labels
+        layout.addWidget(notes_label)
+
+        self.notes_edit = QTextEdit()
+        self.notes_edit.setPlaceholderText("e.g., 'Paid someone else's gas, will get reimbursed'")
+        self.notes_edit.setMinimumHeight(100)  # Increased from 80 to fill dead space
+        layout.addWidget(self.notes_edit)
+
+        # Buttons - right justified with focused Save button
         button_layout = QHBoxLayout()
-        
-        self.save_button = QPushButton("Save Transaction")
-        self.save_button.clicked.connect(self.save_transaction)
-        
+        button_layout.addStretch()  # Push buttons to the right
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addWidget(self.save_button)
         button_layout.addWidget(self.cancel_button)
+
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self.save_transaction)
+        self.save_button.setDefault(True)  # Set Save as default button (Enter key activates)
+        button_layout.addWidget(self.save_button)
+
         layout.addLayout(button_layout)
-        
+
         self.setLayout(layout)
-        
+
+        # Apply button styling
+        self.apply_button_theme()
+
         # Initialize with spending mode
         self.on_mode_changed("Spending")
     
@@ -167,13 +185,14 @@ class AddTransactionDialog(QDialog):
 
             # Show spending fields
             self.dynamic_layout.addRow("Category:", self.category_combo)
-            self.dynamic_layout.addRow("", self.analytics_checkbox)
 
             self.category_combo.setVisible(True)
-            self.analytics_checkbox.setVisible(True)
-            self.analytics_checkbox.setChecked(True)  # Default true for spending
             self.bill_combo.setVisible(False)
             self.account_combo.setVisible(False)
+
+            # Enable analytics checkbox for Spending mode
+            self.analytics_checkbox.setEnabled(True)
+            self.analytics_checkbox.setChecked(True)  # Default true for spending
 
         elif mode == "Bills":
             # Update amount note
@@ -183,9 +202,12 @@ class AddTransactionDialog(QDialog):
             self.dynamic_layout.addRow("Bill Account:", self.bill_combo)
 
             self.category_combo.setVisible(False)
-            self.analytics_checkbox.setVisible(False)
             self.bill_combo.setVisible(True)
             self.account_combo.setVisible(False)
+
+            # Disable analytics checkbox for Bills mode (greyed out)
+            self.analytics_checkbox.setEnabled(False)
+            self.analytics_checkbox.setChecked(False)
 
         elif mode == "Savings":
             # Update amount note
@@ -195,9 +217,12 @@ class AddTransactionDialog(QDialog):
             self.dynamic_layout.addRow("Savings Account:", self.account_combo)
 
             self.category_combo.setVisible(False)
-            self.analytics_checkbox.setVisible(False)
             self.bill_combo.setVisible(False)
             self.account_combo.setVisible(True)
+
+            # Disable analytics checkbox for Savings mode (greyed out)
+            self.analytics_checkbox.setEnabled(False)
+            self.analytics_checkbox.setChecked(False)
     
     def validate_form(self):
         """Validate form data"""
@@ -238,7 +263,7 @@ class AddTransactionDialog(QDialog):
             self.transaction_data = {
                 "amount": amount,
                 "date": transaction_date,
-                "description": self.notes_edit.text().strip(),
+                "description": self.notes_edit.toPlainText().strip(),  # Changed from .text() to .toPlainText() for QTextEdit
                 "week_number": week_number
             }
 
@@ -283,20 +308,45 @@ class AddTransactionDialog(QDialog):
             # Save to database
             transaction = self.transaction_manager.add_transaction(self.transaction_data)
 
-            # Create success message
-            mode_text = f"{mode} transaction"
-            account_text = ""
-            if mode == "Bills":
-                bill_name = self.bill_combo.currentText()
-                account_text = f"\nBill: {bill_name}"
-            elif mode == "Savings":
-                account_name = self.account_combo.currentText()
-                account_text = f"\nAccount: {account_name}"
+            # Check testing mode
+            testing_mode = get_setting("testing_mode", False)
 
-            success_msg = f"{mode_text} saved successfully!\n\nID: {transaction.id}{account_text}\nAmount: ${amount:.2f}"
-            QMessageBox.information(self, "Success", success_msg)
+            if testing_mode:
+                # Testing mode: Show detailed verification from database
+                # Retrieve the transaction from database to verify it was saved correctly
+                saved_transaction = self.transaction_manager.get_transaction_by_id(transaction.id)
+
+                if saved_transaction:
+                    # Build detailed message showing database values
+                    details = []
+                    details.append(f"ID: {saved_transaction.id}")
+                    details.append(f"Type: {saved_transaction.transaction_type}")
+                    details.append(f"Amount: ${saved_transaction.amount:.2f}")
+                    details.append(f"Date: {saved_transaction.date}")
+                    details.append(f"Week: {saved_transaction.week_number}")
+
+                    if saved_transaction.category:
+                        details.append(f"Category: {saved_transaction.category}")
+                    if saved_transaction.bill_id:
+                        bill = self.transaction_manager.get_bill_by_id(saved_transaction.bill_id)
+                        details.append(f"Bill: {bill.name if bill else 'N/A'}")
+                    if saved_transaction.account_id:
+                        account = self.transaction_manager.get_account_by_id(saved_transaction.account_id)
+                        details.append(f"Account: {account.name if account else 'N/A'}")
+
+                    details.append(f"Include in Analytics: {saved_transaction.include_in_analytics}")
+
+                    if saved_transaction.description:
+                        details.append(f"Notes: {saved_transaction.description}")
+
+                    success_msg = "Transaction Saved Successfully!\n\n" + "\n".join(details)
+                    QMessageBox.information(self, "Success - Testing Mode", success_msg)
+                else:
+                    QMessageBox.warning(self, "Warning", "Transaction saved but could not be retrieved for verification.")
+
+            # Close dialog after save (testing mode or not)
             self.accept()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving transaction: {str(e)}")
     
@@ -308,7 +358,7 @@ class AddTransactionDialog(QDialog):
             for week in weeks:
                 if week.start_date <= transaction_date <= week.end_date:
                     return week.week_number
-            
+
             # If no week contains this date, use current week or create one
             current_week = self.transaction_manager.get_current_week()
             if current_week:
@@ -316,11 +366,38 @@ class AddTransactionDialog(QDialog):
             else:
                 # Fallback to week 1 if no weeks exist
                 return 1
-                
+
         except Exception:
             return 1  # Safe fallback
-    
-    
+
+    def apply_button_theme(self):
+        """Apply focused styling to Save button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Save button - focused style (primary background with primary_dark hover)
+        self.save_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        self.cancel_button.setStyleSheet("")  # Use default theme styling
+
+
     def apply_theme(self):
         """Apply current theme to dialog"""
         colors = theme_manager.get_colors()

@@ -33,27 +33,31 @@ class AddPaycheckDialog(QDialog):
         # Input form
         form_layout = QFormLayout()
         
-        # Paycheck amount
+        # Paycheck amount (default to average of past paychecks)
         self.amount_spin = QDoubleSpinBox()
         self.amount_spin.setRange(100.00, 99999.99)
         self.amount_spin.setDecimals(2)
-        self.amount_spin.setValue(1500.00)  # Default amount
+        self.amount_spin.setValue(self.calculate_average_paycheck())
         self.amount_spin.valueChanged.connect(self.calculate_preview)
         form_layout.addRow("Gross Paycheck ($):", self.amount_spin)
-        
-        # Paycheck date (defaults to Friday after the Monday)
+
+        # Date Submitted (when work period ended - defaults to last Friday)
+        date_submitted_label = QLabel("Date Submitted:")
+        date_submitted_label.setToolTip("The date you finished work for this pay period (typically the last Friday of the period)")
         self.paycheck_date_edit = QDateEdit()
-        self.paycheck_date_edit.setDate(self.calculate_default_paycheck_date())
+        self.paycheck_date_edit.setDate(self.calculate_last_friday())
         self.paycheck_date_edit.setDisplayFormat("MM/dd/yyyy")
         self.paycheck_date_edit.setCalendarPopup(True)
-        form_layout.addRow("Paycheck Date:", self.paycheck_date_edit)
-        
-        # Week start date (with default logic)
+        form_layout.addRow(date_submitted_label, self.paycheck_date_edit)
+
+        # Budget Start Date (when budget sees the money - defaults to next available date)
+        budget_start_label = QLabel("Budget Start Date:")
+        budget_start_label.setToolTip("The date your budget will start using this paycheck (Monday after the last budget week ends)")
         self.week_start_edit = QDateEdit()
-        self.week_start_edit.setDate(self.calculate_week_start())
+        self.week_start_edit.setDate(self.calculate_next_budget_date())
         self.week_start_edit.setDisplayFormat("MM/dd/yyyy")
         self.week_start_edit.setCalendarPopup(True)
-        form_layout.addRow("Week Start Date:", self.week_start_edit)
+        form_layout.addRow(budget_start_label, self.week_start_edit)
         
         layout.addLayout(form_layout)
         
@@ -74,59 +78,107 @@ class AddPaycheckDialog(QDialog):
         preview_frame.setLayout(preview_layout)
         layout.addWidget(preview_frame)
         
-        # Buttons
+        # Buttons (right-justified with focused style for Save)
         button_layout = QHBoxLayout()
-        
-        self.process_button = QPushButton("Process Paycheck")
-        self.process_button.clicked.connect(self.process_paycheck)
-        self.process_button.setStyleSheet("font-weight: bold;")
-        
+        button_layout.addStretch()
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addWidget(self.process_button)
+
+        self.process_button = QPushButton("Save Paycheck")
+        self.process_button.clicked.connect(self.process_paycheck)
+        self.process_button.setDefault(True)
+
         button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.process_button)
         layout.addLayout(button_layout)
+
+        # Apply button theme
+        self.apply_button_theme()
         
         self.setLayout(layout)
         
         # Initial preview calculation
         self.calculate_preview()
     
-    def calculate_week_start(self):
-        """Calculate default week start date (Monday of current week for bi-weekly periods)"""
-        today = date.today()
-        days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
-        monday = today - timedelta(days=days_since_monday)
-        return QDate.fromString(monday.isoformat(), "yyyy-MM-dd")
+    def calculate_average_paycheck(self):
+        """Calculate average paycheck amount from past paychecks, rounded to nearest $100"""
+        from models import Transaction, TransactionType
 
-    def calculate_default_paycheck_date(self):
-        """Calculate default paycheck date (Friday following the Monday)"""
+        try:
+            # Get all past income transactions
+            paychecks = self.paycheck_processor.db.query(Transaction).filter(
+                Transaction.transaction_type == TransactionType.INCOME.value
+            ).all()
+
+            if paychecks:
+                # Calculate average
+                avg = sum(p.amount for p in paychecks) / len(paychecks)
+                # Round to nearest $100
+                rounded_avg = round(avg / 100) * 100
+                return rounded_avg
+            else:
+                # Default if no paychecks found
+                return 1500.00
+        except Exception:
+            return 1500.00
+
+    def calculate_next_budget_date(self):
+        """Calculate next available budget start date (day after last budget week ends)"""
+        try:
+            # Get the latest week from the database
+            from models import Week
+            latest_week = self.paycheck_processor.db.query(Week).order_by(Week.end_date.desc()).first()
+
+            if latest_week:
+                # Next budget date is the day after the latest week ends
+                next_date = latest_week.end_date + timedelta(days=1)
+                return QDate.fromString(next_date.isoformat(), "yyyy-MM-dd")
+            else:
+                # No weeks exist, default to next Monday
+                today = date.today()
+                days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
+                monday = today - timedelta(days=days_since_monday)
+                return QDate.fromString(monday.isoformat(), "yyyy-MM-dd")
+        except Exception:
+            # Fallback to current Monday if there's an error
+            today = date.today()
+            days_since_monday = today.weekday()
+            monday = today - timedelta(days=days_since_monday)
+            return QDate.fromString(monday.isoformat(), "yyyy-MM-dd")
+
+    def calculate_last_friday(self):
+        """Calculate the most recent Friday (not next Friday, but last Friday)"""
         today = date.today()
-        days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
-        monday = today - timedelta(days=days_since_monday)
-        friday = monday + timedelta(days=4)  # Friday is 4 days after Monday
-        return QDate.fromString(friday.isoformat(), "yyyy-MM-dd")
+        days_since_friday = (today.weekday() - 4) % 7  # 4 = Friday, 0=Monday, 6=Sunday
+
+        if days_since_friday == 0 and today.weekday() == 4:
+            # Today is Friday
+            last_friday = today
+        else:
+            # Go back to last Friday
+            last_friday = today - timedelta(days=days_since_friday if days_since_friday > 0 else days_since_friday + 7)
+
+        return QDate.fromString(last_friday.isoformat(), "yyyy-MM-dd")
     
     def calculate_preview(self):
         """Calculate and display preview of paycheck processing"""
         try:
+            from views.dialogs.settings_dialog import get_setting
+
             paycheck_amount = self.amount_spin.value()
-            
+            testing_mode = get_setting("testing_mode", False)
+
             # Calculate bills deduction (including percentage-based)
             bills_deducted = self.paycheck_processor.calculate_bills_deduction(paycheck_amount)
-            
-            # Calculate automatic savings (10%)
-            automatic_savings = self.paycheck_processor.calculate_automatic_savings(paycheck_amount)
-            
+
             # Calculate account auto-savings (after bills) - pass paycheck amount for percentage calculations
             account_auto_savings = self.paycheck_processor.calculate_account_auto_savings(paycheck_amount)
-            
+
             # Calculate remaining and split
-            remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings - account_auto_savings
-            week1_allocation = remaining_for_weeks / 2
-            week2_allocation = remaining_for_weeks / 2
-            
+            remaining_for_weeks = paycheck_amount - bills_deducted - account_auto_savings
+            per_week_allocation = remaining_for_weeks / 2
+
             # Format enhanced preview text
             preview = f"""
 PAYCHECK PROCESSING BREAKDOWN:
@@ -135,49 +187,72 @@ Gross Paycheck: ${paycheck_amount:.2f}
 
 DEDUCTIONS:
   Bills (bi-weekly savings): ${bills_deducted:.2f}
-  Automatic Savings (10%): ${automatic_savings:.2f}
   Account Auto-Savings: ${account_auto_savings:.2f}
-  Total Deductions: ${bills_deducted + automatic_savings + account_auto_savings:.2f}
+  Total Deductions: ${bills_deducted + account_auto_savings:.2f}
 
 WEEKLY ALLOCATIONS:
   Remaining for weeks: ${remaining_for_weeks:.2f}
-  Week 1 allocation: ${week1_allocation:.2f}
-  Week 2 allocation: ${week2_allocation:.2f}
-
-TRANSACTIONS TO BE CREATED:
-  1. Income transaction: ${paycheck_amount:.2f}
-  2. Automatic savings transfer: ${automatic_savings:.2f}
-  3. Bill savings allocations: ${bills_deducted:.2f}
-  4. Account auto-savings: ${account_auto_savings:.2f}
-  5. Account balance updates
-  6. Week allocation tracking
+  Per-Week allocation: ${per_week_allocation:.2f}
 
 BILL SAVINGS BREAKDOWN:
   (Money set aside for upcoming bills)"""
-            
-            # Add bill breakdown details
+
+            # Add bill breakdown details with percentage handling
             try:
                 bills = self.paycheck_processor.transaction_manager.get_all_bills()
-                for bill in bills[:5]:  # Show first 5 bills
+                for bill in bills:
                     if bill.amount_to_save > 0:
-                        preview += f"\n  • {bill.name}: ${bill.amount_to_save:.2f}"
+                        if bill.amount_to_save < 1.0:
+                            # Percentage-based - show calculated amount and percentage
+                            calculated_amount = bill.amount_to_save * paycheck_amount
+                            preview += f"\n  • {bill.name}: ${calculated_amount:.2f} ({bill.amount_to_save*100:.0f}% of income)"
+                        else:
+                            # Fixed amount
+                            preview += f"\n  • {bill.name}: ${bill.amount_to_save:.2f}"
             except:
                 preview += "\n  • (Bill details loading...)"
-            
+
+            # Add account auto-savings breakdown if any exist
+            try:
+                accounts = self.paycheck_processor.transaction_manager.get_all_accounts()
+                account_savings_list = []
+                for account in accounts:
+                    if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
+                        if account.auto_save_amount < 1.0:
+                            # Percentage-based
+                            calculated_amount = account.auto_save_amount * paycheck_amount
+                            account_savings_list.append(f"  • {account.name}: ${calculated_amount:.2f} ({account.auto_save_amount*100:.0f}% of income)")
+                        else:
+                            # Fixed amount
+                            account_savings_list.append(f"  • {account.name}: ${account.auto_save_amount:.2f}")
+
+                if account_savings_list:
+                    preview += "\n\nACCOUNT AUTO-SAVINGS BREAKDOWN:"
+                    for item in account_savings_list:
+                        preview += f"\n{item}"
+            except:
+                pass
+
             preview += f"""
 
-NET EFFECT:
-  Take-home for spending: ${remaining_for_weeks:.2f}
-  Split across 2 weeks: ${week1_allocation:.2f} each
-  
-SYSTEM NOTES:
+TRANSACTIONS TO BE CREATED:
+  1. Income transaction: ${paycheck_amount:.2f}
+  2. Bill savings allocations: ${bills_deducted:.2f}
+  3. Account auto-savings: ${account_auto_savings:.2f}
+  4. Account balance updates
+  5. Week allocation tracking"""
+
+            # Testing mode only section
+            if testing_mode:
+                preview += """
+
+SYSTEM NOTES (Testing Mode):
   • Follows strict bi-weekly periods (Monday starts)
-  • All transactions recorded automatically
-  • Account balances updated in real-time
-            """.strip()
-            
-            self.preview_text.setPlainText(preview)
-            
+  • All transactions are recorded automatically
+  • Account balances updated in real-time"""
+
+            self.preview_text.setPlainText(preview.strip())
+
         except Exception as e:
             self.preview_text.setPlainText(f"Error calculating preview: {str(e)}")
     
@@ -188,123 +263,120 @@ SYSTEM NOTES:
             QMessageBox.warning(self, "Validation Error", "Paycheck amount must be positive")
             return False
 
-        paycheck_date = self.paycheck_date_edit.date().toPyDate()
         week_start = self.week_start_edit.date().toPyDate()
-        today = date.today()
 
-        # Week start must be on Monday
+        # Budget Start Date must be on Monday
         if week_start.weekday() != 0:  # 0 = Monday
-            QMessageBox.warning(self, "Validation Error",
-                              f"Week start must be on a Monday. Selected date ({week_start.strftime('%m/%d/%Y')}) is a {week_start.strftime('%A')}.")
+            QMessageBox.warning(
+                self,
+                "Validation Error",
+                f"Budget Start Date must be a Monday.\n\n"
+                f"Selected date ({week_start.strftime('%m/%d/%Y')}) is a {week_start.strftime('%A')}.\n\n"
+                f"Please select a Monday for the budget to start."
+            )
             return False
 
-        # Week start cannot be more than 1 month in the future
-        one_month_future = today + timedelta(days=30)
-        if week_start > one_month_future:
-            QMessageBox.warning(self, "Validation Error",
-                              f"Week start cannot be more than 1 month in the future. Latest allowed: {one_month_future.strftime('%m/%d/%Y')}")
-            return False
-
-        # Paycheck date can be anytime, no specific restrictions (removed the 1 week limit)
-
-        # Check for overlapping pay periods
+        # Check for overlapping pay periods - this is now an ERROR, not a question
         existing_weeks = self.paycheck_processor.transaction_manager.get_all_weeks()
+        week1_end = week_start + timedelta(days=6)
         week2_start = week_start + timedelta(days=7)
+        week2_end = week2_start + timedelta(days=6)
 
         for existing_week in existing_weeks:
             # Check if new week 1 overlaps with existing weeks
-            if (week_start <= existing_week.end_date and
-                week_start + timedelta(days=6) >= existing_week.start_date):
-                response = QMessageBox.question(
-                    self, "Overlapping Pay Period Detected",
-                    f"The new pay period (Week starting {week_start.strftime('%m/%d/%Y')}) "
-                    f"overlaps with existing Week {existing_week.week_number} "
-                    f"({existing_week.start_date.strftime('%m/%d/%Y')} - {existing_week.end_date.strftime('%m/%d/%Y')}).\n\n"
-                    "This might indicate duplicate paycheck entries or incorrect dates.\n\n"
-                    "Are you sure you want to continue?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No
+            if (week_start <= existing_week.end_date and week1_end >= existing_week.start_date):
+                QMessageBox.critical(
+                    self,
+                    "Overlapping Budget Period",
+                    f"New paycheck overlaps with existing Week {existing_week.week_number}.\n\n"
+                    f"Existing week runs from {existing_week.start_date.strftime('%m/%d/%Y')} "
+                    f"to {existing_week.end_date.strftime('%m/%d/%Y')}.\n\n"
+                    f"Please change the Budget Start Date to avoid overlap."
                 )
-                if response != QMessageBox.StandardButton.Yes:
-                    return False
-                break
+                return False
 
             # Check if new week 2 overlaps with existing weeks
-            if (week2_start <= existing_week.end_date and
-                week2_start + timedelta(days=6) >= existing_week.start_date):
-                response = QMessageBox.question(
-                    self, "Overlapping Pay Period Detected",
-                    f"The new pay period (Week 2 starting {week2_start.strftime('%m/%d/%Y')}) "
-                    f"overlaps with existing Week {existing_week.week_number} "
-                    f"({existing_week.start_date.strftime('%m/%d/%Y')} - {existing_week.end_date.strftime('%m/%d/%Y')}).\n\n"
-                    "This might indicate duplicate paycheck entries or incorrect dates.\n\n"
-                    "Are you sure you want to continue?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No
+            if (week2_start <= existing_week.end_date and week2_end >= existing_week.start_date):
+                QMessageBox.critical(
+                    self,
+                    "Overlapping Budget Period",
+                    f"New paycheck's second week overlaps with existing Week {existing_week.week_number}.\n\n"
+                    f"Existing week runs from {existing_week.start_date.strftime('%m/%d/%Y')} "
+                    f"to {existing_week.end_date.strftime('%m/%d/%Y')}.\n\n"
+                    f"Please change the Budget Start Date to avoid overlap."
                 )
-                if response != QMessageBox.StandardButton.Yes:
-                    return False
-                break
-        
+                return False
+
         return True
     
     def process_paycheck(self):
         """Process the paycheck using the paycheck processor"""
         if not self.validate_form():
             return
-        
+
         try:
+            from views.dialogs.settings_dialog import get_setting
+
             paycheck_amount = self.amount_spin.value()
             paycheck_date = self.paycheck_date_edit.date().toPyDate()
             week_start = self.week_start_edit.date().toPyDate()
-            
-            # Show confirmation dialog
-            response = QMessageBox.question(
-                self, 
-                "Confirm Paycheck Processing",
-                f"Process paycheck of ${paycheck_amount:.2f} dated {paycheck_date}?\n\n"
-                f"This will create multiple transactions and update account balances.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if response != QMessageBox.StandardButton.Yes:
-                return
-            
+
             # Process the paycheck
-            week_start = self.week_start_edit.date().toPyDate()
             split_result = self.paycheck_processor.process_new_paycheck(
                 paycheck_amount,
                 paycheck_date,
                 week_start
             )
-            
-            # Show detailed breakdown of where money goes
-            success_message = f"""
-Paycheck processed successfully!
 
-SUMMARY:
-• Gross Paycheck: ${split_result.gross_paycheck:.2f}
-• Week 1 Allocation: ${split_result.week1_allocation:.2f}
-• Week 2 Allocation: ${split_result.week2_allocation:.2f}
+            # Check if testing mode is enabled
+            testing_mode = get_setting("testing_mode", False)
 
-AMOUNT PAID TO BILLS:
-{self.get_bills_breakdown()}
+            if testing_mode:
+                # In testing mode, show detailed verification from database
+                from models import Transaction, TransactionType, Week
 
-AMOUNT PAID TO SAVINGS:
-{self.get_savings_breakdown()}
+                # Get the transactions that were just created
+                week1 = self.paycheck_processor.transaction_manager.get_week_by_number(split_result.week_start_date.isocalendar()[1])
+                income_transactions = self.paycheck_processor.db.query(Transaction).filter(
+                    Transaction.transaction_type == TransactionType.INCOME.value,
+                    Transaction.date == paycheck_date
+                ).order_by(Transaction.id.desc()).limit(1).all()
 
-TRANSACTIONS CREATED:
-• Income transaction recorded
-• Bill savings updated
-• Account auto-savings allocated
-• Account balances updated
+                if income_transactions:
+                    saved_income = income_transactions[0]
 
-The dashboard will refresh to show updated data.
-            """.strip()
-            
-            QMessageBox.information(self, "Paycheck Processed", success_message)
+                    # Build verification details
+                    details = [
+                        "✓ Paycheck Saved Successfully",
+                        "",
+                        "DATABASE VERIFICATION:",
+                        f"• Transaction ID: {saved_income.id}",
+                        f"• Type: {saved_income.transaction_type}",
+                        f"• Amount: ${saved_income.amount:.2f}",
+                        f"• Date: {saved_income.date}",
+                        f"• Week Number: {saved_income.week_number}",
+                        f"• Description: {saved_income.description}",
+                        "",
+                        "SPLIT RESULT:",
+                        f"• Gross Paycheck: ${split_result.gross_paycheck:.2f}",
+                        f"• Bills Deducted: ${split_result.bills_deducted:.2f}",
+                        f"• Automatic Savings: ${split_result.automatic_savings:.2f}",
+                        f"• Account Auto-Savings: ${split_result.account_auto_savings:.2f}",
+                        f"• Remaining for Weeks: ${split_result.remaining_for_weeks:.2f}",
+                        f"• Week 1 Allocation: ${split_result.week1_allocation:.2f}",
+                        f"• Week 2 Allocation: ${split_result.week2_allocation:.2f}",
+                    ]
+
+                    QMessageBox.information(
+                        self,
+                        "Success - Testing Mode",
+                        "\n".join(details)
+                    )
+                else:
+                    QMessageBox.warning(self, "Testing Mode", "Paycheck processed but could not verify in database")
+
             self.accept()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error processing paycheck: {str(e)}")
             import traceback
@@ -365,7 +437,34 @@ The dashboard will refresh to show updated data.
 
         breakdown.append(f"• TOTAL SAVINGS: ${total_savings:.2f}")
         return "\n".join(breakdown)
-    
+
+    def apply_button_theme(self):
+        """Apply focused styling to Save button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Save button - focused style (primary background with primary_dark hover)
+        self.process_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        self.cancel_button.setStyleSheet("")
+
     def apply_theme(self):
         """Apply current theme to dialog"""
         colors = theme_manager.get_colors()

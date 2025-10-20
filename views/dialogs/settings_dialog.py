@@ -199,23 +199,27 @@ class SettingsDialog(QDialog):
         data_group.setLayout(data_layout)
         main_layout.addWidget(data_group)
 
-        # Buttons
+        # Buttons (Reset left, Cancel/Save right with Save focused)
         button_layout = QHBoxLayout()
-        
+
         self.reset_button = QPushButton("Reset to Defaults")
         self.reset_button.clicked.connect(self.reset_to_defaults)
         button_layout.addWidget(self.reset_button)
-        
+
         button_layout.addStretch()
-        
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
-        
+
         self.save_button = QPushButton("Save Changes")
         self.save_button.clicked.connect(self.save_settings)
+        self.save_button.setDefault(True)
         button_layout.addWidget(self.save_button)
-        
+
+        # Apply button theme
+        self.apply_button_theme()
+
         main_layout.addWidget(QGroupBox())  # Spacer
         main_layout.addLayout(button_layout)
         
@@ -337,63 +341,109 @@ class SettingsDialog(QDialog):
             "testing_mode": self.testing_mode_checkbox.isChecked()
         }
     
+    def apply_button_theme(self):
+        """Apply focused styling to Save button, normal styling to others"""
+        colors = theme_manager.get_colors()
+
+        # Save button - focused style (primary background with primary_dark hover)
+        self.save_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+        """)
+
+        # Reset and Cancel buttons use default theme styling (cleared)
+        self.reset_button.setStyleSheet("")
+        self.cancel_button.setStyleSheet("")
+
     def reset_to_defaults(self):
-        """Reset all settings to default values"""
-        reply = QMessageBox.question(
-            self, "Reset Settings",
-            "Are you sure you want to reset all settings to their default values?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
+        """Reset all settings to default values and save"""
+        # Create custom Yes/No dialog with Yes focused
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Reset Settings")
+        msg_box.setText("Are you sure you want to reset all settings to their default values?")
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+        reply = msg_box.exec()
+
         if reply == QMessageBox.StandardButton.Yes:
             self.current_settings = self.get_default_settings()
             self.apply_settings_to_ui()
+
+            # Save the reset settings
+            try:
+                with open(self.settings_file, 'w') as f:
+                    json.dump(self.current_settings, f, indent=2)
+
+                QMessageBox.information(self, "Settings Reset", "Settings have been reset to defaults and saved.")
+                self.settings_saved.emit()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save reset settings: {str(e)}")
     
     def save_settings(self):
         """Save current settings to file"""
         try:
             # Get current UI values
             new_settings = self.get_ui_settings()
-            
+
             # Check if anything changed
             changes = []
             for key, new_value in new_settings.items():
                 old_value = self.original_settings.get(key)
                 if new_value != old_value:
                     changes.append(f"{key}: {old_value} → {new_value}")
-            
+
             if not changes:
                 QMessageBox.information(self, "No Changes", "No changes were made to settings.")
                 return
-            
-            # Show confirmation
-            change_text = "The following settings will be changed:\n\n" + "\n".join(changes)
-            change_text += "\n\nThese changes will take effect after restarting the application."
-            
-            reply = QMessageBox.question(
-                self, "Save Settings", change_text,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-            
+
             # Save to file
             with open(self.settings_file, 'w') as f:
                 json.dump(new_settings, f, indent=2)
-            
+
             # Apply theme change immediately if changed
             if new_settings["default_theme"] != self.original_settings.get("default_theme"):
                 theme_manager.set_theme(new_settings["default_theme"])
-            
-            QMessageBox.information(self, "Settings Saved", 
-                                  "Settings have been saved successfully!\n\n"
-                                  "Some changes may require restarting the application to take full effect.")
-            
+
+            # Check if testing mode is enabled
+            testing_mode = new_settings.get("testing_mode", False)
+
+            if testing_mode:
+                # In testing mode, show detailed change list
+                change_details = [
+                    "✓ Settings Saved Successfully",
+                    "",
+                    f"Success: {len(changes)} changes made",
+                    ""
+                ]
+                for change in changes:
+                    change_details.append(f"• {change}")
+
+                QMessageBox.information(
+                    self,
+                    "Success - Testing Mode",
+                    "\n".join(change_details)
+                )
+            # If not in testing mode, just close without popup
+
             # Emit signal and close
             self.settings_saved.emit()
             self.accept()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save settings: {str(e)}")
             print(f"Error saving settings: {e}")

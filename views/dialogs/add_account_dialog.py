@@ -33,52 +33,43 @@ class AddAccountDialog(QDialog):
         # Account name
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Emergency Fund, Car Savings, etc.")
+        self.name_edit.textChanged.connect(self.validate_create_button)
         form_layout.addRow("Account Name:", self.name_edit)
-        
-        # Starting balance (will create AccountHistory entry)
+
+        # Starting balance (with tooltip)
+        balance_label = QLabel("Starting Balance ($):")
+        balance_label.setToolTip("Initial amount when account is created")
         self.balance_spin = QDoubleSpinBox()
         self.balance_spin.setRange(-999999.99, 999999.99)
         self.balance_spin.setDecimals(2)
         self.balance_spin.setValue(0.00)
-        form_layout.addRow("Starting Balance ($):", self.balance_spin)
+        self.balance_spin.setToolTip("Initial amount when account is created")
+        form_layout.addRow(balance_label, self.balance_spin)
 
-        # Starting balance note
-        balance_note = QLabel("(initial amount when account is created)")
-        balance_note.setStyleSheet("color: gray; font-size: 11px; font-style: italic;")
-        form_layout.addRow("", balance_note)
-        
-        # Goal amount
+        # Goal amount (with tooltip)
+        goal_label = QLabel("Savings Goal ($):")
+        goal_label.setToolTip("Set to 0.00 for no specific goal")
         self.goal_spin = QDoubleSpinBox()
         self.goal_spin.setRange(0.00, 999999.99)
         self.goal_spin.setDecimals(2)
         self.goal_spin.setValue(0.00)
-        form_layout.addRow("Savings Goal ($):", self.goal_spin)
-        
-        # Goal explanation
-        goal_note = QLabel("Set to 0.00 for no specific goal")
-        goal_note.setStyleSheet("color: gray; font-size: 11px;")
-        form_layout.addRow("", goal_note)
-        
-        # Auto-save amount (happens after bills during paycheck processing)
+        self.goal_spin.setToolTip("Set to 0.00 for no specific goal")
+        form_layout.addRow(goal_label, self.goal_spin)
+
+        # Auto-save amount (with tooltip)
+        auto_save_label = QLabel("Auto-Save Amount:")
+        auto_save_label.setToolTip("Per paycheck (after bills) - values < 1.0 = % of income (e.g., 0.200 = 20%)")
         self.auto_save_spin = QDoubleSpinBox()
         self.auto_save_spin.setRange(0.00, 999999.99)
         self.auto_save_spin.setDecimals(3)  # Allow for percentages like 0.300
         self.auto_save_spin.setValue(0.00)
-        form_layout.addRow("Auto-Save Amount:", self.auto_save_spin)
+        self.auto_save_spin.setToolTip("Per paycheck (after bills) - values < 1.0 = % of income (e.g., 0.200 = 20%)")
+        form_layout.addRow(auto_save_label, self.auto_save_spin)
 
-        # Auto-save explanation with percentage note
-        auto_save_note = QLabel("Per paycheck (after bills) - values < 1.0 = % of income (e.g., 0.200 = 20%)")
-        auto_save_note.setStyleSheet("color: gray; font-size: 11px; font-style: italic;")
-        form_layout.addRow("", auto_save_note)
-        
-        # Default savings checkbox
+        # Default savings checkbox (with tooltip)
         self.default_save_checkbox = QCheckBox("Make this the default savings account")
+        self.default_save_checkbox.setToolTip("Default savings account receives automatic savings from paychecks")
         form_layout.addRow("", self.default_save_checkbox)
-        
-        # Default explanation
-        default_note = QLabel("Default savings account receives automatic savings from paychecks")
-        default_note.setStyleSheet("color: gray; font-size: 11px; margin-bottom: 10px;")
-        form_layout.addRow("", default_note)
         
         layout.addLayout(form_layout)
         
@@ -95,22 +86,32 @@ class AddAccountDialog(QDialog):
         self.auto_save_spin.valueChanged.connect(self.update_preview)
         self.default_save_checkbox.toggled.connect(self.update_preview)
         
-        # Buttons
+        # Buttons (right-justified with focused style for Create)
         button_layout = QHBoxLayout()
-        
-        self.create_button = QPushButton("Create Account")
-        self.create_button.clicked.connect(self.create_account)
-        self.create_button.setFont(theme_manager.get_font("button"))
-        
+        button_layout.addStretch()
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addWidget(self.create_button)
+
+        self.create_button = QPushButton("Create")
+        self.create_button.clicked.connect(self.create_account)
+        self.create_button.setDefault(True)
+        self.create_button.setEnabled(False)  # Disabled until name is entered
+
         button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.create_button)
         layout.addLayout(button_layout)
-        
+
+        # Apply button theme
+        self.apply_button_theme()
+
         self.setLayout(layout)
     
+    def validate_create_button(self):
+        """Enable/disable Create button based on whether name is entered"""
+        name = self.name_edit.text().strip()
+        self.create_button.setEnabled(bool(name))
+
     def update_preview(self):
         """Update the preview of the account to be created"""
         name = self.name_edit.text().strip() or "[Account Name]"
@@ -202,14 +203,16 @@ class AddAccountDialog(QDialog):
         """Create the new account"""
         if not self.validate_form():
             return
-        
+
         try:
+            from views.dialogs.settings_dialog import get_setting
+
             name = self.name_edit.text().strip()
             balance = self.balance_spin.value()
             goal = self.goal_spin.value()
             auto_save = self.auto_save_spin.value()
             is_default = self.default_save_checkbox.isChecked()
-            
+
             # Create new account using transaction manager (handles defaults and balance history)
             new_account = self.transaction_manager.add_account(
                 name=name,
@@ -218,34 +221,81 @@ class AddAccountDialog(QDialog):
                 is_default_save=is_default,
                 initial_balance=balance
             )
-            
-            # Success message
-            success_text = f"Account '{name}' created successfully!\n\n"
-            success_text += f"Account ID: {new_account.id}\n"
-            success_text += f"Starting Balance: ${balance:.2f}\n"
-            
-            if goal > 0:
-                success_text += f"Savings Goal: ${goal:.2f}\n"
-            
-            if auto_save > 0:
-                # Handle percentage vs dollar display for auto_save
-                if auto_save < 1.0 and auto_save > 0:
-                    success_text += f"Auto-Save: {auto_save * 100:.1f}% per paycheck\n"
+
+            # Check if testing mode is enabled
+            testing_mode = get_setting("testing_mode", False)
+
+            if testing_mode:
+                # In testing mode, show detailed verification from database
+                from models import Account
+
+                # Retrieve the account from database to verify
+                saved_account = self.transaction_manager.db.query(Account).filter(
+                    Account.id == new_account.id
+                ).first()
+
+                if saved_account:
+                    # Build verification details
+                    details = [
+                        "✓ Account Created Successfully",
+                        "",
+                        "DATABASE VERIFICATION:",
+                        f"• Account ID: {saved_account.id}",
+                        f"• Name: {saved_account.name}",
+                        f"• Starting Balance: ${balance:.2f}",
+                        f"• Goal Amount: ${saved_account.goal_amount:.2f}",
+                        f"• Auto-Save Amount: {saved_account.auto_save_amount:.3f}",
+                        f"• Is Default Save: {saved_account.is_default_save}",
+                    ]
+
+                    # Show auto-save with percentage if applicable
+                    if saved_account.auto_save_amount > 0:
+                        if saved_account.auto_save_amount < 1.0:
+                            details.append(f"• Auto-Save Display: {saved_account.auto_save_amount * 100:.1f}% per paycheck")
+                        else:
+                            details.append(f"• Auto-Save Display: ${saved_account.auto_save_amount:.2f} per paycheck")
+
+                    QMessageBox.information(
+                        self,
+                        "Success - Testing Mode",
+                        "\n".join(details)
+                    )
                 else:
-                    success_text += f"Auto-Save: ${auto_save:.2f} per paycheck\n"
-            
-            if is_default:
-                success_text += "Set as default savings account\n"
-            
-            success_text += "\nThe dashboard will refresh to show the new account."
-            
-            QMessageBox.information(self, "Account Created", success_text)
+                    QMessageBox.warning(self, "Testing Mode", "Account created but could not verify in database")
+
             self.accept()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error creating account: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def apply_button_theme(self):
+        """Apply focused styling to Create button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Create button - focused style (primary background with primary_dark hover)
+        self.create_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        self.cancel_button.setStyleSheet("")
     
     def apply_theme(self):
         """Apply current theme to dialog"""

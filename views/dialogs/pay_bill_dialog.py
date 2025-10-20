@@ -18,24 +18,28 @@ class PayBillDialog(QDialog):
         self.transaction_manager = transaction_manager
         self.setWindowTitle("Pay Bill")
         self.setModal(True)
-        self.resize(450, 500)
-        
+        self.resize(450, 250)
+
         self.selected_bill = None
-        
+
         self.init_ui()
         self.load_bills()
         self.apply_theme()
     
     def init_ui(self):
         layout = QVBoxLayout()
-        
-        # Title
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # Title (set fixed height to match text size)
         title = QLabel("Pay Bill")
         title.setFont(theme_manager.get_font("title"))
+        title.setFixedHeight(30)
         layout.addWidget(title)
-        
+
         # Form layout
         form_layout = QFormLayout()
+        form_layout.setVerticalSpacing(8)
         
         # Bill selection
         self.bill_combo = QComboBox()
@@ -56,22 +60,26 @@ class PayBillDialog(QDialog):
         form_layout.addRow("Payment Amount ($):", self.amount_spin)
         
         layout.addLayout(form_layout)
-        
-        # Buttons
+
+        # Buttons (right-justified with focused style for Pay)
         button_layout = QHBoxLayout()
-        
-        self.pay_button = QPushButton("Pay Bill")
-        self.pay_button.clicked.connect(self.pay_bill)
-        self.pay_button.setFont(theme_manager.get_font("button"))
-        self.pay_button.setEnabled(False)
-        
+        button_layout.addStretch()
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addWidget(self.pay_button)
+
+        self.pay_button = QPushButton("Pay")
+        self.pay_button.clicked.connect(self.pay_bill)
+        self.pay_button.setDefault(True)
+        self.pay_button.setEnabled(False)  # Disabled until bill is selected
+
         button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.pay_button)
         layout.addLayout(button_layout)
-        
+
+        # Apply button theme
+        self.apply_button_theme()
+
         self.setLayout(layout)
     
     def load_bills(self):
@@ -269,7 +277,7 @@ The dashboard will refresh to show updated data.
             for week in weeks:
                 if week.start_date <= payment_date <= week.end_date:
                     return week.week_number
-            
+
             # If no week contains this date, use current week
             current_week = self.transaction_manager.get_current_week()
             if current_week:
@@ -277,10 +285,43 @@ The dashboard will refresh to show updated data.
             else:
                 # Fallback to week 1 if no weeks exist
                 return 1
-                
+
         except Exception:
             return 1  # Safe fallback
-    
+
+    def apply_button_theme(self):
+        """Apply focused styling to Pay button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Pay button - focused style (primary background with primary_dark hover)
+        self.pay_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+
+            QPushButton:disabled {{
+                background-color: {colors['surface_variant']};
+                color: {colors['text_secondary']};
+                border: 1px solid {colors['border']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        self.cancel_button.setStyleSheet("")
+
     def apply_theme(self):
         """Apply current theme to dialog"""
         colors = theme_manager.get_colors()

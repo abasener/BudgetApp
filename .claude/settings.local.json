@@ -1,9 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(C:/Users/arrow/miniforge3/python.exe -c \"from widgets.animated_gif_widget import AnimatedGifWidget; print(''AnimatedGifWidget imported successfully'')\")",
-      "Bash(C:/Users/arrow/miniforge3/python.exe widget_showcase.py)",
-      "Bash(C:/Users/arrow/miniforge3/python.exe main.py)"
+      "Bash(C:/Users/arrow/miniforge3/python.exe check_paycheck_avg.py)"
     ],
     "deny": [],
     "ask": []

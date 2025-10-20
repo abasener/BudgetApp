@@ -3,7 +3,7 @@ Enhanced Dashboard View - Complete layout matching user diagram
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-                             QCheckBox, QPushButton, QGridLayout, QDialog, QLCDNumber)
+                             QCheckBox, QPushButton, QGridLayout, QDialog, QLCDNumber, QToolButton)
 from PyQt6.QtCore import Qt, QDate
 from themes import theme_manager
 from widgets import (PieChartWidget, LineChartWidget, BarChartWidget, 
@@ -425,8 +425,6 @@ class DashboardView(QWidget):
         title.setFont(theme_manager.get_font("title"))
         header_layout.addWidget(title)
 
-        header_layout.addStretch()
-
         # LCD Date Display
         self.date_lcd = QLCDNumber()
         self.date_lcd.setDigitCount(10)  # MM/DD/YYYY = 10 characters
@@ -438,6 +436,15 @@ class DashboardView(QWidget):
         self.date_lcd.setToolTip("Current Date")
         header_layout.addWidget(self.date_lcd)
 
+        # Refresh button - compact tool button with just emoji
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("🔄")
+        self.refresh_button.setToolTip("Refresh Dashboard")
+        self.refresh_button.setFixedSize(40, 30)
+        self.refresh_button.clicked.connect(self.refresh)
+        # Styling applied in apply_header_theme method
+        header_layout.addWidget(self.refresh_button)
+
         # Analytics toggle - styled checkbox
         self.analytics_toggle = QCheckBox("Normal Spending Only")
         self.analytics_toggle.setChecked(self.include_analytics_only)  # Use setting from file
@@ -446,7 +453,9 @@ class DashboardView(QWidget):
         self.analytics_toggle.setFont(theme_manager.get_font("main"))
         header_layout.addWidget(self.analytics_toggle)
 
-        # Apply initial theme styling to date LCD and checkbox
+        header_layout.addStretch()  # Push everything to the left
+
+        # Apply initial theme styling to date LCD, refresh button, and checkbox
         self.apply_header_theme()
         
         main_layout.addLayout(header_layout)
@@ -745,7 +754,7 @@ class DashboardView(QWidget):
         return frame
         
     def apply_header_theme(self):
-        """Apply theme styling to header elements (LCD date and checkbox)"""
+        """Apply theme styling to header elements (LCD date, refresh button, and checkbox)"""
         colors = theme_manager.get_colors()
 
         # Style LCD date display
@@ -757,6 +766,26 @@ class DashboardView(QWidget):
                 border-radius: 4px;
             }}
         """)
+
+        # Style refresh button (QToolButton)
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                    font-size: 16px;
+                }}
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
 
         # Style checkbox
         self.analytics_toggle.setStyleSheet(f"""
