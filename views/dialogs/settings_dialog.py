@@ -162,10 +162,10 @@ class SettingsDialog(QDialog):
         # Create 2x2 grid for buttons
         button_grid = QGridLayout()
 
-        # Top row - Testing functions
-        import_test_button = QPushButton("📥 Import Test Data")
+        # Top row - Data management functions
+        import_test_button = QPushButton("📥 Import Data")
         import_test_button.setStyleSheet("color: blue; font-weight: bold; padding: 8px;")
-        import_test_button.setToolTip("Import test data from TestData/Data2.xlsx if file exists and has expected format")
+        import_test_button.setToolTip("Import data from Excel file (supports Replace, Merge, and Append modes)")
         import_test_button.clicked.connect(self.import_test_data)
         button_grid.addWidget(import_test_button, 0, 0)
 
@@ -176,9 +176,9 @@ class SettingsDialog(QDialog):
         button_grid.addWidget(reset_test_button, 0, 1)
 
         # Bottom row - Data management
-        export_data_button = QPushButton("📊 Export All Data")
+        export_data_button = QPushButton("📊 Export Data")
         export_data_button.setStyleSheet("color: green; font-weight: bold; padding: 8px;")
-        export_data_button.setToolTip("Export all data to CSV files for backup or analysis")
+        export_data_button.setToolTip("Export all data to Excel file (can be re-imported later)")
         export_data_button.clicked.connect(self.export_data)
         button_grid.addWidget(export_data_button, 1, 0)
 
@@ -920,125 +920,168 @@ class SettingsDialog(QDialog):
             QMessageBox.critical(self, "Reset Failed", f"Error during test reset: {e}")
 
     def export_data(self):
-        """Export all data to CSV files"""
+        """Export all data to single Excel file matching import format"""
         from PyQt6.QtWidgets import QFileDialog
         from models import get_db, Week, Transaction, Account, Bill, AccountHistory
-        import csv
+        import pandas as pd
         import os
         from datetime import datetime
 
-        # Let user choose export directory
-        export_dir = QFileDialog.getExistingDirectory(
+        # Let user choose export location
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"budget_export_{timestamp}.xlsx"
+
+        export_file, _ = QFileDialog.getSaveFileName(
             self,
-            "Choose Export Directory",
-            os.path.expanduser("~"),
-            QFileDialog.Option.ShowDirsOnly
+            "Export Data",
+            os.path.join(os.path.expanduser("~"), default_filename),
+            "Excel Files (*.xlsx)"
         )
 
-        if not export_dir:
+        if not export_file:
             return
 
         try:
             db = get_db()
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # Export transactions
-            transactions = db.query(Transaction).all()
-            if transactions:
-                transactions_file = os.path.join(export_dir, f"transactions_{timestamp}.csv")
-                with open(transactions_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([
-                        'ID', 'Transaction_Type', 'Week_Number', 'Amount', 'Date',
-                        'Category', 'Description', 'Account_ID', 'Account_Name',
-                        'Bill_ID', 'Bill_Type', 'Is_Spending', 'Is_Income',
-                        'Is_Saving', 'Is_Bill_Pay', 'Include_In_Analytics'
-                    ])
+            # Prepare Spending table (columns A-D)
+            spending_transactions = db.query(Transaction).filter(
+                Transaction.transaction_type == "spending"
+            ).order_by(Transaction.date).all()
 
-                    for t in transactions:
-                        writer.writerow([
-                            t.id, t.transaction_type, t.week_number, t.amount, t.date,
-                            t.category, t.description, t.account_id, t.account_saved_to,
-                            t.bill_id, t.bill_type, t.is_spending, t.is_income,
-                            t.is_saving, t.is_bill_pay, t.include_in_analytics
-                        ])
+            spending_data = []
+            for t in spending_transactions:
+                spending_data.append({
+                    "Date": t.date,
+                    "Day": t.date.strftime("%A"),
+                    "Catigorie": t.category or "",
+                    "Amount": t.amount
+                })
 
-            # Export weeks
-            weeks = db.query(Week).all()
-            if weeks:
-                weeks_file = os.path.join(export_dir, f"weeks_{timestamp}.csv")
-                with open(weeks_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['ID', 'Week_Number', 'Start_Date', 'End_Date', 'Running_Total'])
+            # Prepare Paychecks table (columns F-H)
+            # Only export week 1 of each pay period (odd week numbers represent paychecks)
+            weeks = db.query(Week).filter(Week.week_number % 2 == 1).order_by(Week.start_date).all()
+            paycheck_data = []
+            for w in weeks:
+                paycheck_data.append({
+                    "Start date": w.start_date,
+                    "Pay Date": w.end_date,
+                    "Amount.1": w.running_total
+                })
 
-                    for w in weeks:
-                        writer.writerow([w.id, w.week_number, w.start_date, w.end_date, w.running_total])
+            # Prepare BillPays table (columns J-L)
+            billpay_transactions = db.query(Transaction).filter(
+                Transaction.transaction_type == "bill_pay"
+            ).order_by(Transaction.date).all()
 
-            # Export accounts
+            billpay_data = []
+            for t in billpay_transactions:
+                bill_name = t.bill.name if t.bill else (t.bill_type or "Unknown")
+                billpay_data.append({
+                    "Date.1": t.date,
+                    "Bill": bill_name,
+                    "Amount.2": -t.amount  # Negative for payments
+                })
+
+            # Prepare Accounts metadata (columns N-R)
             accounts = db.query(Account).all()
-            if accounts:
-                accounts_file = os.path.join(export_dir, f"accounts_{timestamp}.csv")
-                with open(accounts_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['ID', 'Name', 'Account_Type', 'Goal_Amount', 'Current_Balance', 'Auto_Save_Amount', 'Is_Default_Savings'])
+            account_data = []
+            for a in accounts:
+                # Get starting balance from AccountHistory
+                first_history = db.query(AccountHistory).filter(
+                    AccountHistory.account_id == a.id,
+                    AccountHistory.transaction_id == None
+                ).order_by(AccountHistory.transaction_date).first()
 
-                    for a in accounts:
-                        current_balance = a.get_current_balance(db)
-                        writer.writerow([a.id, a.name, a.account_type, a.goal_amount, current_balance,
-                                       getattr(a, 'auto_save_amount', 0.0), a.is_default_savings])
+                starting_balance = first_history.change_amount if first_history else 0.0
 
-            # Export bills
+                account_data.append({
+                    "Account Name": a.name,
+                    "Starting Balance": starting_balance,
+                    "Goal Amount": a.goal_amount or 0.0,
+                    "Auto Save Amount": a.auto_save_amount or 0.0,
+                    "Is Default": 1.0 if a.is_default_save else 0.0
+                })
+
+            # Prepare Bills metadata (columns T-AA)
             bills = db.query(Bill).all()
-            if bills:
-                bills_file = os.path.join(export_dir, f"bills_{timestamp}.csv")
-                with open(bills_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['ID', 'Name', 'Bill_Type', 'Amount_To_Save', 'Current_Balance'])
+            bill_data = []
+            for b in bills:
+                # Get starting balance from AccountHistory
+                first_history = db.query(AccountHistory).filter(
+                    AccountHistory.account_id == b.id,
+                    AccountHistory.account_type == "bill",
+                    AccountHistory.transaction_id == None
+                ).order_by(AccountHistory.transaction_date).first()
 
-                    for b in bills:
-                        current_balance = b.get_current_balance(db)
-                        writer.writerow([b.id, b.name, b.bill_type, b.amount_to_save, current_balance])
+                starting_balance = first_history.change_amount if first_history else 0.0
 
-            # Export AccountHistory
-            history_entries = db.query(AccountHistory).all()
-            if history_entries:
-                history_file = os.path.join(export_dir, f"account_history_{timestamp}.csv")
-                with open(history_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['ID', 'Account_ID', 'Account_Type', 'Transaction_ID', 'Transaction_Date',
-                                   'Change_Amount', 'Running_Total', 'Description'])
+                bill_data.append({
+                    "Bill Name": b.name,
+                    "Bill Type": b.bill_type or "",
+                    "Bill Starting Balance": starting_balance,
+                    "Payment Frequency": b.payment_frequency or "monthly",
+                    "Typical Amount": b.typical_amount or 0.0,
+                    "Amount To Save": b.amount_to_save or 0.0,
+                    "Is Variable": 1.0 if b.is_variable else 0.0,
+                    "Notes": b.notes or ""
+                })
 
-                    for h in history_entries:
-                        writer.writerow([h.id, h.account_id, h.account_type, h.transaction_id, h.transaction_date,
-                                       h.change_amount, h.running_total, h.description or ""])
+            # Create DataFrames
+            spending_df = pd.DataFrame(spending_data)
+            paychecks_df = pd.DataFrame(paycheck_data)
+            billpays_df = pd.DataFrame(billpay_data)
+            accounts_df = pd.DataFrame(account_data)
+            bills_df = pd.DataFrame(bill_data)
+
+            # Create Excel writer
+            with pd.ExcelWriter(export_file, engine='openpyxl') as writer:
+                # Write all tables to the same sheet at specific column positions
+                sheet_name = 'Sheet1'
+
+                # Spending (columns A-D, 0-3)
+                if not spending_df.empty:
+                    spending_df.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=0, index=False)
+
+                # Paychecks (columns F-H, 5-7)
+                if not paychecks_df.empty:
+                    paychecks_df.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=5, index=False)
+
+                # BillPays (columns J-L, 9-11)
+                if not billpays_df.empty:
+                    billpays_df.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=9, index=False)
+
+                # Accounts (columns N-R, 13-17)
+                if not accounts_df.empty:
+                    accounts_df.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=13, index=False)
+
+                # Bills (columns T-AA, 19-26)
+                if not bills_df.empty:
+                    bills_df.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=19, index=False)
 
             db.close()
-
-            # Count exported items
-            transaction_count = len(transactions) if transactions else 0
-            week_count = len(weeks) if weeks else 0
-            account_count = len(accounts) if accounts else 0
-            bill_count = len(bills) if bills else 0
-            history_count = len(history_entries) if history_entries else 0
 
             QMessageBox.information(
                 self,
                 "Export Complete",
-                f"Successfully exported to {export_dir}:\n\n"
-                f"• {transaction_count} transactions\n"
-                f"• {week_count} weeks\n"
-                f"• {account_count} accounts\n"
-                f"• {bill_count} bills\n"
-                f"• {history_count} balance history entries\n\n"
-                f"Files are timestamped: {timestamp}"
+                f"Successfully exported to:\n{export_file}\n\n"
+                f"• {len(spending_df)} spending transactions\n"
+                f"• {len(paychecks_df)} paychecks\n"
+                f"• {len(billpays_df)} bill payments\n"
+                f"• {len(accounts_df)} accounts\n"
+                f"• {len(bills_df)} bills"
             )
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             QMessageBox.critical(self, "Export Failed", f"Error during data export: {e}")
 
     def import_test_data(self):
         """Import data from user-selected Excel file with validation and mode selection"""
-        from PyQt6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QLabel, QRadioButton, QDialogButtonBox
+        from PyQt6.QtWidgets import (QFileDialog, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                      QRadioButton, QPushButton, QProgressBar, QTextEdit, QGroupBox)
+        from PyQt6.QtCore import Qt, QTimer
         import os
 
         # Let user choose file
@@ -1090,57 +1133,104 @@ class SettingsDialog(QDialog):
             except:
                 bills_df = pd.DataFrame()
 
-            # Show import mode dialog
+            # Create combined import dialog
             dialog = QDialog(self)
-            dialog.setWindowTitle("Select Import Mode")
-            layout = QVBoxLayout()
+            dialog.setWindowTitle("Import Data")
+            dialog.setMinimumWidth(500)
+            main_layout = QVBoxLayout()
 
-            layout.addWidget(QLabel(f"Found:\n• {len(spending_df)} spending transactions\n• {len(paychecks_df)} paychecks\n• {len(billpays_df)} bill payments\n• {len(accounts_df)} accounts\n• {len(bills_df)} bills\n"))
-            layout.addWidget(QLabel("Choose import mode:"))
+            # Top row: Found data (left) and mode selection (right)
+            top_layout = QHBoxLayout()
 
-            replace_radio = QRadioButton("Replace - Delete all existing data and import fresh")
-            merge_radio = QRadioButton("Merge - Add only new data, skip duplicates")
-            append_radio = QRadioButton("Append - Add all data (may create duplicates)")
+            # Left: Found data display
+            found_text = QTextEdit()
+            found_text.setReadOnly(True)
+            found_text.setMaximumHeight(120)
+            found_data = f"Found in file:\n• {len(spending_df)} spending transactions\n• {len(paychecks_df)} paychecks\n• {len(billpays_df)} bill payments\n• {len(accounts_df)} accounts\n• {len(bills_df)} bills"
+            found_text.setPlainText(found_data)
+            top_layout.addWidget(found_text)
+
+            # Right: Import mode selection
+            mode_group = QGroupBox("Import Mode")
+            mode_layout = QVBoxLayout()
+            replace_radio = QRadioButton("Replace - Delete all existing data")
+            merge_radio = QRadioButton("Merge - Skip duplicates")
+            append_radio = QRadioButton("Append - Add all data")
             replace_radio.setChecked(True)
+            mode_layout.addWidget(replace_radio)
+            mode_layout.addWidget(merge_radio)
+            mode_layout.addWidget(append_radio)
+            mode_group.setLayout(mode_layout)
+            top_layout.addWidget(mode_group)
 
-            layout.addWidget(replace_radio)
-            layout.addWidget(merge_radio)
-            layout.addWidget(append_radio)
+            main_layout.addLayout(top_layout)
 
-            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-            buttons.accepted.connect(dialog.accept)
-            buttons.rejected.connect(dialog.reject)
-            layout.addWidget(buttons)
+            # Middle row: Progress bar
+            progress_bar = QProgressBar()
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(0)
+            main_layout.addWidget(progress_bar)
 
-            dialog.setLayout(layout)
+            # Bottom row: Results text (initially hidden)
+            results_text = QTextEdit()
+            results_text.setReadOnly(True)
+            results_text.setMinimumHeight(225)
+            results_text.setMaximumHeight(225)
+            results_text.hide()
+            main_layout.addWidget(results_text)
 
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return
+            # Buttons
+            button_layout = QHBoxLayout()
+            button_layout.addStretch()
+            import_button = QPushButton("Import")
+            cancel_button = QPushButton("Cancel")
+            button_layout.addWidget(import_button)
+            button_layout.addWidget(cancel_button)
+            main_layout.addLayout(button_layout)
 
-            if replace_radio.isChecked():
-                import_mode = "replace"
-            elif merge_radio.isChecked():
-                import_mode = "merge"
-            else:
-                import_mode = "append"
+            dialog.setLayout(main_layout)
 
-            # Perform import
-            self.perform_test_data_import(excel_file, import_mode, spending_df, paychecks_df, billpays_df, accounts_df, bills_df)
+            # Store references for import function
+            dialog.import_mode = None
+            dialog.should_import = False
+
+            def on_import():
+                if replace_radio.isChecked():
+                    dialog.import_mode = "replace"
+                elif merge_radio.isChecked():
+                    dialog.import_mode = "merge"
+                else:
+                    dialog.import_mode = "append"
+                dialog.should_import = True
+
+                # Disable mode selection and import button during import
+                replace_radio.setEnabled(False)
+                merge_radio.setEnabled(False)
+                append_radio.setEnabled(False)
+                import_button.setEnabled(False)
+                cancel_button.setText("Close")
+
+                # Start import
+                QTimer.singleShot(100, lambda: self.perform_test_data_import_with_dialog(
+                    excel_file, dialog.import_mode, spending_df, paychecks_df,
+                    billpays_df, accounts_df, bills_df, progress_bar, results_text, dialog
+                ))
+
+            def on_cancel():
+                if not dialog.should_import or results_text.isVisible():
+                    dialog.reject()
+
+            import_button.clicked.connect(on_import)
+            cancel_button.clicked.connect(on_cancel)
+
+            dialog.exec()
 
         except Exception as e:
             QMessageBox.critical(self, "Import Error", f"Error during import: {e}")
 
-    def perform_test_data_import(self, excel_file, import_mode, spending_df, paychecks_df, billpays_df, accounts_df, bills_df):
-        """Perform the actual data import with specified mode and pre-read DataFrames"""
-        from PyQt6.QtWidgets import QProgressDialog
-        from PyQt6.QtCore import Qt
-
-        # Create progress dialog
-        progress = QProgressDialog("Importing data...", "Cancel", 0, 100, self)
-        progress.setWindowTitle("Import Progress")
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(0)
-        progress.setValue(0)
+    def perform_test_data_import_with_dialog(self, excel_file, import_mode, spending_df, paychecks_df, billpays_df, accounts_df, bills_df, progress_bar, results_text, dialog):
+        """Perform the actual data import with integrated progress bar and results display"""
+        from PyQt6.QtCore import QCoreApplication
 
         try:
             import pandas as pd
@@ -1153,11 +1243,15 @@ class SettingsDialog(QDialog):
             transaction_manager = TransactionManager()
             paycheck_processor = PaycheckProcessor()
 
-            progress.setValue(10)
+            # Calculate total items for smooth progress updates
+            total_items = len(accounts_df) + len(bills_df) + len(paychecks_df) + len(spending_df) + len(billpays_df)
+            items_processed = 0
+
+            progress_bar.setValue(0)
+            QCoreApplication.processEvents()
 
             # Handle Replace mode: Clear all existing data
             if import_mode == "replace":
-                progress.setLabelText("Clearing existing data...")
                 try:
                     db.query(Transaction).delete()
                     db.query(Week).delete()
@@ -1183,10 +1277,7 @@ class SettingsDialog(QDialog):
                     key = (txn.date, txn.amount, txn.category or txn.bill_type or "")
                     existing_transactions.add(key)
 
-            progress.setValue(20)
-
             # Import accounts metadata FIRST
-            progress.setLabelText("Importing accounts metadata...")
             account_created = 0
             account_updated = 0
             account_skipped = 0
@@ -1237,12 +1328,15 @@ class SettingsDialog(QDialog):
                         new_account.initialize_history(db, starting_balance=starting_balance)
                         account_created += 1
 
+                    # Update progress
+                    items_processed += 1
+                    if total_items > 0:
+                        progress_bar.setValue(int((items_processed / total_items) * 100))
+                        QCoreApplication.processEvents()
+
                 db.commit()
 
-            progress.setValue(30)
-
             # Import bills metadata SECOND
-            progress.setLabelText("Importing bills metadata...")
             bill_created = 0
             bill_updated = 0
             bill_skipped = 0
@@ -1305,23 +1399,19 @@ class SettingsDialog(QDialog):
                         new_bill.initialize_history(db, starting_balance=starting_balance)
                         bill_created += 1
 
+                    # Update progress
+                    items_processed += 1
+                    if total_items > 0:
+                        progress_bar.setValue(int((items_processed / total_items) * 100))
+                        QCoreApplication.processEvents()
+
                 db.commit()
 
-            progress.setValue(40)
-
             # Import paychecks THIRD (creates Week records needed by transactions)
-            progress.setLabelText(f"Importing {len(paychecks_df)} paychecks...")
             paycheck_count = 0
             paycheck_skipped = 0
 
             for idx, row in paychecks_df.iterrows():
-                if progress.wasCanceled():
-                    transaction_manager.close()
-                    paycheck_processor.close()
-                    db.close()
-                    progress.close()
-                    return
-
                 if pd.isna(row["Start date"]) or pd.isna(row["Pay Date"]) or pd.isna(row["Amount.1"]):
                     continue
 
@@ -1341,21 +1431,19 @@ class SettingsDialog(QDialog):
                         paycheck_skipped += 1
                     continue
 
-            progress.setValue(55)
+                # Update progress
+                items_processed += 1
+                if total_items > 0:
+                    progress_bar.setValue(int((items_processed / total_items) * 100))
+                    if idx % 5 == 0:  # Process events every 5 paychecks to reduce overhead
+                        QCoreApplication.processEvents()
 
             # Import spending transactions FOURTH
-            progress.setLabelText(f"Importing {len(spending_df)} spending transactions...")
             transaction_count = 0
             transaction_skipped = 0
             negative_count = 0
 
             for idx, row in spending_df.iterrows():
-                if progress.wasCanceled():
-                    transaction_manager.close()
-                    paycheck_processor.close()
-                    db.close()
-                    progress.close()
-                    return
                 if pd.isna(row["Date"]) or pd.isna(row["Catigorie"]) or pd.isna(row["Amount"]):
                     continue
 
@@ -1396,10 +1484,14 @@ class SettingsDialog(QDialog):
                 except Exception as e:
                     continue
 
-            progress.setValue(75)
+                # Update progress
+                items_processed += 1
+                if total_items > 0:
+                    progress_bar.setValue(int((items_processed / total_items) * 100))
+                    if idx % 20 == 0:  # Process events every 20 transactions to reduce overhead
+                        QCoreApplication.processEvents()
 
             # Import bill payments FIFTH
-            progress.setLabelText(f"Importing {len(billpays_df)} bill payments...")
             billpay_count = 0
             billpay_skipped = 0
             unmatched_bills = set()
@@ -1463,12 +1555,19 @@ class SettingsDialog(QDialog):
                     except Exception as e:
                         continue
 
+                    # Update progress
+                    items_processed += 1
+                    if total_items > 0:
+                        progress_bar.setValue(int((items_processed / total_items) * 100))
+                        if idx % 10 == 0:  # Process events every 10 bill payments to reduce overhead
+                            QCoreApplication.processEvents()
+
             transaction_manager.close()
             paycheck_processor.close()
             db.close()
 
-            progress.setValue(100)
-            progress.close()
+            progress_bar.setValue(100)
+            QCoreApplication.processEvents()
 
             # Build success message
             mode_names = {"replace": "Replace", "merge": "Merge", "append": "Append"}
@@ -1505,13 +1604,18 @@ class SettingsDialog(QDialog):
                 for bill in sorted(unmatched_bills):
                     message += f"  - {bill}\n"
 
-            QMessageBox.information(self, "Import Successful", message)
+            # Show results in the dialog
+            results_text.setPlainText(message)
+            results_text.show()
             self.settings_saved.emit()
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            QMessageBox.critical(self, "Import Failed", f"Error during import: {e}")
+            error_msg = f"Error during import: {e}"
+            results_text.setPlainText(error_msg)
+            results_text.show()
+            progress_bar.setValue(0)
 
 
 def load_app_settings():
