@@ -348,11 +348,21 @@ class DashboardView(QWidget):
         
         self.init_ui()
 
-    def get_consistent_category_order(self):
+    def get_consistent_category_order(self, custom_order=None):
         """Get categories in consistent order for color assignment across all charts
 
+        This method determines the master ordering of categories which is used to assign
+        consistent colors across all dashboard charts (pie charts, stacked area, box plots, etc.)
+
+        Args:
+            custom_order: Optional list of category names in desired order. If provided and valid,
+                         this order will be used. If None, alphabetical order is used.
+                         Future enhancement: can be loaded from user settings/preferences.
+
         Returns:
-            list: [(category_name, total_amount), ...] sorted by spending amount (highest first)
+            list: [(category_name, total_amount), ...] sorted according to ordering method
+                  Currently: Alphabetical ordering (A-Z) for consistent user experience
+                  Future: Custom user-defined ordering when custom_order parameter is provided
         """
         if not self.transaction_manager:
             return []
@@ -368,8 +378,25 @@ class DashboardView(QWidget):
                 category = transaction.category or "Uncategorized"
                 category_spending[category] = category_spending.get(category, 0) + transaction.amount
 
-            # Sort by spending amount (highest first) - this is our master ordering
-            sorted_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)
+            # ORDERING LOGIC: Determines the master order for color assignment
+            # ================================================================
+
+            if custom_order is not None:
+                # Future enhancement: Use custom user-defined ordering
+                # Validate that custom_order contains valid categories
+                valid_custom_order = [cat for cat in custom_order if cat in category_spending]
+
+                # Add any categories not in custom_order (append alphabetically)
+                remaining_categories = sorted([cat for cat in category_spending.keys() if cat not in valid_custom_order])
+                valid_custom_order.extend(remaining_categories)
+
+                # Build result list with amounts in custom order
+                sorted_categories = [(cat, category_spending[cat]) for cat in valid_custom_order]
+            else:
+                # Default: Alphabetical ordering (A-Z)
+                # This provides consistent colors transaction-to-transaction regardless of spending changes
+                # Changed from spending-amount-based sorting to ensure visual consistency
+                sorted_categories = sorted(category_spending.items(), key=lambda x: x[0].lower())
 
             return sorted_categories
 
