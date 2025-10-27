@@ -119,6 +119,10 @@ dmypy.json
 *.swp
 *.swo
 
+# Claude AI settings
+.claude/
+claude-*/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -143,3 +147,7 @@ Thumbs.db
 *.tmp
 *.temp
 *~
+
+# Personal application settings and data
+app_settings.json
+TestData/
