@@ -196,8 +196,15 @@ class PieChartWidget(BaseChartWidget):
         self.transparent_background = transparent_background
         super().__init__(title, parent)
     
-    def update_data(self, data: dict, total_label: str = "Total"):
-        """Update pie chart with new data"""
+    def update_data(self, data: dict, total_label: str = "Total", highlight_category: str = None, custom_colors: list = None):
+        """Update pie chart with new data
+
+        Args:
+            data: dict of category -> amount
+            total_label: label for total display
+            highlight_category: category name to highlight (will explode and have thicker border)
+            custom_colors: list of hex colors to use instead of theme colors (for consistency)
+        """
         self.figure.clear()
         
         if not data or not any(data.values()):
@@ -213,12 +220,30 @@ class PieChartWidget(BaseChartWidget):
             # Prepare data
             labels = list(data.keys())
             sizes = list(data.values())
-            colors = theme_manager.get_chart_colors()[:len(labels)]
-            
+
+            # Use custom colors if provided, otherwise use theme colors
+            if custom_colors and len(custom_colors) >= len(labels):
+                colors = custom_colors[:len(labels)]
+            else:
+                colors = theme_manager.get_chart_colors()[:len(labels)]
+
+            # Prepare explode values for highlighting
+            explode = None
+            if highlight_category and highlight_category in labels:
+                # Create explode tuple - highlight the selected category
+                explode = [0.1 if label == highlight_category else 0 for label in labels]
+
             # Create pie chart without labels and percentages
             # When autopct=None, pie() only returns wedges and texts (2 values), not autotexts
-            wedges, texts = ax.pie(sizes, labels=None, colors=colors, 
-                                 autopct=None, startangle=90)
+            wedges, texts = ax.pie(sizes, labels=None, colors=colors,
+                                 explode=explode, autopct=None, startangle=90)
+
+            # Add thicker border to highlighted category
+            if highlight_category and highlight_category in labels:
+                highlight_index = labels.index(highlight_category)
+                if highlight_index < len(wedges):
+                    wedges[highlight_index].set_linewidth(3)
+                    wedges[highlight_index].set_edgecolor('#FFFFFF')  # White border for visibility
             
             
             # Store data for potential tooltips (basic implementation)
@@ -300,10 +325,10 @@ class LineChartWidget(BaseChartWidget):
                     import datetime
                     has_dates = len(x_vals) > 0 and isinstance(x_vals[0], (datetime.date, datetime.datetime))
                     
-                    # Main "Running Total" line gets full styling with markers
-                    if series_name == "Running Total":
-                        ax.plot(x_vals, y_vals, marker='o', label=series_name, 
-                               color=color, linewidth=2, markersize=4)
+                    # Main "Running Total" and "Bill Balance" lines get full styling with markers - thicker for bills
+                    if series_name == "Running Total" or series_name == "Bill Balance":
+                        ax.plot(x_vals, y_vals, marker='o', label=series_name,
+                               color=color, linewidth=3, markersize=4)
                     # Account Balance lines (savings accounts) get clean line style without markers
                     elif series_name == "Account Balance":
                         ax.plot(x_vals, y_vals, marker='', label=series_name, 
@@ -315,62 +340,109 @@ class LineChartWidget(BaseChartWidget):
                         ax.plot(x_vals, y_vals, marker='', label=series_name, 
                                color=secondary_color, linewidth=1, alpha=0.7)
                     
-                    # Format x-axis for dates (for Running Total and Account Balance)
-                    if has_dates and (series_name == "Running Total" or series_name == "Account Balance"):
+                    # Format x-axis for dates (for Running Total, Bill Balance, and Account Balance)
+                    if has_dates and (series_name == "Running Total" or series_name == "Bill Balance" or series_name == "Account Balance"):
                         import matplotlib.dates as mdates
                         
                         # Handle date formatting differently for each series type
                         if len(x_vals) > 1:
-                            if series_name == "Running Total":
-                                # Only show ticks where running total actually changes
-                                change_points = []
-                                change_dates = []
-                                
-                                for j in range(len(y_vals)):
-                                    if j == 0 or y_vals[j] != y_vals[j-1]:  # First point or value changed
-                                        change_points.append(j)
-                                        change_dates.append(x_vals[j])
-                                
-                                # Limit to max 100 ticks
-                                if len(change_dates) > 100:
-                                    step = len(change_dates) // 100
-                                    change_dates = change_dates[::step]
-                                
-                                # Set custom tick locations
-                                ax.set_xticks(change_dates)
+                            if series_name == "Running Total" or series_name == "Bill Balance":
+                                # Dynamic tick selection based on chart width
+                                chart_width_pixels = self.figure.get_figwidth() * self.figure.dpi
+                                max_ticks = max(10, min(30, int(chart_width_pixels // 50)))
+
+                                # Calculate time intervals
+                                from datetime import timedelta
+                                first_date = x_vals[0]
+                                last_date = x_vals[-1]
+                                total_days = (last_date - first_date).days
+
+                                if total_days > 0 and max_ticks > 1:
+                                    # Create evenly spaced target times
+                                    interval_days = total_days / (max_ticks - 1)
+                                    target_dates = []
+
+                                    for i in range(max_ticks):
+                                        target_date = first_date + timedelta(days=i * interval_days)
+                                        target_dates.append(target_date)
+
+                                    # Find closest actual data point to each target
+                                    selected_dates = []
+                                    for target_date in target_dates:
+                                        # Find closest date in x_vals
+                                        closest_date = min(x_vals, key=lambda d: abs((d - target_date).days))
+                                        if closest_date not in selected_dates:
+                                            selected_dates.append(closest_date)
+
+                                    # Ensure first and last dates are included
+                                    if first_date not in selected_dates:
+                                        selected_dates.insert(0, first_date)
+                                    if last_date not in selected_dates:
+                                        selected_dates.append(last_date)
+
+                                    # Set custom tick locations
+                                    ax.set_xticks(selected_dates)
+                                else:
+                                    # Single day or single tick - show all
+                                    ax.set_xticks(x_vals)
                             
                             elif series_name == "Account Balance":
-                                # For Account Balance, show evenly spaced dates
-                                # Show at most 20 ticks, evenly spaced
-                                if len(x_vals) > 20:
-                                    step = len(x_vals) // 20
-                                    tick_dates = x_vals[::step]
+                                # Dynamic tick selection based on chart width (same as Bill Balance)
+                                chart_width_pixels = self.figure.get_figwidth() * self.figure.dpi
+                                max_ticks = max(10, min(30, int(chart_width_pixels // 50)))
+
+                                # Calculate time intervals
+                                from datetime import timedelta
+                                first_date = x_vals[0]
+                                last_date = x_vals[-1]
+                                total_days = (last_date - first_date).days
+
+                                if total_days > 0 and max_ticks > 1:
+                                    # Create evenly spaced target times
+                                    interval_days = total_days / (max_ticks - 1)
+                                    target_dates = []
+
+                                    for i in range(max_ticks):
+                                        target_date = first_date + timedelta(days=i * interval_days)
+                                        target_dates.append(target_date)
+
+                                    # Find closest actual data point to each target
+                                    selected_dates = []
+                                    for target_date in target_dates:
+                                        # Find closest date in x_vals
+                                        closest_date = min(x_vals, key=lambda d: abs((d - target_date).days))
+                                        if closest_date not in selected_dates:
+                                            selected_dates.append(closest_date)
+
+                                    # Ensure first and last dates are included
+                                    if first_date not in selected_dates:
+                                        selected_dates.insert(0, first_date)
+                                    if last_date not in selected_dates:
+                                        selected_dates.append(last_date)
+
+                                    # Set custom tick locations
+                                    ax.set_xticks(selected_dates)
                                 else:
-                                    tick_dates = x_vals
-                                
-                                ax.set_xticks(tick_dates)
+                                    # Single day or single tick - show all
+                                    ax.set_xticks(x_vals)
                             
                             # Apply date formatting to both
-                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%Y'))
                             plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
                         else:
                             # Single point - just show that date
-                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%Y'))
                             plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-            
+
             # Clean formatting - no labels for savings charts
             if self.is_savings_rate_chart:
-                # Remove axis labels and legends for savings charts
-                
-                # Remove x-axis ticks for top savings chart but add vertical grid lines
-                if "1" in self.title:
-                    ax.set_xticks([])
-                    ax.grid(True, alpha=0.3, axis='y')  # Only horizontal grid lines
-                    ax.grid(True, alpha=0.2, axis='x')  # Light vertical grid lines
-                else:
-                    # Bottom chart keeps x-axis labels
-                    ax.grid(True, alpha=0.3)
-                    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+                # Remove axis labels and legends for dashboard savings charts
+                # These are for visual trends only, not detailed analysis
+
+                # Remove x-axis ticks from both charts but add grid lines
+                ax.set_xticks([])
+                ax.grid(True, alpha=0.3, axis='y')  # Only horizontal grid lines
+                ax.grid(True, alpha=0.2, axis='x')  # Light vertical grid lines
             else:
                 # Keep formatting for other line charts
                 ax.set_xlabel(xlabel)
@@ -660,12 +732,13 @@ class WeeklySpendingTrendWidget(BaseChartWidget):
         # Override figure settings for clean trend display
         self.figure.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.10)
     
-    def update_data(self, weekly_spending_data: dict):
+    def update_data(self, weekly_spending_data: dict, average_line_color: str = None):
         """Update with weekly spending data
-        
+
         Args:
-            weekly_spending_data: dict where keys are week identifiers and 
+            weekly_spending_data: dict where keys are week identifiers and
                                 values are lists of 7 daily amounts [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+            average_line_color: optional color for the average line (for category consistency)
         """
         self.figure.clear()
         
@@ -709,25 +782,31 @@ class WeeklySpendingTrendWidget(BaseChartWidget):
             if week_count > 0:
                 daily_averages = [total / week_count for total in daily_totals]
                 
-                # Get secondary color (warning/accent color)
-                secondary_color = theme_manager.get_color('warning')  # Usually orange/yellow
-                if not secondary_color or secondary_color == line_color:
-                    # Fallback to a different color if warning not available
-                    secondary_color = theme_manager.get_color('accent')
-                if not secondary_color or secondary_color == line_color:
-                    # Final fallback - use a contrasting color
-                    secondary_color = '#FFA500'  # Orange
-                
-                # Plot average line - thinner, 100% alpha, on top
-                ax.plot(x_values, daily_averages, color=secondary_color, alpha=1.0, 
-                       linewidth=1.0, linestyle='-', zorder=10)  # zorder puts it on top
+                # Use custom color if provided, otherwise use theme colors
+                if average_line_color:
+                    secondary_color = average_line_color
+                else:
+                    # Get secondary color (warning/accent color)
+                    secondary_color = theme_manager.get_color('warning')  # Usually orange/yellow
+                    if not secondary_color or secondary_color == line_color:
+                        # Fallback to a different color if warning not available
+                        secondary_color = theme_manager.get_color('accent')
+                    if not secondary_color or secondary_color == line_color:
+                        # Final fallback - use a contrasting color
+                        secondary_color = '#FFA500'  # Orange
+
+                # Plot average line - thicker to make it stand out, 100% alpha, on top
+                ax.plot(x_values, daily_averages, color=secondary_color, alpha=1.0,
+                       linewidth=2.0, linestyle='-', zorder=10)  # zorder puts it on top
             
             # Set up axes
             ax.set_xlim(-0.2, 6.2)  # Small padding on x-axis
             
             if all_amounts:
                 max_amount = max(all_amounts)
-                ax.set_ylim(0, max_amount * 1.05)  # 5% padding on top
+                # Ensure we have a reasonable y-axis range, minimum of 10
+                y_max = max(max_amount * 1.05, 10)
+                ax.set_ylim(0, y_max)
             else:
                 ax.set_ylim(0, 100)  # Default range
             
@@ -753,12 +832,14 @@ class BoxPlotWidget(BaseChartWidget):
         # Override figure settings for horizontal box plot
         self.figure.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.10)
     
-    def update_data(self, category_spending_data: dict):
+    def update_data(self, category_spending_data: dict, highlight_category: str = None, color_map: dict = None):
         """Update with category spending distributions
-        
+
         Args:
-            category_spending_data: dict where keys are category names and 
+            category_spending_data: dict where keys are category names and
                                   values are lists of spending amounts for that category
+            highlight_category: category name to highlight (will have different color and border)
+            color_map: dict mapping category names to colors (for consistency)
         """
         self.figure.clear()
         
@@ -773,24 +854,47 @@ class BoxPlotWidget(BaseChartWidget):
         else:
             ax = self.figure.add_subplot(111)
             
-            # Use ALL categories from the data (not hardcoded list)
-            # Sort by total spending to show most important categories first
-            category_totals = {cat: sum(amounts) for cat, amounts in category_spending_data.items()}
-            categories_with_data = sorted(category_totals.keys(), key=lambda x: category_totals[x], reverse=True)
+            # Keep the order from the data passed in (categories view will provide consistent ordering)
+            categories_with_data = list(category_spending_data.keys())
             chart_colors = theme_manager.get_chart_colors()
-            
+
+
             if categories_with_data:
                 # Prepare data for box plot
                 data_lists = []
                 colors = []
                 positions = []
-                
+
                 for i, category in enumerate(categories_with_data):
                     spending_amounts = [float(amount) for amount in category_spending_data[category] if amount > 0]
                     if spending_amounts:  # Only add if there's actual data
                         data_lists.append(spending_amounts)
-                        # Assign colors sequentially to all categories
-                        colors.append(chart_colors[i % len(chart_colors)])
+
+                        # Get the original category name (before shortening) for color lookup
+                        # This assumes category names were shortened from their original form
+                        original_category = None
+                        if color_map:
+                            # Try to find the original category name that matches this shortened one
+                            for orig_cat in color_map.keys():
+                                # Handle shortened names: "Entertainm..." should match "Entertainment"
+                                shortened_orig = orig_cat[:10] + "..." if len(orig_cat) > 10 else orig_cat
+                                if shortened_orig == category:
+                                    original_category = orig_cat
+                                    break
+                                if orig_cat == category:  # Exact match for short names
+                                    original_category = orig_cat
+                                    break
+
+                        # Assign colors using color map or fallback to theme colors (same color whether highlighted or not)
+                        if color_map and original_category and original_category in color_map:
+                            color = color_map[original_category]
+                            colors.append(color)
+                        else:
+                            # Fallback to old method
+                            color_index = i % len(chart_colors)
+                            actual_color = chart_colors[color_index]
+                            colors.append(actual_color)
+
                         positions.append(i)
                 
                 if data_lists:
@@ -798,11 +902,19 @@ class BoxPlotWidget(BaseChartWidget):
                     box_parts = ax.boxplot(data_lists, positions=positions, vert=False, 
                                          patch_artist=True, widths=0.6, showfliers=False)
                     
-                    # Color the boxes with category colors
-                    for patch, color in zip(box_parts['boxes'], colors):
+                    # Color the boxes with category colors and add highlighting
+                    for i, (patch, color) in enumerate(zip(box_parts['boxes'], colors)):
                         patch.set_facecolor(color)
-                        patch.set_alpha(0.7)  # Slight transparency
-                        patch.set_edgecolor(color)
+
+                        # Highlight the selected category with different styling
+                        category = categories_with_data[i] if i < len(categories_with_data) else None
+                        if category == highlight_category:
+                            patch.set_alpha(1.0)  # Full opacity for highlight
+                            patch.set_edgecolor('#FFFFFF')  # White border
+                            patch.set_linewidth(1.5)  # Thinner border to match thin boxes
+                        else:
+                            patch.set_alpha(0.7)  # Slight transparency for non-highlighted
+                            patch.set_edgecolor(color)
                     
                     # Style whiskers, caps, and medians with subtle color
                     # Use text_secondary or border color for whiskers instead of white
@@ -818,11 +930,22 @@ class BoxPlotWidget(BaseChartWidget):
                                 item.set_color(whisker_color)
                                 item.set_alpha(0.8)
                     
-                    # Set up axes
+                    # Set up axes based on box plot whiskers (excluding outliers)
                     if data_lists:
-                        all_amounts = [amount for sublist in data_lists for amount in sublist]
-                        max_amount = max(all_amounts)
-                        ax.set_xlim(0, max_amount * 1.05)  # Small padding
+                        # Calculate max whisker end for each category (Q3 + 1.5*IQR)
+                        import numpy as np
+                        max_whisker_ends = []
+
+                        for amounts in data_lists:
+                            q1, q3 = np.percentile(amounts, [25, 75])
+                            iqr = q3 - q1
+                            upper_whisker = q3 + 1.5 * iqr
+                            # Whisker end is the highest value within the whisker range
+                            whisker_end = max([x for x in amounts if x <= upper_whisker], default=q3)
+                            max_whisker_ends.append(whisker_end)
+
+                        max_whisker = max(max_whisker_ends) if max_whisker_ends else 100
+                        ax.set_xlim(0, max_whisker * 1.1)  # 10% padding beyond whiskers
                     
                     ax.set_ylim(-0.5, len(positions) - 0.5)
                     

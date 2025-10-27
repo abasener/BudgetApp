@@ -157,21 +157,24 @@ class AccountRowWidget(QWidget):
         self.see_history_button.setFixedWidth(120)
         self.see_history_button.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        # Style buttons
+        # Style buttons - subtle outlined style instead of solid color
         button_style = f"""
             QPushButton {{
-                background-color: {colors['primary']};
-                color: {colors['surface']};
-                border: none;
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+                border: 2px solid {colors['border']};
                 border-radius: 6px;
-                font-weight: bold;
+                font-weight: normal;
                 padding: 8px 16px;
             }}
             QPushButton:hover {{
-                background-color: {self.lighten_color(colors['primary'], 1.1)};
+                background-color: {colors['surface_variant']};
+                border-color: {colors['primary']};
+                color: {colors['primary']};
             }}
             QPushButton:pressed {{
-                background-color: {self.lighten_color(colors['primary'], 0.9)};
+                background-color: {colors['hover']};
+                border-color: {colors['primary']};
             }}
         """
         self.see_more_button.setStyleSheet(button_style)
@@ -329,24 +332,27 @@ class AccountRowWidget(QWidget):
                     }}
                 """)
             
-            # Update buttons
+            # Update buttons - subtle outlined style
             button_style = f"""
                 QPushButton {{
-                    background-color: {colors['primary']};
-                    color: {colors['surface']};
-                    border: none;
+                    background-color: {colors['background']};
+                    color: {colors['text_primary']};
+                    border: 2px solid {colors['border']};
                     border-radius: 6px;
-                    font-weight: bold;
+                    font-weight: normal;
                     padding: 8px 16px;
                 }}
                 QPushButton:hover {{
-                    background-color: {self.lighten_color(colors['primary'], 1.1)};
+                    background-color: {colors['surface_variant']};
+                    border-color: {colors['primary']};
+                    color: {colors['primary']};
                 }}
                 QPushButton:pressed {{
-                    background-color: {self.lighten_color(colors['primary'], 0.9)};
+                    background-color: {colors['hover']};
+                    border-color: {colors['primary']};
                 }}
             """
-            
+
             if hasattr(self, 'see_more_button'):
                 self.see_more_button.setStyleSheet(button_style)
             if hasattr(self, 'see_history_button'):
@@ -392,7 +398,7 @@ class AccountRowWidget(QWidget):
         try:
             # Goal progress bar
             if hasattr(self.account, 'goal_amount') and self.account.goal_amount > 0:
-                current_balance = getattr(self.account, 'running_total', 0)
+                current_balance = self.account.get_current_balance(self.transaction_manager.db)
                 goal_progress = min(100, (current_balance / self.account.goal_amount) * 100)
                 
                 self.goal_progress_bar.setValue(int(goal_progress))
@@ -404,15 +410,24 @@ class AccountRowWidget(QWidget):
             # Auto-save progress bar (show auto-save amount as % of goal or fixed amount)
             auto_save_amount = getattr(self.account, 'auto_save_amount', 0)
             if auto_save_amount > 0:
+                # Check if this is a percentage-based auto-save
+                is_percentage_auto_save = auto_save_amount < 1.0 and auto_save_amount > 0
+
                 if hasattr(self.account, 'goal_amount') and self.account.goal_amount > 0:
                     # Show auto-save as percentage of goal
                     auto_save_progress = min(100, (auto_save_amount / self.account.goal_amount) * 100)
                     self.auto_save_progress_bar.setValue(int(auto_save_progress))
-                    self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
+                    if is_percentage_auto_save:
+                        self.auto_save_progress_bar.setFormat(f"{auto_save_amount*100:.1f}%")
+                    else:
+                        self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
                 else:
                     # Show fixed amount (since no goal to compare against)
                     self.auto_save_progress_bar.setValue(50)  # Arbitrary visual
-                    self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
+                    if is_percentage_auto_save:
+                        self.auto_save_progress_bar.setFormat(f"{auto_save_amount*100:.1f}%")
+                    else:
+                        self.auto_save_progress_bar.setFormat(f"${auto_save_amount:.0f}")
             else:
                 self.auto_save_progress_bar.setValue(0)
                 self.auto_save_progress_bar.setFormat("None")
@@ -425,73 +440,105 @@ class AccountRowWidget(QWidget):
             self.auto_save_progress_bar.setFormat("Error")
     
     def update_line_chart(self):
-        """Update the account balance line chart using balance history arrays"""
+        """Update the account balance line chart using AccountHistory data"""
         try:
-            # Get balance history array from account
-            balance_history = self.account.get_balance_history_copy()
-            if not balance_history:
-                # No balance history - show current balance as flat line
-                current_balance = getattr(self.account, 'running_total', 0)
-                from datetime import date
-                today = date.today()
-                chart_data = {"Account Balance": [(today, current_balance)]}
+            # Get AccountHistory entries directly from the database
+            from models.account_history import AccountHistoryManager
+            from datetime import timedelta
+
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.account.id, "savings")
+
+            if not account_history:
+                # No account history - show "No data" message
+                chart_data = {}
                 self.balance_chart.update_data(chart_data, "", "")
                 return
 
-            # Get all weeks to create date labels for the balance history
-            all_weeks = self.transaction_manager.get_all_weeks()
-            if not all_weeks:
-                # No weeks - just show current balance
-                current_balance = getattr(self.account, 'running_total', 0)
-                from datetime import date
-                today = date.today()
-                chart_data = {"Account Balance": [(today, current_balance)]}
-                self.balance_chart.update_data(chart_data, "", "")
-                return
+            # Find starting balance entry and transaction entries
+            starting_balance_entry = None
+            transaction_entries = []
 
-            # Sort weeks chronologically
-            all_weeks.sort(key=lambda w: w.start_date)
-
-            # Group weeks into bi-weekly periods for date labels
-            bi_weekly_periods = []
-            for i in range(0, len(all_weeks), 2):
-                if i + 1 < len(all_weeks):
-                    # Full bi-weekly period (Week 1 + Week 2)
-                    week1 = all_weeks[i]
-                    week2 = all_weeks[i + 1]
-                    bi_weekly_periods.append((week1, week2))
+            for entry in account_history:
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    starting_balance_entry = entry
                 else:
-                    # Incomplete period (only Week 1)
-                    bi_weekly_periods.append((all_weeks[i], None))
+                    transaction_entries.append(entry)
 
-            # Build balance points from balance history array
-            # balance_history[0] = starting balance
-            # balance_history[1] = end of pay period 1
-            # balance_history[2] = end of pay period 2, etc.
+            # If we have transactions before the starting balance date, move starting balance back
+            if starting_balance_entry and transaction_entries:
+                earliest_transaction_date = min(entry.transaction_date for entry in transaction_entries)
+
+                if starting_balance_entry.transaction_date >= earliest_transaction_date:
+                    # Move starting balance to day before earliest transaction
+                    new_start_date = earliest_transaction_date - timedelta(days=1)
+                    starting_balance_entry.transaction_date = new_start_date
+                    self.transaction_manager.db.flush()
+
+            # Build balance points from AccountHistory, excluding starting balance from plot
             balance_points = []
+            for entry in account_history:
+                # Skip starting balance entry - don't plot it
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    continue
+                balance_points.append((entry.transaction_date, entry.running_total))
 
-            # Start from balance_history[1] (end of first pay period) since index 0 is starting balance
-            for period_idx in range(1, len(balance_history)):
-                # Get the date for this pay period's end
-                pay_period_num = period_idx  # 1-based pay period number
+            # Apply time frame filter from settings
+            from views.dialogs.settings_dialog import get_setting
+            from datetime import datetime, date as date_type
 
-                # Find the corresponding bi-weekly period (0-based)
-                if pay_period_num - 1 < len(bi_weekly_periods):
-                    week1, week2 = bi_weekly_periods[pay_period_num - 1]
-                    period_end_date = week2.end_date if week2 else week1.end_date
-                    balance_value = balance_history[period_idx]
+            time_frame_filter = get_setting("time_frame_filter", "All Time")
 
-                    balance_points.append((period_end_date, balance_value))
+            if time_frame_filter != "All Time" and balance_points:
+                today = date_type.today()
 
-            print(f"DEBUG: {self.account.name} - Using balance history with {len(balance_history)} entries")
-            print(f"DEBUG: {self.account.name} - Created {len(balance_points)} chart points")
+                if time_frame_filter == "Last Year":
+                    cutoff_date = today - timedelta(days=365)
+                    balance_points = [(d, v) for d, v in balance_points if d >= cutoff_date]
+                elif time_frame_filter == "Last Month":
+                    cutoff_date = today - timedelta(days=30)
+                    balance_points = [(d, v) for d, v in balance_points if d >= cutoff_date]
+                elif time_frame_filter == "Last 20 Entries":
+                    # Take last 20 entries
+                    balance_points = balance_points[-20:]
 
-            # If more than 20 periods of history, show the most recent 20
-            if len(balance_points) > 20:
-                balance_points = balance_points[-20:]
+            # Legacy fallback: If more than 50 entries and no time filter, show the most recent 50 for performance
+            if time_frame_filter == "All Time" and len(balance_points) > 50:
+                balance_points = balance_points[-50:]
 
             # Build chart data
             chart_data = {"Account Balance": balance_points} if balance_points else {}
+
+            # Check if this is a percentage-based auto-save account (auto_save_amount < 1.0)
+            is_percentage_auto_save = (hasattr(self.account, 'auto_save_amount') and
+                                     self.account.auto_save_amount < 1.0 and
+                                     self.account.auto_save_amount > 0)
+
+            if is_percentage_auto_save and balance_points:
+                # For percentage auto-save accounts, add paycheck amounts and percentage calculations
+                from models.transactions import Transaction, TransactionType
+
+                # Get income transactions (paychecks) in the same date range as balance points
+                first_date = balance_points[0][0]
+                last_date = balance_points[-1][0]
+
+                income_transactions = self.transaction_manager.db.query(Transaction).filter(
+                    Transaction.transaction_type == TransactionType.INCOME.value,
+                    Transaction.date >= first_date,
+                    Transaction.date <= last_date
+                ).order_by(Transaction.date).all()
+
+                if income_transactions:
+                    # Plot paycheck amounts
+                    paycheck_points = [(tx.date, tx.amount) for tx in income_transactions]
+                    chart_data["Paycheck Amount"] = paycheck_points
+
+                    # Plot expected percentage amounts (paycheck × percentage)
+                    percentage_points = [
+                        (tx.date, tx.amount * self.account.auto_save_amount)
+                        for tx in income_transactions
+                    ]
+                    chart_data[f"Expected {self.account.auto_save_amount*100:.1f}%"] = percentage_points
 
             # Add goal line if goal is set and we have data points
             if (hasattr(self.account, 'goal_amount') and self.account.goal_amount and
@@ -504,7 +551,7 @@ class AccountRowWidget(QWidget):
                 ]
                 chart_data["Goal"] = goal_points
 
-            # Update chart
+            # Update chart with date on X-axis, running total on Y-axis
             self.balance_chart.update_data(chart_data, "", "")  # No x/y labels for cleaner look
 
         except Exception as e:
@@ -521,7 +568,7 @@ class AccountRowWidget(QWidget):
             self.writeup_labels["name"].setText(self.account.name)
             
             # Current Balance
-            current_balance = getattr(self.account, 'running_total', 0)
+            current_balance = self.account.get_current_balance(self.transaction_manager.db)
             self.writeup_labels["current_balance"].setText(f"${current_balance:.2f}")
             
             # Goal Amount
@@ -541,10 +588,17 @@ class AccountRowWidget(QWidget):
             else:
                 self.writeup_labels["goal_remaining"].setText("N/A")
             
-            # Auto-Save Amount
+            # Auto-Save Amount - handle percentage vs dollar display
             auto_save_amount = getattr(self.account, 'auto_save_amount', 0)
             if auto_save_amount > 0:
-                self.writeup_labels["auto_save_amount"].setText(f"${auto_save_amount:.2f} per paycheck")
+                # Check if this is a percentage-based auto-save
+                if auto_save_amount < 1.0 and auto_save_amount > 0:
+                    # Show as percentage (0.1 = 10%)
+                    percentage = auto_save_amount * 100
+                    self.writeup_labels["auto_save_amount"].setText(f"{percentage:.1f}% per paycheck")
+                else:
+                    # Show as dollar amount
+                    self.writeup_labels["auto_save_amount"].setText(f"${auto_save_amount:.2f} per paycheck")
             else:
                 self.writeup_labels["auto_save_amount"].setText("Not configured")
             

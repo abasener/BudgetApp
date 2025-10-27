@@ -1,147 +1,141 @@
 """
-Account models
+Savings Account models
+Now uses AccountHistory for balance tracking instead of manual running_total and balance_history arrays
 """
 
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from models.database import Base
 from typing import List, Optional
 
 
 class Account(Base):
+    """
+    Savings Account model for goal-oriented saving
+    Balance is now tracked through AccountHistory entries instead of running_total
+    """
     __tablename__ = "accounts"
-    
+
     id = Column(Integer, primary_key=True, index=True)
+
+    # === Account definition fields ===
     name = Column(String, unique=True, nullable=False)
-    running_total = Column(Float, default=0.0)
-    is_default_save = Column(Boolean, default=False)
+    is_default_save = Column(Boolean, default=False)  # Default target for rollover surpluses/deficits
+
+    # === Goal tracking fields ===
     goal_amount = Column(Float, default=0.0)  # 0 means no goal set
     auto_save_amount = Column(Float, default=0.0)  # Amount to auto-save each paycheck (after bills)
-    balance_history = Column(JSON, default=list)  # Historical balance tracking: [start, end_period1, end_period2, ...]
+
+    # === Timestamps ===
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-    
+
+    # === Relationships ===
+    # Back-reference to transactions related to this account
+    transactions = relationship("Transaction", foreign_keys="Transaction.account_id", back_populates="account")
+
     def __repr__(self):
+        current_balance = self.get_current_balance()
         goal_text = f", goal=${self.goal_amount:.2f}" if self.goal_amount > 0 else ""
-        return f"<Account(name='{self.name}', balance=${self.running_total:.2f}{goal_text})>"
-    
+        return f"<Account(name='{self.name}', balance=${current_balance:.2f}{goal_text})>"
+
+    def get_current_balance(self, db_session=None) -> float:
+        """
+        Get current balance from AccountHistory
+        Returns the current balance for this savings account
+        """
+        if db_session is None:
+            from models import get_db
+            db_session = get_db()
+
+        from models.account_history import AccountHistoryManager
+        history_manager = AccountHistoryManager(db_session)
+
+        try:
+            return history_manager.get_current_balance(self.id, "savings")
+        except Exception:
+            return 0.0  # Return 0 if no history exists yet
+
+    def get_account_history(self, db_session=None):
+        """Get complete transaction history for this savings account"""
+        if db_session is None:
+            from models import get_db
+            db_session = get_db()
+
+        from models.account_history import AccountHistoryManager
+        history_manager = AccountHistoryManager(db_session)
+
+        return history_manager.get_account_history(self.id, "savings")
+
+    def initialize_history(self, db_session=None, starting_balance: float = 0.0, start_date=None):
+        """Initialize AccountHistory for this savings account"""
+        if db_session is None:
+            from models import get_db
+            db_session = get_db()
+
+        from models.account_history import AccountHistoryManager
+        history_manager = AccountHistoryManager(db_session)
+
+        return history_manager.initialize_account_history(
+            account_id=self.id,
+            account_type="savings",
+            starting_balance=starting_balance,
+            start_date=start_date
+        )
+
+    # === Goal tracking properties ===
     @property
-    def goal_progress_percent(self):
+    def goal_progress_percent(self) -> float:
         """Calculate progress toward goal as percentage"""
         if self.goal_amount <= 0:
-            return 0
-        return min(100, (self.running_total / self.goal_amount) * 100)
-    
+            return 0.0
+
+        current_balance = self.get_current_balance()
+        return min(100.0, (current_balance / self.goal_amount) * 100.0)
+
     @property
-    def goal_remaining(self):
+    def goal_remaining(self) -> float:
         """Calculate amount remaining to reach goal"""
         if self.goal_amount <= 0:
-            return 0
-        return max(0, self.goal_amount - self.running_total)
+            return 0.0
 
-    # Balance History Methods
-    def initialize_balance_history(self, starting_balance: float = None):
-        """Initialize balance history with starting balance"""
-        if starting_balance is None:
-            starting_balance = self.running_total
+        current_balance = self.get_current_balance()
+        return max(0.0, self.goal_amount - current_balance)
 
-        self.balance_history = [starting_balance]
-        self.updated_at = func.now()
+    @property
+    def is_goal_reached(self) -> bool:
+        """Returns True if goal has been reached or exceeded"""
+        if self.goal_amount <= 0:
+            return False  # No goal set
 
-    def append_period_balance(self, new_balance: float):
-        """Add balance at end of pay period"""
-        if self.balance_history is None:
-            self.balance_history = []
+        return self.get_current_balance() >= self.goal_amount
 
-        # Ensure we have the history list
-        history = list(self.balance_history) if self.balance_history else []
-        history.append(new_balance)
+    @property
+    def goal_excess(self) -> float:
+        """Returns amount saved beyond the goal (0 if goal not reached)"""
+        if self.goal_amount <= 0:
+            return 0.0
 
-        self.balance_history = history
-        self.running_total = new_balance  # Keep running_total in sync
-        self.updated_at = func.now()
+        current_balance = self.get_current_balance()
+        return max(0.0, current_balance - self.goal_amount)
 
-    def update_historical_balance(self, period_index: int, new_balance: float):
-        """Update specific period balance and propagate changes to subsequent periods"""
-        if self.balance_history is None or period_index >= len(self.balance_history):
-            return False
+    # === Backward compatibility properties ===
+    @property
+    def running_total(self) -> float:
+        """
+        Backward compatibility property
+        Returns current balance from AccountHistory
+        """
+        return self.get_current_balance()
 
-        history = list(self.balance_history)
-        old_balance = history[period_index]
-        difference = new_balance - old_balance
+    @running_total.setter
+    def running_total(self, value: float):
+        """
+        Backward compatibility setter
+        This should not be used in new code - balance changes should go through AccountHistory
+        """
+        # For now, just ignore direct running_total assignments
+        # In production, we might want to log a warning or raise an exception
+        pass
 
-        # Update the target period and all subsequent periods
-        for i in range(period_index, len(history)):
-            history[i] += difference
-
-        self.balance_history = history
-
-        # Update running_total if we modified the last period
-        if period_index == len(history) - 1:
-            self.running_total = new_balance
-        else:
-            self.running_total = history[-1]
-
-        self.updated_at = func.now()
-        return True
-
-    def get_balance_at_period(self, period_index: int) -> Optional[float]:
-        """Retrieve balance for specific period (0 = starting balance)"""
-        if self.balance_history is None or period_index >= len(self.balance_history):
-            return None
-
-        return self.balance_history[period_index]
-
-    def get_period_count(self) -> int:
-        """Get number of periods tracked (length of history - 1)"""
-        if self.balance_history is None:
-            return 0
-
-        return max(0, len(self.balance_history) - 1)
-
-    def get_balance_history_copy(self) -> List[float]:
-        """Get a copy of the balance history array"""
-        if self.balance_history is None:
-            return []
-
-        return list(self.balance_history)
-
-    def update_balance_with_transaction(self, transaction_amount: float, pay_period_index: int):
-        """Update balance and propagate changes through balance history"""
-
-        # Update the running total first
-        self.running_total += transaction_amount
-
-        # Ensure balance history exists and has enough entries
-        if self.balance_history is None:
-            self.balance_history = []
-
-        history = list(self.balance_history)
-
-        # Ensure we have enough history entries up to the pay period
-        while len(history) <= pay_period_index:
-            # Extend history with current balance (before this transaction)
-            previous_balance = history[-1] if history else (self.running_total - transaction_amount)
-            history.append(previous_balance)
-
-        # Update the target pay period and all subsequent periods
-        for i in range(pay_period_index, len(history)):
-            history[i] += transaction_amount
-
-        self.balance_history = history
-        self.updated_at = func.now()
-
-    def ensure_history_length(self, required_length: int):
-        """Ensure balance history has at least the required number of entries"""
-        if self.balance_history is None:
-            self.balance_history = []
-
-        history = list(self.balance_history)
-
-        # If we need more entries, extend with current balance
-        while len(history) < required_length:
-            current_balance = history[-1] if history else self.running_total
-            history.append(current_balance)
-
-        self.balance_history = history
-        self.updated_at = func.now()

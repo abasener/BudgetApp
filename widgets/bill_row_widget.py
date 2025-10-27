@@ -152,21 +152,24 @@ class BillRowWidget(QWidget):
         self.see_history_button.setFixedWidth(120)  # Fixed width for buttons
         self.see_history_button.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        # Style buttons
+        # Style buttons - subtle outlined style instead of solid color
         button_style = f"""
             QPushButton {{
-                background-color: {colors['primary']};
-                color: {colors['surface']};
-                border: none;
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+                border: 2px solid {colors['border']};
                 border-radius: 6px;
-                font-weight: bold;
+                font-weight: normal;
                 padding: 8px 16px;
             }}
             QPushButton:hover {{
-                background-color: {self.lighten_color(colors['primary'], 1.1)};
+                background-color: {colors['surface_variant']};
+                border-color: {colors['primary']};
+                color: {colors['primary']};
             }}
             QPushButton:pressed {{
-                background-color: {self.lighten_color(colors['primary'], 0.9)};
+                background-color: {colors['hover']};
+                border-color: {colors['primary']};
             }}
         """
         self.see_more_button.setStyleSheet(button_style)
@@ -324,24 +327,27 @@ class BillRowWidget(QWidget):
                     }}
                 """)
             
-            # Update buttons
+            # Update buttons - subtle outlined style
             button_style = f"""
                 QPushButton {{
-                    background-color: {colors['primary']};
-                    color: {colors['surface']};
-                    border: none;
+                    background-color: {colors['background']};
+                    color: {colors['text_primary']};
+                    border: 2px solid {colors['border']};
                     border-radius: 6px;
-                    font-weight: bold;
+                    font-weight: normal;
                     padding: 8px 16px;
                 }}
                 QPushButton:hover {{
-                    background-color: {self.lighten_color(colors['primary'], 1.1)};
+                    background-color: {colors['surface_variant']};
+                    border-color: {colors['primary']};
+                    color: {colors['primary']};
                 }}
                 QPushButton:pressed {{
-                    background-color: {self.lighten_color(colors['primary'], 0.9)};
+                    background-color: {colors['hover']};
+                    border-color: {colors['primary']};
                 }}
             """
-            
+
             if hasattr(self, 'see_more_button'):
                 self.see_more_button.setStyleSheet(button_style)
             if hasattr(self, 'see_history_button'):
@@ -420,7 +426,7 @@ class BillRowWidget(QWidget):
             
             # Savings progress bar
             typical_amount = getattr(self.bill, 'typical_amount', 1)
-            current_saved = getattr(self.bill, 'running_total', 0)
+            current_saved = self.bill.get_current_balance(self.transaction_manager.db)
             
             if typical_amount > 0:
                 savings_progress = min(100, (current_saved / typical_amount) * 100)
@@ -438,86 +444,123 @@ class BillRowWidget(QWidget):
             self.savings_progress_bar.setFormat("0%")
     
     def update_line_chart(self):
-        """Update the running total line chart (enhanced for percentage bills)"""
+        """Update the bill balance line chart using AccountHistory data"""
         try:
-            # Check if this is a percentage-based bill (amount_to_save < 1)
-            is_percentage_bill = getattr(self.bill, 'amount_to_save', 0) < 1.0 and getattr(self.bill, 'amount_to_save', 0) > 0
-            
-            # Get bill history data
-            all_transactions = self.transaction_manager.get_all_transactions()
-            
-            # Filter transactions for this bill
-            bill_transactions = []
-            for transaction in all_transactions:
-                if (hasattr(transaction, 'bill_id') and transaction.bill_id == self.bill.id) or \
-                   (hasattr(transaction, 'bill_type') and transaction.bill_type == self.bill.name):
-                    bill_transactions.append(transaction)
-            
-            if not bill_transactions:
-                # No transaction history - show only current balance
-                current_total = getattr(self.bill, 'running_total', 0)
+            # Get AccountHistory entries directly for this bill
+            from models.account_history import AccountHistoryManager
+            from datetime import timedelta
+
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.bill.id, "bill")
+
+            if not account_history:
+                # No account history - show current balance as flat line
+                current_balance = self.bill.get_current_balance(self.transaction_manager.db)
                 from datetime import date
                 today = date.today()
-                chart_data = {"Running Total": [(today, current_total)]}
-                
-                # For percentage bills with no transaction data, we can't show meaningful secondary lines
-                # because we need actual paycheck data to show real relationships
-                
-            else:
-                # Sort by date and calculate running totals using REAL DATA
-                bill_transactions.sort(key=lambda t: t.date)
-                
-                running_total = 0
-                running_total_points = []
-                weekly_saved_points = []
-                weekly_paycheck_points = []
-                
-                # Get income transactions (paychecks) from the same time periods
-                income_transactions = [t for t in all_transactions if t.transaction_type == "income"]
-                income_by_date = {t.date: t.amount for t in income_transactions}
-                
-                for transaction in bill_transactions[-20:]:  # Last 20 transactions
-                    transaction_date = transaction.date
-                    
-                    if transaction.transaction_type == "saving":
-                        running_total += transaction.amount
-                        
-                        # For percentage bills, find the corresponding paycheck
-                        if is_percentage_bill:
-                            weekly_saved_amount = transaction.amount
-                            
-                            # Look for income transaction on the same date (paycheck day)
-                            paycheck_amount = income_by_date.get(transaction_date, None)
-                            
-                            if paycheck_amount:
-                                # Use REAL paycheck data
-                                weekly_saved_points.append((transaction_date, weekly_saved_amount))
-                                weekly_paycheck_points.append((transaction_date, paycheck_amount))
-                            else:
-                                # Calculate implied paycheck from percentage (backup method)
-                                if self.bill.amount_to_save > 0:
-                                    implied_paycheck = weekly_saved_amount / self.bill.amount_to_save
-                                    weekly_saved_points.append((transaction_date, weekly_saved_amount))
-                                    weekly_paycheck_points.append((transaction_date, implied_paycheck))
-                            
-                    elif transaction.transaction_type == "bill_pay":
-                        running_total -= transaction.amount
-                    
-                    running_total_points.append((transaction_date, running_total))
-                
-                # Build chart data with REAL DATES
-                chart_data = {"Running Total": running_total_points}
-                
-                # Add secondary lines for percentage bills (ONLY REAL DATA)
-                if is_percentage_bill:
-                    if weekly_saved_points:
-                        chart_data["Weekly Saved"] = weekly_saved_points
-                    if weekly_paycheck_points:
-                        chart_data["Weekly Paycheck"] = weekly_paycheck_points
-            
-            # Update chart with date-based x-axis
-            self.running_total_chart.update_data(chart_data, "", "")  # No x/y labels for cleaner look
-            
+                chart_data = {"Bill Balance": [(today, current_balance)]}
+                self.running_total_chart.update_data(chart_data, "", "")
+                return
+
+            # Find starting balance entry and transaction entries
+            starting_balance_entry = None
+            transaction_entries = []
+
+            for entry in account_history:
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    starting_balance_entry = entry
+                else:
+                    transaction_entries.append(entry)
+
+            # If we have transactions before the starting balance date, move starting balance back
+            if starting_balance_entry and transaction_entries:
+                earliest_transaction_date = min(entry.transaction_date for entry in transaction_entries)
+
+                if starting_balance_entry.transaction_date >= earliest_transaction_date:
+                    # Move starting balance to day before earliest transaction
+                    new_start_date = earliest_transaction_date - timedelta(days=1)
+                    starting_balance_entry.transaction_date = new_start_date
+                    self.transaction_manager.db.flush()
+
+            # Build balance points from AccountHistory, excluding starting balance from plot
+            balance_points = []
+            for entry in account_history:
+                # Skip starting balance entry - don't plot it
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    continue
+                balance_points.append((entry.transaction_date, entry.running_total))
+
+            # Apply time frame filter from settings
+            from views.dialogs.settings_dialog import get_setting
+            from datetime import datetime, date as date_type
+
+            time_frame_filter = get_setting("time_frame_filter", "All Time")
+
+            if time_frame_filter != "All Time" and balance_points:
+                today = date_type.today()
+
+                if time_frame_filter == "Last Year":
+                    cutoff_date = today - timedelta(days=365)
+                    balance_points = [(d, v) for d, v in balance_points if d >= cutoff_date]
+                elif time_frame_filter == "Last Month":
+                    cutoff_date = today - timedelta(days=30)
+                    balance_points = [(d, v) for d, v in balance_points if d >= cutoff_date]
+                elif time_frame_filter == "Last 20 Entries":
+                    # Take last 20 entries
+                    balance_points = balance_points[-20:]
+
+            # Legacy fallback: If more than 50 entries and no time filter, show the most recent 50 for performance
+            if time_frame_filter == "All Time" and len(balance_points) > 50:
+                balance_points = balance_points[-50:]
+
+            # Build chart data
+            chart_data = {"Bill Balance": balance_points} if balance_points else {}
+
+            # Check if this is a percentage-based bill (amount_to_save < 1.0)
+            is_percentage_bill = (hasattr(self.bill, 'amount_to_save') and
+                                self.bill.amount_to_save < 1.0 and
+                                self.bill.amount_to_save > 0)
+
+            if is_percentage_bill and balance_points:
+                # For percentage bills, add paycheck amounts and percentage calculations
+                from models.transactions import Transaction, TransactionType
+
+                # Get income transactions (paychecks) in the same date range as balance points
+                first_date = balance_points[0][0]
+                last_date = balance_points[-1][0]
+
+                income_transactions = self.transaction_manager.db.query(Transaction).filter(
+                    Transaction.transaction_type == TransactionType.INCOME.value,
+                    Transaction.date >= first_date,
+                    Transaction.date <= last_date
+                ).order_by(Transaction.date).all()
+
+                if income_transactions:
+                    # Plot paycheck amounts
+                    paycheck_points = [(tx.date, tx.amount) for tx in income_transactions]
+                    chart_data["Paycheck Amount"] = paycheck_points
+
+                    # Plot expected percentage amounts (paycheck × percentage)
+                    percentage_points = [
+                        (tx.date, tx.amount * self.bill.amount_to_save)
+                        for tx in income_transactions
+                    ]
+                    chart_data[f"Expected {self.bill.amount_to_save*100:.1f}%"] = percentage_points
+
+            # Add goal line if typical amount is set and we have data points
+            if (hasattr(self.bill, 'typical_amount') and self.bill.typical_amount and
+                self.bill.typical_amount > 0 and balance_points):
+                first_date = balance_points[0][0]
+                last_date = balance_points[-1][0]
+                goal_points = [
+                    (first_date, self.bill.typical_amount),
+                    (last_date, self.bill.typical_amount)
+                ]
+                chart_data["Payment Goal"] = goal_points
+
+            # Update chart with date on X-axis, running total on Y-axis (with dots like bills should have)
+            self.running_total_chart.update_data(chart_data, "", "")
+
         except Exception as e:
             print(f"Error updating line chart for {self.bill.name}: {e}")
             import traceback
@@ -535,7 +578,7 @@ class BillRowWidget(QWidget):
             self.writeup_labels["name"].setText(self.bill.name)
             
             # Current Balance
-            current_balance = getattr(self.bill, 'running_total', 0)
+            current_balance = self.bill.get_current_balance(self.transaction_manager.db)
             self.writeup_labels["current_balance"].setText(f"${current_balance:.2f}")
             
             # Expected Payment - different for percentage bills

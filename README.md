@@ -9,6 +9,15 @@ A comprehensive desktop budget tracking application built with PyQt6 and matplot
 - **Dynamic Metrics Cards**: Weekly status, account balances, and bill tracking
 - **Category Color Key**: Consistent color coding across all charts
 - **Hour Calculator**: Built-in tool for freelance/hourly work planning
+- **Time Frame Filtering**: View data for All Time, Last Year, Last Month, or Last 20 Entries
+
+### 📅 Year Overview
+- **Year Boxes**: Annual breakdown showing Income, Spent, Bills, Saving with YoY comparisons
+- **Monthly Trends**: Line plot showing average activity per month across all years
+- **Distribution Analysis**: Pie chart + violin plots showing spending patterns
+- **Correlation Analysis**: Scatter plots showing Income vs Spending/Bills/Savings with regression
+- **Year-by-Year Plots**: Smooth spline curves tracking Income, Spending, Bills, Savings over time
+- **Analytics Toggle**: Filter abnormal spending across all visualizations
 
 ### 📈 Advanced Analytics
 - **Spending Trends**: Line charts showing spending patterns over time
@@ -127,10 +136,29 @@ Choose from 5 carefully crafted themes:
 
 ## 🚧 Development Status
 
-**Current Version**: Active Development  
-**Status**: Feature-complete core with ongoing enhancements  
-**Next Release**: Enhanced chart areas and additional financial insights
+**Current Version**: V2.0 Active Development
+**Status**: Feature-complete core with ongoing enhancements
+**Latest Updates** (2024-10-22):
+- ✅ **Year Overview Tab - COMPLETE**: 10 comprehensive visualizations for year-over-year analysis
+  * Monthly line plot showing average financial activity
+  * Pie chart with analytics-aware percentage calculation
+  * Violin plots showing transaction distribution patterns
+  * Correlation scatter plots (Income vs Spending/Bills/Savings with β values)
+  * 4 year-by-year line plots with smooth spline curves
+  * 3-day bucketing for savings to reduce noise
+  * Per-month averaging (not per-year) for accurate seasonal trends
+- ✅ **Analytics Toggle Integration**: Normal spending filter across all visualizations
+- ✅ **Smart Pie Chart Math**: Percentages calculate as % of (income - abnormal spending) when filtered
+- See ReadMe2.txt for complete technical documentation
+
+**Next Priorities**: Additional analytics features, seasonal pattern analysis
 
 ---
 
 *Built with ❤️ for personal financial management and data-driven budgeting*
+
+**For detailed technical documentation**, see [ReadMe2.txt](ReadMe2.txt) which contains:
+- Complete rollover system specification
+- AccountHistory auto-update mechanism
+- Week calculation formulas with examples
+- Critical bug fixes and prevention guidelines

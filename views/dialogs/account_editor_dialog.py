@@ -51,17 +51,28 @@ class AccountEditorDialog(QDialog):
         self.name_edit = QLineEdit()
         fields_layout.addRow("Name:", self.name_edit)
         
-        # Current balance with caution note
+        # Starting amount (editable)
+        starting_layout = QHBoxLayout()
+        self.starting_amount_spin = QDoubleSpinBox()
+        self.starting_amount_spin.setRange(0, 999999.99)
+        self.starting_amount_spin.setDecimals(2)
+        self.starting_amount_spin.setSuffix(" $")
+        starting_layout.addWidget(self.starting_amount_spin)
+
+        starting_note = QLabel("(initial balance when account was created)")
+        starting_note.setStyleSheet("color: gray; font-style: italic;")
+        starting_layout.addWidget(starting_note)
+        fields_layout.addRow("Starting Amount:", starting_layout)
+
+        # Current balance (read-only, from AccountHistory)
         balance_layout = QHBoxLayout()
-        self.running_total_spin = QDoubleSpinBox()
-        self.running_total_spin.setRange(-99999.99, 99999.99)
-        self.running_total_spin.setDecimals(2)
-        self.running_total_spin.setSuffix(" $")
-        balance_layout.addWidget(self.running_total_spin)
-        
-        caution_note = QLabel("⚠️ Changes affect money balances")
-        caution_note.setStyleSheet("color: orange; font-style: italic;")
-        balance_layout.addWidget(caution_note)
+        self.current_balance_label = QLabel("$0.00")
+        self.current_balance_label.setStyleSheet("font-weight: bold; color: #28a745;")
+        balance_layout.addWidget(self.current_balance_label)
+
+        balance_note = QLabel("(from AccountHistory - edit via transaction history)")
+        balance_note.setStyleSheet("color: gray; font-style: italic;")
+        balance_layout.addWidget(balance_note)
         fields_layout.addRow("Current Balance:", balance_layout)
         
         # Goal amount
@@ -75,11 +86,10 @@ class AccountEditorDialog(QDialog):
         auto_save_layout = QHBoxLayout()
         self.auto_save_amount_spin = QDoubleSpinBox()
         self.auto_save_amount_spin.setRange(0, 9999.99)
-        self.auto_save_amount_spin.setDecimals(2)
-        self.auto_save_amount_spin.setSuffix(" $")
+        self.auto_save_amount_spin.setDecimals(3)  # Allow for percentages like 0.30
         auto_save_layout.addWidget(self.auto_save_amount_spin)
-        
-        auto_save_note = QLabel("(per paycheck)")
+
+        auto_save_note = QLabel("(per paycheck - values < 1.0 = % of income)")
         auto_save_note.setStyleSheet("color: gray; font-style: italic;")
         auto_save_layout.addWidget(auto_save_note)
         fields_layout.addRow("Auto-Save Amount:", auto_save_layout)
@@ -87,7 +97,22 @@ class AccountEditorDialog(QDialog):
         # Default savings account checkbox
         self.is_default_save_check = QCheckBox("Set as default savings account")
         fields_layout.addRow("Default Account:", self.is_default_save_check)
-        
+
+        # Account ID (read-only)
+        self.account_id_label = QLabel("N/A")
+        self.account_id_label.setStyleSheet("font-family: monospace; color: gray;")
+        fields_layout.addRow("Account ID:", self.account_id_label)
+
+        # Created date (read-only)
+        self.created_at_label = QLabel("N/A")
+        self.created_at_label.setStyleSheet("color: gray;")
+        fields_layout.addRow("Created:", self.created_at_label)
+
+        # Last updated date (read-only)
+        self.updated_at_label = QLabel("N/A")
+        self.updated_at_label.setStyleSheet("color: gray;")
+        fields_layout.addRow("Last Updated:", self.updated_at_label)
+
         fields_group.setLayout(fields_layout)
         main_layout.addWidget(fields_group)
         
@@ -121,47 +146,140 @@ class AccountEditorDialog(QDialog):
         self.setLayout(main_layout)
         
         # Connect signals for real-time updates
-        self.running_total_spin.valueChanged.connect(self.update_progress_info)
         self.goal_amount_spin.valueChanged.connect(self.update_progress_info)
     
     def load_account_data(self):
         """Load current account data into form fields"""
         try:
+            # Get current balance from AccountHistory
+            current_balance = self.account.get_current_balance(self.transaction_manager.db)
+
+            # Get starting balance from AccountHistory
+            starting_balance = self.get_starting_balance()
+
             # Store original values
             self.original_values = {
                 'name': self.account.name,
-                'running_total': getattr(self.account, 'running_total', 0.0),
+                'starting_amount': starting_balance,
                 'goal_amount': getattr(self.account, 'goal_amount', 0.0),
                 'auto_save_amount': getattr(self.account, 'auto_save_amount', 0.0),
                 'is_default_save': getattr(self.account, 'is_default_save', False)
             }
-            
+
             # Populate form fields
             self.name_edit.setText(self.original_values['name'])
-            self.running_total_spin.setValue(self.original_values['running_total'])
+            self.starting_amount_spin.setValue(self.original_values['starting_amount'])
+            self.current_balance_label.setText(f"${current_balance:.2f}")
             self.goal_amount_spin.setValue(self.original_values['goal_amount'])
             self.auto_save_amount_spin.setValue(self.original_values['auto_save_amount'])
             self.is_default_save_check.setChecked(self.original_values['is_default_save'])
-            
+
+            # Populate read-only fields
+            self.account_id_label.setText(str(self.account.id))
+
+            # Format timestamps
+            if hasattr(self.account, 'created_at') and self.account.created_at:
+                self.created_at_label.setText(self.account.created_at.strftime("%Y-%m-%d %H:%M:%S"))
+            else:
+                self.created_at_label.setText("Unknown")
+
+            if hasattr(self.account, 'updated_at') and self.account.updated_at:
+                self.updated_at_label.setText(self.account.updated_at.strftime("%Y-%m-%d %H:%M:%S"))
+            else:
+                self.updated_at_label.setText("Unknown")
+
             # Update progress info
             self.update_progress_info()
-            
+
         except Exception as e:
             print(f"Error loading account data: {e}")
+            import traceback
+            traceback.print_exc()
             QMessageBox.warning(self, "Error", f"Failed to load account data: {str(e)}")
+
+    def get_starting_balance(self):
+        """Get the starting balance from AccountHistory"""
+        try:
+            from models.account_history import AccountHistoryManager
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.account.id, "savings")
+
+            # Find the starting balance entry (transaction_id is None)
+            for entry in account_history:
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    return entry.change_amount
+
+            return 0.0  # No starting balance found
+
+        except Exception as e:
+            print(f"Error getting starting balance: {e}")
+            return 0.0
+
+    def update_starting_balance(self, new_starting_amount):
+        """Update or create the starting balance entry in AccountHistory"""
+        try:
+            from models.account_history import AccountHistoryManager, AccountHistory
+            from datetime import date, timedelta
+
+            history_manager = AccountHistoryManager(self.transaction_manager.db)
+            account_history = history_manager.get_account_history(self.account.id, "savings")
+
+            # Find the earliest transaction date to set starting balance date
+            earliest_transaction_date = date.today()  # Default to today
+            transaction_entries = [entry for entry in account_history if entry.transaction_id is not None]
+
+            if transaction_entries:
+                earliest_transaction_date = min(entry.transaction_date for entry in transaction_entries)
+
+            # Set starting balance date to 1 day before earliest transaction
+            starting_date = earliest_transaction_date - timedelta(days=1)
+
+            # Find existing starting balance entry
+            starting_entry = None
+            for entry in account_history:
+                if entry.transaction_id is None and "Starting balance" in (entry.description or ""):
+                    starting_entry = entry
+                    break
+
+            if starting_entry:
+                # Update existing starting balance
+                old_amount = starting_entry.change_amount
+                starting_entry.change_amount = new_starting_amount
+                starting_entry.transaction_date = starting_date
+                print(f"Updated starting balance: ${old_amount:.2f} → ${new_starting_amount:.2f}")
+            else:
+                # Create new starting balance entry
+                starting_entry = AccountHistory.create_starting_balance_entry(
+                    account_id=self.account.id,
+                    account_type="savings",
+                    starting_balance=new_starting_amount,
+                    date=starting_date
+                )
+                self.transaction_manager.db.add(starting_entry)
+                print(f"Created new starting balance: ${new_starting_amount:.2f}")
+
+            # Recalculate all running totals for this account
+            history_manager.recalculate_account_history(self.account.id, "savings")
+
+        except Exception as e:
+            print(f"Error updating starting balance: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def update_progress_info(self):
         """Update the progress information display"""
         try:
-            current_balance = self.running_total_spin.value()
+            # Get current balance from AccountHistory
+            current_balance = self.account.get_current_balance(self.transaction_manager.db)
             goal_amount = self.goal_amount_spin.value()
-            
+
             if goal_amount > 0:
                 progress_percent = min(100, (current_balance / goal_amount) * 100)
                 remaining_amount = max(0, goal_amount - current_balance)
-                
+
                 self.progress_label.setText(f"{progress_percent:.1f}%")
-                
+
                 if remaining_amount > 0:
                     self.remaining_label.setText(f"${remaining_amount:.2f}")
                 else:
@@ -169,7 +287,7 @@ class AccountEditorDialog(QDialog):
             else:
                 self.progress_label.setText("No goal set")
                 self.remaining_label.setText("N/A")
-                
+
         except Exception as e:
             print(f"Error updating progress info: {e}")
             self.progress_label.setText("Error")
@@ -183,7 +301,7 @@ class AccountEditorDialog(QDialog):
             if not name:
                 QMessageBox.warning(self, "Validation Error", "Account name cannot be empty.")
                 return
-            
+
             # Check for duplicate names (if name changed)
             if name != self.original_values['name']:
                 existing_account = self.transaction_manager.get_all_accounts()
@@ -191,38 +309,42 @@ class AccountEditorDialog(QDialog):
                 if name in existing_names:
                     QMessageBox.warning(self, "Validation Error", "An account with this name already exists.")
                     return
-            
-            # Get all current values
+
+            # Get all current values (no more running_total editing)
             current_values = {
                 'name': name,
-                'running_total': self.running_total_spin.value(),
+                'starting_amount': self.starting_amount_spin.value(),
                 'goal_amount': self.goal_amount_spin.value(),
                 'auto_save_amount': self.auto_save_amount_spin.value(),
                 'is_default_save': self.is_default_save_check.isChecked()
             }
-            
+
             # Check if anything changed
             changes_made = False
             change_summary = []
-            
+
             for key, new_value in current_values.items():
                 old_value = self.original_values[key]
                 if new_value != old_value:
                     changes_made = True
-                    if key == 'running_total':
-                        change_summary.append(f"Balance: ${old_value:.2f} → ${new_value:.2f}")
-                    elif key == 'goal_amount':
+                    if key == 'goal_amount':
                         change_summary.append(f"Goal: ${old_value:.2f} → ${new_value:.2f}")
                     elif key == 'auto_save_amount':
-                        change_summary.append(f"Auto-save: ${old_value:.2f} → ${new_value:.2f}")
+                        # Handle percentage vs dollar display for auto_save_amount
+                        if new_value < 1.0 and new_value > 0:
+                            change_summary.append(f"Auto-save: {old_value * 100:.1f}% → {new_value * 100:.1f}%")
+                        else:
+                            change_summary.append(f"Auto-save: ${old_value:.2f} → ${new_value:.2f}")
+                    elif key == 'starting_amount':
+                        change_summary.append(f"Starting amount: ${old_value:.2f} → ${new_value:.2f}")
                     else:
                         change_summary.append(f"{key.replace('_', ' ').title()}: {old_value} → {new_value}")
-            
+
             if not changes_made:
                 QMessageBox.information(self, "No Changes", "No changes were made to the account.")
                 self.reject()
                 return
-            
+
             # Confirm changes
             change_text = "\n".join(change_summary)
             reply = QMessageBox.question(
@@ -230,43 +352,19 @@ class AccountEditorDialog(QDialog):
                 f"Are you sure you want to make these changes?\n\n{change_text}",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            
+
             if reply != QMessageBox.StandardButton.Yes:
                 return
-            
+
             # Apply changes to account object
             self.account.name = current_values['name']
-
-            # Handle running total change - update balance history if needed
-            old_balance = self.original_values['running_total']
-            new_balance = current_values['running_total']
-            if old_balance != new_balance:
-                # If balance history is empty or has only one entry, update the starting balance
-                if not self.account.balance_history or len(self.account.balance_history) <= 1:
-                    self.account.balance_history = [new_balance]
-                    print(f"Updated account {self.account.name} starting balance: ${old_balance:.2f} -> ${new_balance:.2f}")
-                else:
-                    # Account has history - warn user that this affects historical data
-                    reply = QMessageBox.question(
-                        self, "Balance History Warning",
-                        f"This account has {len(self.account.balance_history)} balance history entries.\n\n"
-                        f"Changing the current balance will affect the most recent balance in history.\n"
-                        f"This may impact rollover calculations.\n\n"
-                        f"Do you want to continue?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                    )
-
-                    if reply != QMessageBox.StandardButton.Yes:
-                        return
-
-                    # Update the most recent entry in balance history
-                    self.account.balance_history[-1] = new_balance
-                    print(f"Updated account {self.account.name} most recent balance history: ${old_balance:.2f} -> ${new_balance:.2f}")
-
-            self.account.running_total = current_values['running_total']
             self.account.goal_amount = current_values['goal_amount']
             self.account.auto_save_amount = current_values['auto_save_amount']
-            
+
+            # Handle starting amount change
+            if current_values['starting_amount'] != self.original_values['starting_amount']:
+                self.update_starting_balance(current_values['starting_amount'])
+
             # Handle default savings account flag
             if current_values['is_default_save'] and not self.original_values['is_default_save']:
                 # Setting as default - remove default from all others
@@ -275,36 +373,36 @@ class AccountEditorDialog(QDialog):
                 # Trying to remove default flag - check if there are other accounts
                 all_accounts = self.transaction_manager.get_all_accounts()
                 other_accounts = [acc for acc in all_accounts if acc.id != self.account.id]
-                
+
                 if not other_accounts:
                     # This is the only account - cannot remove default flag
-                    QMessageBox.warning(self, "Cannot Remove Default", 
+                    QMessageBox.warning(self, "Cannot Remove Default",
                                       "Cannot remove default savings account flag. At least one account must be the default.")
                     return
                 else:
                     # Ask user to choose a new default account
                     from PyQt6.QtWidgets import QInputDialog
                     account_names = [acc.name for acc in other_accounts]
-                    choice, ok = QInputDialog.getItem(self, "Choose New Default Account", 
-                                                    "Please choose a new default savings account:", 
+                    choice, ok = QInputDialog.getItem(self, "Choose New Default Account",
+                                                    "Please choose a new default savings account:",
                                                     account_names, 0, False)
                     if not ok:
                         # User cancelled - don't make changes
                         return
-                    
+
                     # Find the chosen account and set it as default
                     chosen_account = next(acc for acc in other_accounts if acc.name == choice)
                     self.transaction_manager.set_default_savings_account(chosen_account.id)
-            
+
             # Save to database
             self.transaction_manager.db.commit()
-            
+
             QMessageBox.information(self, "Success", "Account updated successfully!")
-            
+
             # Emit signal and close
             self.account_updated.emit(self.account)
             self.accept()
-            
+
         except Exception as e:
             print(f"Error saving account: {e}")
             import traceback

@@ -2,12 +2,13 @@
 Add Transaction Dialog - Dynamic form based on transaction type
 """
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QComboBox, QLineEdit, QDoubleSpinBox, QDateEdit,
                              QCheckBox, QPushButton, QLabel, QTextEdit, QMessageBox)
 from PyQt6.QtCore import QDate
 from datetime import date
 from themes import theme_manager
+from views.dialogs.settings_dialog import get_setting
 
 from models import TransactionType
 
@@ -18,7 +19,7 @@ class AddTransactionDialog(QDialog):
         self.transaction_manager = transaction_manager
         self.setWindowTitle("Add Transaction")
         self.setModal(True)
-        self.resize(400, 500)
+        self.resize(400, 420)  # Reduced height from 500 to 420 due to tighter spacing
         
         # Transaction data
         self.transaction_data = {}
@@ -29,72 +30,97 @@ class AddTransactionDialog(QDialog):
     
     def init_ui(self):
         layout = QVBoxLayout()
-        
+        layout.setSpacing(5)  # Reduce spacing to minimize whitespace
+
         # Form layout
         form_layout = QFormLayout()
-        
-        # Transaction Type Selection
-        self.type_combo = QComboBox()
-        self.type_combo.addItems([
+        form_layout.setVerticalSpacing(8)  # Tighter vertical spacing
+
+        # Mode Selection - renamed to "Transaction Type"
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([
             "Spending",
-            "Bill Payment", 
-            "Saving"
+            "Bills",
+            "Savings"
         ])
-        self.type_combo.currentTextChanged.connect(self.on_type_changed)
-        form_layout.addRow("Transaction Type:", self.type_combo)
-        
+        self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
+        form_layout.addRow("Transaction Type:", self.mode_combo)
+
         # Basic fields (always visible)
+        amount_layout = QHBoxLayout()
         self.amount_spin = QDoubleSpinBox()
-        self.amount_spin.setRange(0.01, 99999.99)
+        self.amount_spin.setRange(-99999.99, 99999.99)  # Allow negative values
         self.amount_spin.setDecimals(2)
-        self.amount_spin.setValue(0.01)
-        form_layout.addRow("Amount ($):", self.amount_spin)
-        
+        self.amount_spin.setValue(1.00)
+        amount_layout.addWidget(self.amount_spin)
+
+        # Money flow note (will be updated based on mode)
+        self.amount_note = QLabel()
+        self.amount_note.setStyleSheet("color: gray; font-size: 11px; font-style: italic;")
+        amount_layout.addWidget(self.amount_note)
+        form_layout.addRow("Amount ($):", amount_layout)
+
         self.date_edit = QDateEdit()
         self.date_edit.setDate(QDate.currentDate())
+        self.date_edit.setDisplayFormat("MM/dd/yyyy")
         self.date_edit.setCalendarPopup(True)
         form_layout.addRow("Date:", self.date_edit)
-        
-        self.notes_edit = QLineEdit()
-        self.notes_edit.setPlaceholderText("e.g., 'Paid someone else's gas, will get reimbursed'")
-        form_layout.addRow("Notes:", self.notes_edit)
-        
-        # Dynamic fields container
+
+        # Dynamic fields container (mode-specific fields)
         self.dynamic_layout = QFormLayout()
-        
-        # Spending-specific fields
+        self.dynamic_layout.setVerticalSpacing(8)
+
+        # Spending mode fields
         self.category_combo = QComboBox()
         self.category_combo.setEditable(True)  # Allow typing new categories
         self.category_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)  # Don't auto-add to list
-        self.analytics_checkbox = QCheckBox("Include in analytics (uncheck for abnormal transactions)")
-        self.analytics_checkbox.setChecked(True)
-        
-        # Bill-specific fields
+
+        # Bills mode fields
         self.bill_combo = QComboBox()
-        
-        # Saving-specific fields
+
+        # Savings mode fields
         self.account_combo = QComboBox()
-        
+
         layout.addLayout(form_layout)
         layout.addLayout(self.dynamic_layout)
-        
-        # Buttons
+
+        # Analytics toggle checkbox (only enabled for Spending mode)
+        self.analytics_checkbox = QCheckBox("Include in Analytics")
+        self.analytics_checkbox.setChecked(True)
+        layout.addWidget(self.analytics_checkbox)
+
+        # Notes field - moved to bottom with multi-line text edit
+        notes_label = QLabel("Notes:")
+        notes_label.setMaximumHeight(20)  # Make label slim/same height as other labels
+        layout.addWidget(notes_label)
+
+        self.notes_edit = QTextEdit()
+        self.notes_edit.setPlaceholderText("e.g., 'Paid someone else's gas, will get reimbursed'")
+        self.notes_edit.setMinimumHeight(100)  # Increased from 80 to fill dead space
+        layout.addWidget(self.notes_edit)
+
+        # Buttons - right justified with focused Save button
         button_layout = QHBoxLayout()
-        
-        self.save_button = QPushButton("Save Transaction")
-        self.save_button.clicked.connect(self.save_transaction)
-        
+        button_layout.addStretch()  # Push buttons to the right
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addWidget(self.save_button)
         button_layout.addWidget(self.cancel_button)
+
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self.save_transaction)
+        self.save_button.setDefault(True)  # Set Save as default button (Enter key activates)
+        button_layout.addWidget(self.save_button)
+
         layout.addLayout(button_layout)
-        
+
         self.setLayout(layout)
-        
-        # Initialize with spending fields
-        self.on_type_changed("Spending")
+
+        # Apply button styling
+        self.apply_button_theme()
+
+        # Initialize with spending mode
+        self.on_mode_changed("Spending")
     
     def load_data(self):
         """Load accounts, bills, and categories from database"""
@@ -149,133 +175,246 @@ class AddTransactionDialog(QDialog):
             if child.widget():
                 child.widget().setVisible(False)
     
-    def on_type_changed(self, transaction_type):
-        """Update form based on selected transaction type"""
+    def on_mode_changed(self, mode):
+        """Update form based on selected mode"""
         self.clear_dynamic_fields()
-        
-        if transaction_type == "Spending":
+
+        if mode == "Spending":
+            # Update amount note
+            self.amount_note.setText("(+ = spent from week, - = gained to week)")
+
+            # Show spending fields
             self.dynamic_layout.addRow("Category:", self.category_combo)
-            self.dynamic_layout.addRow("", self.analytics_checkbox)
-            
+
             self.category_combo.setVisible(True)
-            self.analytics_checkbox.setVisible(True)
             self.bill_combo.setVisible(False)
             self.account_combo.setVisible(False)
-            
-        elif transaction_type == "Bill Payment":
-            self.dynamic_layout.addRow("Bill:", self.bill_combo)
-            
+
+            # Enable analytics checkbox for Spending mode
+            self.analytics_checkbox.setEnabled(True)
+            self.analytics_checkbox.setChecked(True)  # Default true for spending
+
+        elif mode == "Bills":
+            # Update amount note
+            self.amount_note.setText("(+ = to bill account, - = from bill account)")
+
+            # Show bills fields
+            self.dynamic_layout.addRow("Bill Account:", self.bill_combo)
+
             self.category_combo.setVisible(False)
-            self.analytics_checkbox.setVisible(False)
             self.bill_combo.setVisible(True)
             self.account_combo.setVisible(False)
-            
-        elif transaction_type == "Saving":
-            self.dynamic_layout.addRow("Account:", self.account_combo)
-            
+
+            # Disable analytics checkbox for Bills mode (greyed out)
+            self.analytics_checkbox.setEnabled(False)
+            self.analytics_checkbox.setChecked(False)
+
+        elif mode == "Savings":
+            # Update amount note
+            self.amount_note.setText("(+ = to savings account, - = from savings account)")
+
+            # Show savings fields
+            self.dynamic_layout.addRow("Savings Account:", self.account_combo)
+
             self.category_combo.setVisible(False)
-            self.analytics_checkbox.setVisible(False)
             self.bill_combo.setVisible(False)
             self.account_combo.setVisible(True)
+
+            # Disable analytics checkbox for Savings mode (greyed out)
+            self.analytics_checkbox.setEnabled(False)
+            self.analytics_checkbox.setChecked(False)
     
     def validate_form(self):
         """Validate form data"""
-        if self.amount_spin.value() <= 0:
-            QMessageBox.warning(self, "Validation Error", "Amount must be greater than 0")
+        if self.amount_spin.value() == 0:
+            QMessageBox.warning(self, "Validation Error", "Amount cannot be zero")
             return False
-        
-        transaction_type = self.type_combo.currentText()
-        
-        if transaction_type == "Spending" and not self.category_combo.currentText().strip():
+
+        mode = self.mode_combo.currentText()
+
+        if mode == "Spending" and not self.category_combo.currentText().strip():
             QMessageBox.warning(self, "Validation Error", "Category is required for spending transactions")
             return False
-        
-        if transaction_type == "Bill Payment" and self.bill_combo.currentData() is None:
-            QMessageBox.warning(self, "Validation Error", "Please select a bill")
+
+        if mode == "Bills" and self.bill_combo.currentData() is None:
+            QMessageBox.warning(self, "Validation Error", "Please select a bill account")
             return False
-        
-        if transaction_type == "Saving" and self.account_combo.currentData() is None:
-            QMessageBox.warning(self, "Validation Error", "Please select an account")
+
+        if mode == "Savings" and self.account_combo.currentData() is None:
+            QMessageBox.warning(self, "Validation Error", "Please select a savings account")
             return False
-        
+
         return True
     
     def save_transaction(self):
         """Save the transaction to database"""
         if not self.validate_form():
             return
-        
+
         try:
-            transaction_type = self.type_combo.currentText()
+            mode = self.mode_combo.currentText()
             transaction_date = self.date_edit.date().toPyDate()
-            
-            # Calculate week number from date
+            amount = self.amount_spin.value()
+
+            # Validate future date limit (max 4 weeks / 28 days ahead)
+            today = date.today()
+            days_into_future = (transaction_date - today).days
+
+            if days_into_future > 28:
+                QMessageBox.warning(
+                    self,
+                    "Future Transaction Limit",
+                    "Cannot add transactions more than 4 weeks (28 days) into the future.\n\n"
+                    "Please either:\n"
+                    "• Wait until the next paycheck has been added, or\n"
+                    "• Create a savings account for expected future charges"
+                )
+                return
+
+            # Calculate week number from date (auto-generated)
             week_number = self.calculate_week_from_date(transaction_date)
-            
+
             # Base transaction data
             self.transaction_data = {
-                "transaction_type": self.get_transaction_type_value(transaction_type),
-                "amount": self.amount_spin.value(),
+                "amount": amount,
                 "date": transaction_date,
-                "description": self.notes_edit.text().strip(),
+                "description": self.notes_edit.toPlainText().strip(),  # Changed from .text() to .toPlainText() for QTextEdit
                 "week_number": week_number
             }
-            
-            # Add type-specific fields
-            if transaction_type == "Spending":
+
+            # Auto-generate transaction_type and mode-specific fields
+            if mode == "Spending":
                 self.transaction_data.update({
+                    "transaction_type": "spending",  # Auto-generated
                     "category": self.category_combo.currentText().strip(),
                     "include_in_analytics": self.analytics_checkbox.isChecked()
                 })
-                
-            elif transaction_type == "Bill Payment":
+
+            elif mode == "Bills":
+                # Determine transaction type based on amount direction
+                if amount > 0:
+                    # Positive = money TO bill account (saving for bill)
+                    self.transaction_data["transaction_type"] = "saving"
+                else:
+                    # Negative = money FROM bill account (spending from bill savings)
+                    self.transaction_data["transaction_type"] = "spending"
+                    self.transaction_data["amount"] = abs(amount)  # Make amount positive for spending
+
                 self.transaction_data.update({
-                    "bill_id": self.bill_combo.currentData()
+                    "bill_id": self.bill_combo.currentData(),
+                    "include_in_analytics": False  # Auto-set to false
                 })
-                
-            elif transaction_type == "Saving":
+
+            elif mode == "Savings":
+                # Determine transaction type based on amount direction
+                if amount > 0:
+                    # Positive = money TO savings account
+                    self.transaction_data["transaction_type"] = "saving"
+                else:
+                    # Negative = money FROM savings account
+                    self.transaction_data["transaction_type"] = "spending"
+                    self.transaction_data["amount"] = abs(amount)  # Make amount positive for spending
+
                 self.transaction_data.update({
-                    "account_id": self.account_combo.currentData()
+                    "account_id": self.account_combo.currentData(),
+                    "include_in_analytics": False  # Auto-set to false
                 })
-            
+
             # Save to database
             transaction = self.transaction_manager.add_transaction(self.transaction_data)
-            
-            QMessageBox.information(self, "Success", f"Transaction saved successfully!\n\nID: {transaction.id}")
+
+            # Check testing mode
+            testing_mode = get_setting("testing_mode", False)
+
+            if testing_mode:
+                # Testing mode: Show detailed verification from database
+                # Retrieve the transaction from database to verify it was saved correctly
+                saved_transaction = self.transaction_manager.get_transaction_by_id(transaction.id)
+
+                if saved_transaction:
+                    # Build detailed message showing database values
+                    details = []
+                    details.append(f"ID: {saved_transaction.id}")
+                    details.append(f"Type: {saved_transaction.transaction_type}")
+                    details.append(f"Amount: ${saved_transaction.amount:.2f}")
+                    details.append(f"Date: {saved_transaction.date}")
+                    details.append(f"Week: {saved_transaction.week_number}")
+
+                    if saved_transaction.category:
+                        details.append(f"Category: {saved_transaction.category}")
+                    if saved_transaction.bill_id:
+                        bill = self.transaction_manager.get_bill_by_id(saved_transaction.bill_id)
+                        details.append(f"Bill: {bill.name if bill else 'N/A'}")
+                    if saved_transaction.account_id:
+                        account = self.transaction_manager.get_account_by_id(saved_transaction.account_id)
+                        details.append(f"Account: {account.name if account else 'N/A'}")
+
+                    details.append(f"Include in Analytics: {saved_transaction.include_in_analytics}")
+
+                    if saved_transaction.description:
+                        details.append(f"Notes: {saved_transaction.description}")
+
+                    success_msg = "Transaction Saved Successfully!\n\n" + "\n".join(details)
+                    QMessageBox.information(self, "Success - Testing Mode", success_msg)
+                else:
+                    QMessageBox.warning(self, "Warning", "Transaction saved but could not be retrieved for verification.")
+
+            # Close dialog after save (testing mode or not)
             self.accept()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving transaction: {str(e)}")
     
     def calculate_week_from_date(self, transaction_date):
-        """Calculate week number from transaction date"""
+        """
+        Calculate week number from transaction date.
+
+        For future dates without a week yet, returns None to indicate
+        the transaction will be assigned a week when the paycheck is added.
+        """
         try:
             # Find the week that contains this date
             weeks = self.transaction_manager.get_all_weeks()
             for week in weeks:
                 if week.start_date <= transaction_date <= week.end_date:
                     return week.week_number
-            
-            # If no week contains this date, use current week or create one
-            current_week = self.transaction_manager.get_current_week()
-            if current_week:
-                return current_week.week_number
-            else:
-                # Fallback to week 1 if no weeks exist
-                return 1
-                
+
+            # If no week contains this date, return None
+            # This allows future transactions to be saved with their original date
+            # They will be assigned to a week when the matching paycheck is added
+            return None
+
         except Exception:
-            return 1  # Safe fallback
-    
-    def get_transaction_type_value(self, display_name):
-        """Convert display name to database enum value"""
-        mapping = {
-            "Spending": TransactionType.SPENDING.value,
-            "Bill Payment": TransactionType.BILL_PAY.value,
-            "Saving": TransactionType.SAVING.value
-        }
-        return mapping.get(display_name, TransactionType.SPENDING.value)
-    
+            return None  # Allow transaction to be saved without a week
+
+    def apply_button_theme(self):
+        """Apply focused styling to Save button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Save button - focused style (primary background with primary_dark hover)
+        self.save_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        self.cancel_button.setStyleSheet("")  # Use default theme styling
+
+
     def apply_theme(self):
         """Apply current theme to dialog"""
         colors = theme_manager.get_colors()

@@ -57,6 +57,7 @@ class TransactionEditor(QDialog):
         form.addRow("Amount:", self.amount_spin)
         
         self.date_edit = QDateEdit()
+        self.date_edit.setDisplayFormat("MM/dd/yyyy")
         self.date_edit.setCalendarPopup(True)
         form.addRow("Date:", self.date_edit)
         

@@ -1,6 +1,41 @@
 """
 Paycheck Processor - Handles bi-weekly paycheck logic and rollover handling
 Based on the NewWeekFlowChart.png flowchart
+
+CRITICAL UNDERSTANDING: ROLLOVER FLOW IS SIMPLE
+================================================
+
+Money flows in exactly TWO directions:
+1. Week 1 → Week 2 (one rollover transaction per pay period)
+2. Week 2 → Savings (one rollover transaction per pay period)
+
+NO OTHER ROLLOVERS EXIST!
+
+How it works:
+- Paycheck arrives and is split 50/50 between Week 1 and Week 2
+- Week 1 allocation goes into Week.running_total (base only, no rollover)
+- Week 2 allocation goes into Week.running_total (base only, no rollover)
+- Rollover transactions are created IMMEDIATELY and UPDATED LIVE as spending changes
+- When Week 1 spending happens, Week 1→Week 2 rollover updates automatically
+- When Week 2 spending happens, Week 2→Savings rollover updates automatically
+
+Example:
+- Paycheck: $4237.50
+- Bills: $3328.59
+- Spendable: $908.91
+- Week 1 base: $454.46 (set in Week.running_total)
+- Week 2 base: $454.46 (set in Week.running_total)
+- Week 1 spending: $141.70
+- Week 1 rollover to Week 2: $312.76 (separate transaction)
+- Week 2 total: $454.46 + $312.76 = $767.22 (base + rollover)
+- Week 2 spending: $0.00
+- Week 2 rollover to Savings: $767.22 (separate transaction)
+
+IMPORTANT:
+- Week.running_total NEVER includes rollovers
+- Rollovers are stored as separate transactions
+- Display logic ADDS rollover transactions to base for "Starting" amount
+- Live updates happen automatically via recalculate_period_rollovers()
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -63,7 +98,7 @@ class PaycheckProcessor:
         automatic_savings = self.calculate_automatic_savings(paycheck_amount)
         
         # Step 3: Calculate account auto-savings (happens after bills)
-        account_auto_savings = self.calculate_account_auto_savings()
+        account_auto_savings = self.calculate_account_auto_savings(paycheck_amount)
         
         # Step 4: Calculate remaining for weeks
         remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings - account_auto_savings
@@ -84,14 +119,16 @@ class PaycheckProcessor:
             week_start_date=week_start_date
         )
         
-        # Record the transactions
+        # Record the transactions (this now creates immediate live rollover transactions)
         self.record_paycheck_transactions(paycheck_date, split)
-        
-        # Check for and process any pending rollovers after adding new paycheck
-        self.check_and_process_rollovers()
 
-        # Record balance history for all accounts at the end of this pay period
-        self.record_balance_history()
+        self.db.commit()
+
+        # NOTE: Live rollover system is now active - rollovers are created immediately
+        # and updated dynamically as spending changes. No need to wait for week end.
+        # self.check_and_process_rollovers()  # DISABLED - using live rollover system instead
+
+        # Account balance history is automatically maintained through AccountHistory transactions
 
         return split
     
@@ -113,15 +150,23 @@ class PaycheckProcessor:
             
         return total_deduction
     
-    def calculate_account_auto_savings(self) -> float:
+    def calculate_account_auto_savings(self, paycheck_amount: float = 0) -> float:
         """Calculate auto-savings for accounts (happens after bills)"""
         accounts = self.transaction_manager.get_all_accounts()
         total_auto_savings = 0.0
-        
+
         for account in accounts:
             if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
-                total_auto_savings += account.auto_save_amount
-                
+                # Handle percentage-based vs fixed amount auto-saves
+                if account.auto_save_amount < 1.0 and account.auto_save_amount > 0:
+                    # Percentage-based auto-save (e.g., 0.1 = 10% of paycheck)
+                    auto_save_amount = account.auto_save_amount * paycheck_amount
+                else:
+                    # Fixed dollar amount auto-save
+                    auto_save_amount = account.auto_save_amount
+
+                total_auto_savings += auto_save_amount
+
         return total_auto_savings
     
     def calculate_automatic_savings(self, paycheck_amount: float) -> float:
@@ -133,25 +178,33 @@ class PaycheckProcessor:
         """Record all transactions from paycheck processing"""
 
         print("=" * 60)
-        print("DEBUG: Starting paycheck transaction recording")
-        print(f"DEBUG: Paycheck date: {paycheck_date}")
-        print(f"DEBUG: Week start date: {split.week_start_date}")
-        print(f"DEBUG: Week 1 allocation: ${split.week1_allocation}")
-        print(f"DEBUG: Week 2 allocation: ${split.week2_allocation}")
 
         # Create both weeks for the bi-weekly period
         # Always create new weeks for a new paycheck based on the week_start date
 
         # Create first week starting from week_start date
         week_start = split.week_start_date  # This should be passed from the dialog
-        print(f"DEBUG: Creating Week 1 starting {week_start}")
         current_week = self.create_new_week(week_start)
 
         # Create the second week for bi-weekly period
         next_week_start = week_start + timedelta(days=7)  # Start date for week 2
-        print(f"DEBUG: Creating Week 2 starting {next_week_start}")
         next_week = self.create_new_week(next_week_start)
-        
+
+        # Load any pre-existing transactions for these weeks
+        self._assign_existing_transactions_to_weeks(current_week)
+        self._assign_existing_transactions_to_weeks(next_week)
+
+        # Set appropriate rollover flags for new bi-weekly period
+        # Week 1 (odd): Can process rollover immediately when complete
+        # Week 2 (even): Should only process rollover at end of bi-weekly period
+        is_week1_odd = (current_week.week_number % 2) == 1
+        is_week2_even = (next_week.week_number % 2) == 0
+
+        if is_week2_even:
+            # Week 2 should not process rollover until bi-weekly period is complete
+            next_week.rollover_applied = True  # Prevent premature rollover processing
+            self.db.commit()
+
         # 1. Record the income transaction
         income_transaction = {
             "transaction_type": TransactionType.INCOME.value,
@@ -163,7 +216,7 @@ class PaycheckProcessor:
         self.transaction_manager.add_transaction(income_transaction)
         
         # 2. Record account auto-savings transactions
-        self.update_account_auto_savings(current_week.week_number, paycheck_date)
+        self.update_account_auto_savings(current_week.week_number, paycheck_date, split.gross_paycheck)
 
         # 3. Update bill savings (allocate money for upcoming bills)
         # Disable automatic rollover recalculation during bill processing to prevent multiple triggers
@@ -173,15 +226,17 @@ class PaycheckProcessor:
         self.transaction_manager.set_auto_rollover_disabled(False)
 
         # 4. Update week allocations with the calculated amounts
-        print(f"DEBUG: Setting Week {current_week.week_number} allocation to ${split.week1_allocation}")
-        print(f"DEBUG: Setting Week {next_week.week_number} allocation to ${split.week2_allocation}")
         current_week.running_total = split.week1_allocation
         next_week.running_total = split.week2_allocation
         self.db.commit()
 
-        print(f"DEBUG: Final Week {current_week.week_number}: ${current_week.running_total}")
-        print(f"DEBUG: Final Week {next_week.week_number}: ${next_week.running_total}")
-        print("DEBUG: Paycheck transaction recording completed")
+        # 5. IMMEDIATELY create live rollover transactions
+        # Week 1 -> Week 2 rollover (full Week 1 budget, will update as spending happens)
+        self._create_live_week1_to_week2_rollover(current_week, next_week)
+
+        # Week 2 -> Emergency Fund rollover (full Week 1 + Week 2 budgets, will update as spending happens)
+        self._create_live_week2_to_savings_rollover(current_week, next_week)
+
         print("=" * 60)
     
     def update_bill_savings(self, week_number: int, transaction_date: date, paycheck_amount: float):
@@ -200,12 +255,8 @@ class PaycheckProcessor:
                     actual_amount = bill.amount_to_save
                     description = f"Savings allocation for {bill.name}"
 
-                # Add to the bill's running total (money saved up for this bill)
-                new_total = bill.running_total + actual_amount
-                bill.running_total = new_total
-                self.db.commit()
-
                 # Record a transaction for bill savings with correct amount
+                # The TransactionManager will automatically update AccountHistory
                 bill_saving_transaction = {
                     "transaction_type": TransactionType.SAVING.value,
                     "week_number": week_number,
@@ -216,31 +267,36 @@ class PaycheckProcessor:
                     "bill_type": bill.bill_type
                 }
                 self.transaction_manager.add_transaction(bill_saving_transaction)
-                print(f"DEBUG: Bill savings - {bill.name}: ${actual_amount:.2f}")
 
-    def update_account_auto_savings(self, week_number: int, transaction_date: date):
+    def update_account_auto_savings(self, week_number: int, transaction_date: date, paycheck_amount: float = 0):
         """Update account auto-savings based on each account's auto_save_amount"""
         accounts = self.transaction_manager.get_all_accounts()
 
         for account in accounts:
             # Check if account has auto_save_amount attribute and it's > 0
             if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
-                # Add to the account's running total
-                new_balance = account.running_total + account.auto_save_amount
-                self.transaction_manager.update_account_balance(account.id, new_balance)
+                # Calculate actual amount using same logic as calculate_account_auto_savings
+                if account.auto_save_amount < 1.0 and account.auto_save_amount > 0:
+                    # Percentage-based auto-save (e.g., 0.1 = 10% of paycheck)
+                    actual_amount = account.auto_save_amount * paycheck_amount
+                    description = f"Auto-savings allocation for {account.name} ({account.auto_save_amount*100:.1f}% of paycheck)"
+                else:
+                    # Fixed dollar amount auto-save
+                    actual_amount = account.auto_save_amount
+                    description = f"Auto-savings allocation for {account.name}"
 
                 # Record a transaction for account auto-savings
+                # The TransactionManager will automatically update AccountHistory
                 account_saving_transaction = {
                     "transaction_type": TransactionType.SAVING.value,
                     "week_number": week_number,
-                    "amount": account.auto_save_amount,
+                    "amount": actual_amount,
                     "date": transaction_date,
-                    "description": f"Auto-savings allocation for {account.name}",
+                    "description": description,
                     "account_id": account.id,
                     "account_saved_to": account.name
                 }
                 self.transaction_manager.add_transaction(account_saving_transaction)
-                print(f"DEBUG: Added ${account.auto_save_amount} to {account.name}")
 
     def create_new_week(self, start_date: date) -> Week:
         """Create a new week when processing paycheck"""
@@ -248,7 +304,6 @@ class PaycheckProcessor:
         current_week = self.transaction_manager.get_current_week()
         next_week_number = (current_week.week_number + 1) if current_week else 1
 
-        print(f"DEBUG: Creating new week {next_week_number} starting {start_date}")
 
         new_week = Week(
             week_number=next_week_number,
@@ -261,9 +316,33 @@ class PaycheckProcessor:
         self.db.commit()
         self.db.refresh(new_week)
 
-        print(f"DEBUG: Successfully created Week {new_week.week_number} (ID: {new_week.id})")
         return new_week
-    
+
+    def _assign_existing_transactions_to_weeks(self, week: Week):
+        """
+        Find and assign any pre-existing transactions to this newly created week.
+
+        This handles the case where a user added transactions for a future date
+        before the paycheck was processed. When the paycheck is added, those
+        transactions need to be assigned to the appropriate week.
+        """
+        # Get all transactions that don't have a week number assigned (week_number is None)
+        # and fall within this week's date range
+        orphaned_transactions = self.db.query(Transaction).filter(
+            Transaction.week_number == None,
+            Transaction.date >= week.start_date,
+            Transaction.date <= week.end_date
+        ).all()
+
+        if orphaned_transactions:
+            print(f"Found {len(orphaned_transactions)} pre-existing transaction(s) for Week {week.week_number}")
+
+            for txn in orphaned_transactions:
+                txn.week_number = week.week_number
+                print(f"  Assigned transaction ID {txn.id} (${txn.amount}, {txn.date}) to Week {week.week_number}")
+
+            self.db.commit()
+
     def calculate_week_rollover(self, week_number: int) -> WeekRollover:
         """Calculate rollover amount for a completed week"""
         week = self.transaction_manager.get_week_by_number(week_number)
@@ -273,19 +352,19 @@ class PaycheckProcessor:
         # Get week's transactions
         week_transactions = self.transaction_manager.get_transactions_by_week(week_number)
 
-        # Calculate effective allocated amount (base allocation + rollover income only, NOT paycheck income)
+        # Calculate effective allocated amount (base allocation + ALL rollover amounts, both positive and negative)
         base_allocated_amount = week.running_total
-        rollover_income = sum(
+        rollover_adjustments = sum(
             t.amount for t in week_transactions
-            if t.transaction_type == TransactionType.INCOME.value and
-            ("rollover" in t.description.lower() or t.category == "Rollover")
+            if t.transaction_type == TransactionType.ROLLOVER.value
         )
-        allocated_amount = base_allocated_amount + rollover_income
+        allocated_amount = base_allocated_amount + rollover_adjustments
 
-        # Calculate total spent in this week (spending + bills, not including income/savings)
+        # Calculate total spent in this week (spending only, not bill pays)
+        # Bill pays come from bill accounts, not weekly spending money
         spent_amount = sum(
             t.amount for t in week_transactions
-            if t.transaction_type in [TransactionType.SPENDING.value, TransactionType.BILL_PAY.value]
+            if t.transaction_type == TransactionType.SPENDING.value
         )
 
         # Calculate remaining and rollover
@@ -339,10 +418,8 @@ class PaycheckProcessor:
         total_adjustment = rollover.rollover_amount
         for existing_tx in existing_rollover_transactions:
             # Reverse the effect of the old rollover transaction
-            if existing_tx.transaction_type == TransactionType.INCOME.value:
-                total_adjustment -= existing_tx.amount  # Remove previous positive rollover
-            else:
-                total_adjustment += existing_tx.amount  # Remove previous negative rollover
+            # For ROLLOVER type, the amount already has the correct sign, so just subtract it
+            total_adjustment -= existing_tx.amount
 
             self.db.delete(existing_tx)
 
@@ -356,19 +433,42 @@ class PaycheckProcessor:
         if rollover.rollover_amount < 0:
             rollover_description = f"Deficit rollover from Week {rollover.week_number}"
 
+        # Get the end date of the source week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
         rollover_transaction = {
-            "transaction_type": TransactionType.INCOME.value if rollover.rollover_amount > 0 else TransactionType.SPENDING.value,
+            "transaction_type": TransactionType.ROLLOVER.value,
             "week_number": target_week_number,
-            "amount": abs(rollover.rollover_amount),
-            "date": date.today(),
+            "amount": rollover.rollover_amount,  # Keep original sign
+            "date": transaction_date,
             "description": rollover_description,
-            "category": "Rollover"
+            "account_id": None,  # Week-to-week rollovers don't affect specific accounts
+            "category": None  # No longer using category for rollover identification
         }
+        # Disable auto-rollover to prevent infinite loops during rollover processing
+        self.transaction_manager.set_auto_rollover_disabled(True)
         self.transaction_manager.add_transaction(rollover_transaction)
+        self.transaction_manager.set_auto_rollover_disabled(False)
 
         # CASCADING: Reset target week's rollover flag so it gets recalculated
         # This is needed because the target week's surplus/deficit changed
-        target_week.rollover_applied = False
+        # But only if the target week is actually complete (for Week 2s)
+        is_target_week1_of_period = (target_week.week_number % 2) == 1
+
+        if is_target_week1_of_period:
+            # Target is Week 1, always reset (Week 1 can rollover immediately when Week 2 exists)
+            target_week.rollover_applied = False
+        else:
+            # Target is Week 2, only reset if bi-weekly period is complete
+            week3_exists = self.db.query(Week).filter(Week.week_number == target_week.week_number + 1).first()
+            week_ended = date.today() > target_week.end_date
+            if week3_exists or week_ended:
+                target_week.rollover_applied = False
+            else:
+                # Otherwise, leave Week 2 as rollover_applied = True to prevent premature processing
+                pass
+
         self.transaction_manager.db.commit()
     
     def rollover_to_savings(self, rollover: WeekRollover):
@@ -409,13 +509,17 @@ class PaycheckProcessor:
         # No need to manually update account balance here since transaction creation handles it
 
         # Record new rollover transaction
+        # Get the end date of the week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
         if rollover.rollover_amount > 0:
             # Positive rollover - money goes TO savings
             savings_transaction = {
                 "transaction_type": TransactionType.SAVING.value,
                 "week_number": rollover.week_number,
                 "amount": rollover.rollover_amount,
-                "date": date.today(),
+                "date": transaction_date,
                 "description": f"End-of-period surplus from Week {rollover.week_number}",
                 "account_id": default_savings_account.id,
                 "account_saved_to": default_savings_account.name
@@ -427,14 +531,94 @@ class PaycheckProcessor:
                 "transaction_type": TransactionType.SAVING.value,
                 "week_number": rollover.week_number,
                 "amount": rollover.rollover_amount,  # Keep negative amount
-                "date": date.today(),
+                "date": transaction_date,
                 "description": f"End-of-period deficit from Week {rollover.week_number}",
                 "account_id": default_savings_account.id,
                 "account_saved_to": default_savings_account.name
             }
 
+        # Disable auto-rollover to prevent infinite loops during rollover processing
+        self.transaction_manager.set_auto_rollover_disabled(True)
         self.transaction_manager.add_transaction(savings_transaction)
-    
+        self.transaction_manager.set_auto_rollover_disabled(False)
+
+    def _create_live_week1_to_week2_rollover(self, week1: Week, week2: Week):
+        """Create immediate Week 1 -> Week 2 rollover transaction (will update live as spending changes)"""
+        # Check if rollover already exists for this direction
+        existing_rollover = self.db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.ROLLOVER.value,
+            Transaction.week_number == week2.week_number,
+            Transaction.description.like(f"%Week {week1.week_number}%")
+        ).first()
+
+        if existing_rollover:
+            return  # Already exists, don't create duplicate
+
+        # Calculate Week 1's expected rollover (its full budget initially)
+        week1_rollover = self.calculate_week_rollover(week1.week_number)
+
+        if week1_rollover.rollover_amount == 0:
+            return  # Nothing to rollover
+
+        # Create rollover transaction dated to Week 1's end date
+        rollover_description = f"Rollover from Week {week1.week_number}"
+        if week1_rollover.rollover_amount < 0:
+            rollover_description = f"Deficit rollover from Week {week1.week_number}"
+
+        rollover_transaction = {
+            "transaction_type": TransactionType.ROLLOVER.value,
+            "week_number": week2.week_number,
+            "amount": week1_rollover.rollover_amount,
+            "date": week1.end_date,  # Dated to Week 1 end
+            "description": rollover_description,
+            "account_id": None,
+            "category": None
+        }
+
+        self.transaction_manager.set_auto_rollover_disabled(True)
+        self.transaction_manager.add_transaction(rollover_transaction)
+        self.transaction_manager.set_auto_rollover_disabled(False)
+
+    def _create_live_week2_to_savings_rollover(self, week1: Week, week2: Week):
+        """Create immediate Week 2 -> Emergency Fund transaction (will update live as spending changes)"""
+        default_savings_account = self.transaction_manager.get_default_savings_account()
+        if not default_savings_account:
+            print("Warning: No default savings account found for live rollover")
+            return
+
+        # Check if savings rollover already exists for this week
+        existing_savings = self.db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.SAVING.value,
+            Transaction.week_number == week2.week_number,
+            Transaction.account_id == default_savings_account.id,
+            Transaction.description.like(f"%Week {week2.week_number}%")
+        ).first()
+
+        if existing_savings:
+            return  # Already exists, don't create duplicate
+
+        # Calculate Week 2's expected rollover (Week 2 budget + Week 1 budget - Week 1 spending)
+        # This is the total amount that will go to savings at the end
+        week2_rollover = self.calculate_week_rollover(week2.week_number)
+
+        if week2_rollover.rollover_amount == 0:
+            return  # Nothing to rollover
+
+        # Create savings transaction dated to Week 2's end date (future date - shows it's pending)
+        savings_transaction = {
+            "transaction_type": TransactionType.SAVING.value,
+            "week_number": week2.week_number,
+            "amount": week2_rollover.rollover_amount,
+            "date": week2.end_date,  # FUTURE DATE - shows this is pending/in flux
+            "description": f"End-of-period surplus from Week {week2.week_number}",
+            "account_id": default_savings_account.id,
+            "account_saved_to": default_savings_account.name
+        }
+
+        self.transaction_manager.set_auto_rollover_disabled(True)
+        self.transaction_manager.add_transaction(savings_transaction)
+        self.transaction_manager.set_auto_rollover_disabled(False)
+
     def get_current_pay_period_summary(self) -> Dict:
         """Get summary of current bi-weekly pay period"""
         current_week = self.transaction_manager.get_current_week()
@@ -471,13 +655,11 @@ class PaycheckProcessor:
 
         while iteration < max_iterations:
             iteration += 1
-            print(f"Checking for pending rollovers... (iteration {iteration})")
 
             # Get all weeks that haven't had rollover applied yet
             weeks = self.db.query(Week).filter(Week.rollover_applied == False).order_by(Week.week_number).all()
 
             if not weeks:
-                print("No rollovers needed")
                 return True
 
             processed_any = False
@@ -485,6 +667,14 @@ class PaycheckProcessor:
                 # Check if this week is "complete" (has a subsequent week, or is more than 7 days old)
                 next_week = self.db.query(Week).filter(Week.week_number == week.week_number + 1).first()
                 week_ended = date.today() > week.end_date
+
+                # For Week 2s, additional check: only process if bi-weekly period is actually complete
+                is_week2_of_period = (week.week_number % 2) == 0
+                if is_week2_of_period:
+                    # Week 2 should only process if there's a Week 3 (next bi-weekly period started)
+                    week3_exists = self.db.query(Week).filter(Week.week_number == week.week_number + 1).first()
+                    if not (week3_exists or week_ended):
+                        continue  # Skip this Week 2, it's not ready yet
 
                 if next_week or week_ended:
                     # This week should have rollover processed
@@ -494,11 +684,9 @@ class PaycheckProcessor:
 
                         if is_week1_of_period and next_week:
                             # Week 1: rollover to Week 2
-                            print(f"Processing Week {week.week_number} rollover to Week {next_week.week_number}")
                             self.process_week_rollover(week.week_number, next_week.week_number)
                         elif not is_week1_of_period:
                             # Week 2: rollover to savings
-                            print(f"Processing Week {week.week_number} rollover to savings")
                             self.process_week_rollover(week.week_number)
 
                         # Mark rollover as applied
@@ -514,28 +702,137 @@ class PaycheckProcessor:
                 # No more rollovers to process, exit the loop
                 break
 
-        print("Rollover processing completed")
         return True
 
-    def record_balance_history(self):
-        """Record current account balances in balance history at the end of pay period"""
-        accounts = self.transaction_manager.get_all_accounts()
 
-        for account in accounts:
-            # Ensure running_total and balance history are in sync
-            current_balance = account.running_total
 
-            # Append current balance to balance history
-            account.append_period_balance(current_balance)
+    def recalculate_period_rollovers(self, week_number: int):
+        """
+        Recalculate rollovers for the entire bi-weekly period containing the given week.
+        This should be called whenever a transaction is added/updated/deleted in a week.
+        """
+        # Determine which bi-weekly period this week belongs to
+        is_odd_week = (week_number % 2) == 1
 
-            # Verify the balance history was updated correctly
-            history = account.get_balance_history_copy()
-            if history and abs(history[-1] - current_balance) > 0.01:
-                print(f"WARNING: Balance history sync issue for {account.name}")
-                print(f"  Running total: ${current_balance:.2f}")
-                print(f"  Last history entry: ${history[-1]:.2f}")
+        if is_odd_week:
+            # Week 1 of a period (odd number)
+            week1_number = week_number
+            week2_number = week_number + 1
+        else:
+            # Week 2 of a period (even number)
+            week1_number = week_number - 1
+            week2_number = week_number
 
-            print(f"DEBUG: Recorded balance history for {account.name}: ${current_balance:.2f}")
+        # Get both weeks
+        week1 = self.transaction_manager.get_week_by_number(week1_number)
+        week2 = self.transaction_manager.get_week_by_number(week2_number)
 
-        self.db.commit()
-        print("DEBUG: Balance history recorded for all accounts")
+        if not week1:
+            return  # Week 1 doesn't exist, nothing to recalculate
+
+
+        # Step 1: Remove existing rollover transactions for this period
+        self._remove_period_rollover_transactions(week1_number, week2_number)
+
+        # Step 2: Recalculate Week 1 rollover (to Week 2)
+        if week2:  # Only if Week 2 exists
+            week1_rollover = self.calculate_week_rollover(week1_number)
+            if week1_rollover.rollover_amount != 0:
+                self._create_rollover_transaction(week1_rollover, week2_number)
+
+        # Step 3: Recalculate Week 2 rollover (to savings)
+        if week2:
+            week2_rollover = self.calculate_week_rollover(week2_number)
+            if week2_rollover.rollover_amount != 0:
+                self._create_rollover_to_savings_transaction(week2_rollover)
+
+    def _remove_period_rollover_transactions(self, week1_number: int, week2_number: int):
+        """Remove all rollover transactions for a bi-weekly period"""
+        # Remove Week 1 -> Week 2 rollover transactions (more specific filter)
+        week1_to_week2_rollovers = self.db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.ROLLOVER.value,
+            Transaction.week_number == week2_number,
+            Transaction.description.like(f"%rollover from Week {week1_number}")
+        ).all()
+
+        for tx in week1_to_week2_rollovers:
+            self.transaction_manager.delete_transaction(tx.id)
+
+        # Remove Week 2 -> savings rollover transactions (more specific filter)
+        default_savings_account = self.transaction_manager.get_default_savings_account()
+        if default_savings_account:
+            week2_to_savings_rollovers = self.db.query(Transaction).filter(
+                Transaction.transaction_type == TransactionType.SAVING.value,
+                Transaction.week_number == week2_number,
+                Transaction.account_id == default_savings_account.id,
+                or_(
+                    Transaction.description.like(f"End-of-period surplus from Week {week2_number}"),
+                    Transaction.description.like(f"End-of-period deficit from Week {week2_number}")
+                )
+            ).all()
+
+            for tx in week2_to_savings_rollovers:
+                self.transaction_manager.delete_transaction(tx.id)
+
+    def _create_rollover_transaction(self, rollover: WeekRollover, target_week_number: int):
+        """Create a rollover transaction from one week to another"""
+        rollover_description = f"Rollover from Week {rollover.week_number}"
+        if rollover.rollover_amount < 0:
+            rollover_description = f"Deficit rollover from Week {rollover.week_number}"
+
+        # Get the end date of the source week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
+        rollover_transaction = {
+            "transaction_type": TransactionType.ROLLOVER.value,
+            "week_number": target_week_number,
+            "amount": rollover.rollover_amount,  # Keep original sign
+            "date": transaction_date,
+            "description": rollover_description,
+            "account_id": None,  # Week-to-week rollovers don't affect specific accounts
+            "category": None  # No longer using category for rollover identification
+        }
+        # Disable auto-rollover to prevent infinite loops during rollover processing
+        self.transaction_manager.set_auto_rollover_disabled(True)
+        self.transaction_manager.add_transaction(rollover_transaction)
+        self.transaction_manager.set_auto_rollover_disabled(False)
+
+    def _create_rollover_to_savings_transaction(self, rollover: WeekRollover):
+        """Create a rollover transaction from a week to savings"""
+        default_savings_account = self.transaction_manager.get_default_savings_account()
+        if not default_savings_account:
+            print("Warning: No default savings account found for rollover")
+            return
+
+        # Get the end date of the week for proper transaction dating
+        source_week = self.transaction_manager.get_week_by_number(rollover.week_number)
+        transaction_date = source_week.end_date if source_week else date.today()
+
+        if rollover.rollover_amount > 0:
+            # Positive rollover - money goes TO savings
+            savings_transaction = {
+                "transaction_type": TransactionType.SAVING.value,
+                "week_number": rollover.week_number,
+                "amount": rollover.rollover_amount,
+                "date": transaction_date,
+                "description": f"End-of-period surplus from Week {rollover.week_number}",
+                "account_id": default_savings_account.id,
+                "account_saved_to": default_savings_account.name
+            }
+        else:
+            # Negative rollover - money comes FROM savings to cover deficit
+            savings_transaction = {
+                "transaction_type": TransactionType.SAVING.value,
+                "week_number": rollover.week_number,
+                "amount": rollover.rollover_amount,  # Keep negative amount
+                "date": transaction_date,
+                "description": f"End-of-period deficit from Week {rollover.week_number}",
+                "account_id": default_savings_account.id,
+                "account_saved_to": default_savings_account.name
+            }
+
+        # Disable auto-rollover to prevent infinite loops during rollover processing
+        self.transaction_manager.set_auto_rollover_disabled(True)
+        self.transaction_manager.add_transaction(savings_transaction)
+        self.transaction_manager.set_auto_rollover_disabled(False)

@@ -2,9 +2,9 @@
 Enhanced Dashboard View - Complete layout matching user diagram
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
-                             QCheckBox, QPushButton, QGridLayout, QDialog)
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+                             QCheckBox, QPushButton, QGridLayout, QDialog, QLCDNumber, QToolButton)
+from PyQt6.QtCore import Qt, QDate
 from themes import theme_manager
 from widgets import (PieChartWidget, LineChartWidget, BarChartWidget, 
                     ProgressChartWidget, HeatmapWidget, AnimatedGifWidget, HistogramWidget, WeeklySpendingTrendWidget, BoxPlotWidget)
@@ -183,13 +183,19 @@ class StackedAreaWidget(QWidget):
         self.update_title_styling()
         theme_manager.theme_changed.connect(self.on_theme_changed)
         
-    def update_data(self, weekly_data: dict):
-        """Update stacked area chart with weekly category percentages"""
+    def update_data(self, weekly_data: dict, custom_colors: dict = None, category_order: list = None):
+        """Update stacked area chart with weekly category percentages
+
+        Args:
+            weekly_data: dict of {week_key: {category: amount}}
+            custom_colors: list of colors in same order as category_order
+            category_order: list of categories in desired order (should match custom_colors order)
+        """
         self.figure.clear()
         ax = self.figure.add_subplot(111)
-        
+
         if not weekly_data:
-            ax.text(0.5, 0.5, 'No weekly data available', 
+            ax.text(0.5, 0.5, 'No weekly data available',
                    ha='center', va='center', transform=ax.transAxes,
                    fontsize=12, color=theme_manager.get_color('text_secondary'))
             ax.set_xlim(0, 1)
@@ -198,10 +204,15 @@ class StackedAreaWidget(QWidget):
         else:
             # Prepare data for stacked area
             weeks = list(weekly_data.keys())
-            categories = set()
-            for week_data in weekly_data.values():
-                categories.update(week_data.keys())
-            categories = sorted(list(categories))
+
+            # Use provided category order if available, otherwise collect and sort alphabetically
+            if category_order:
+                categories = category_order
+            else:
+                categories = set()
+                for week_data in weekly_data.values():
+                    categories.update(week_data.keys())
+                categories = sorted(list(categories))
             
             # Create percentage matrix
             data_matrix = []
@@ -214,30 +225,53 @@ class StackedAreaWidget(QWidget):
                 data_matrix.append(category_percentages)
             
             # Create stacked area chart
-            colors = theme_manager.get_chart_colors()[:len(categories)]
+            if custom_colors:
+                # custom_colors is a list in same order as categories in chart_category_spending
+                colors = custom_colors[:len(categories)]
+            else:
+                colors = theme_manager.get_chart_colors()[:len(categories)]
             ax.stackplot(range(len(weeks)), *data_matrix, colors=colors, alpha=0.8)
             
             # Remove axis labels (category key serves as legend)
             ax.set_ylim(0, 100)
             ax.set_xlim(0, len(weeks)-1)
             
-            # Add week start dates on x-axis
+            # Add week start dates on x-axis with dynamic tick spacing (dashboard = half density)
             if weeks:
+                # Calculate max ticks based on chart width (half density for dashboard)
+                chart_width_pixels = self.figure.get_figwidth() * self.figure.dpi
+                max_ticks = max(5, min(15, int(chart_width_pixels // 100)))  # Half of 50 pixels per tick
+
+                num_weeks = len(weeks)
+
+                if num_weeks <= max_ticks:
+                    # Show all weeks if we have few enough
+                    selected_indices = list(range(num_weeks))
+                else:
+                    # Select evenly spaced weeks
+                    step = num_weeks / (max_ticks - 1)
+                    selected_indices = [int(i * step) for i in range(max_ticks - 1)]
+                    selected_indices.append(num_weeks - 1)  # Always include last week
+
+                # Build labels for selected weeks
                 week_labels = []
-                for week_key in weeks:
+                tick_positions = []
+
+                for idx in selected_indices:
+                    week_key = weeks[idx]
                     try:
-                        # Extract date from week key and format as M/D/YY
+                        # Parse date and format as M/D
+                        from datetime import datetime
                         if "Week" in week_key:
                             week_labels.append(week_key)
                         else:
-                            # Parse date and format as M/D
-                            from datetime import datetime
                             week_date = datetime.strptime(week_key, "%Y-%m-%d")
                             week_labels.append(week_date.strftime("%-m/%-d"))
                     except:
                         week_labels.append(week_key)
-                
-                ax.set_xticks(range(len(weeks)))
+                    tick_positions.append(idx)
+
+                ax.set_xticks(tick_positions)
                 ax.set_xticklabels(week_labels, rotation=45, ha='right', fontsize=9)
             
             # No legend (category key serves as legend)
@@ -291,8 +325,10 @@ class DashboardView(QWidget):
         self.transaction_manager = transaction_manager
         self.analytics_engine = analytics_engine
         
-        # Analytics toggle
-        self.include_analytics_only = True
+        # Analytics toggle - load from settings
+        from views.dialogs.settings_dialog import get_setting
+        self.include_analytics_only = get_setting("default_analytics_only", True)
+        self.time_frame_filter = get_setting("time_frame_filter", "All Time")
         
         # Track selected accounts for savings rate plots
         self.selected_accounts = [None, None]  # For the two savings rate charts
@@ -311,7 +347,70 @@ class DashboardView(QWidget):
         self.category_boxplot = None
         
         self.init_ui()
-        
+
+    def get_consistent_category_order(self):
+        """Get categories in consistent order for color assignment across all charts
+
+        Returns:
+            list: [(category_name, total_amount), ...] sorted by spending amount (highest first)
+        """
+        if not self.transaction_manager:
+            return []
+
+        try:
+            # Get all spending transactions
+            all_transactions = getattr(self, '_cached_all_transactions', None) or self.transaction_manager.get_all_transactions()
+            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+
+            # Calculate spending by category
+            category_spending = {}
+            for transaction in spending_transactions:
+                category = transaction.category or "Uncategorized"
+                category_spending[category] = category_spending.get(category, 0) + transaction.amount
+
+            # Sort by spending amount (highest first) - this is our master ordering
+            sorted_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)
+
+            return sorted_categories
+
+        except Exception as e:
+            print(f"Error getting consistent category order: {e}")
+            return []
+
+    def get_consistent_category_colors(self, chart_category_spending):
+        """Get consistent colors for categories based on overall app ordering
+
+        Args:
+            chart_category_spending: dict of category spending for this specific chart
+
+        Returns:
+            list: colors in same order as chart_category_spending keys
+        """
+        # Get the global consistent ordering from all transactions
+        sorted_categories = self.get_consistent_category_order()
+        chart_colors = theme_manager.get_chart_colors()
+
+        # Create color map from global ordering
+        color_map = {}
+        for i, (category, amount) in enumerate(sorted_categories):
+            color_index = i % len(chart_colors)
+            color_map[category] = chart_colors[color_index]
+
+        # Return colors in the same order as chart_category_spending
+        consistent_colors = []
+        for category in chart_category_spending.keys():
+            if category in color_map:
+                color = color_map[category]
+                # Remove alpha channel if present (Qt CSS compatibility)
+                if len(color) == 9 and color.startswith('#'):
+                    color = color[:7]
+                consistent_colors.append(color)
+            else:
+                # Fallback color for new categories not in global ordering
+                consistent_colors.append(chart_colors[0])
+
+        return consistent_colors
+
     def init_ui(self):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(1)  # Ultra minimal spacing for cluttered dashboard feel
@@ -320,20 +419,50 @@ class DashboardView(QWidget):
         # Header section
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
-        
+
         # Title
         title = QLabel("💰 Financial Control Panel")
         title.setFont(theme_manager.get_font("title"))
         header_layout.addWidget(title)
-        
-        header_layout.addStretch()
-        
-        # Analytics toggle
+
+        # LCD Date Display
+        self.date_lcd = QLCDNumber()
+        self.date_lcd.setDigitCount(10)  # MM/DD/YYYY = 10 characters
+        self.date_lcd.setSegmentStyle(QLCDNumber.SegmentStyle.Flat)
+        self.date_lcd.setFixedHeight(30)
+        self.date_lcd.setFixedWidth(120)
+        current_date = QDate.currentDate().toString("MM/dd/yyyy")
+        self.date_lcd.display(current_date)
+        self.date_lcd.setToolTip("Current Date")
+        header_layout.addWidget(self.date_lcd)
+
+        # Total Accounted display - sum of all savings and bill account balances
+        self.total_accounted_label = QLabel("Total: $0.00")
+        self.total_accounted_label.setFont(theme_manager.get_font("main"))
+        self.total_accounted_label.setToolTip("Sum of all savings and bill account balances")
+        header_layout.addWidget(self.total_accounted_label)
+
+        # Refresh button - compact tool button with just emoji
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("🔄")
+        self.refresh_button.setToolTip("Refresh Dashboard")
+        self.refresh_button.setFixedSize(40, 30)
+        self.refresh_button.clicked.connect(self.refresh)
+        # Styling applied in apply_header_theme method
+        header_layout.addWidget(self.refresh_button)
+
+        # Analytics toggle - styled checkbox
         self.analytics_toggle = QCheckBox("Normal Spending Only")
-        self.analytics_toggle.setChecked(True)
+        self.analytics_toggle.setChecked(self.include_analytics_only)  # Use setting from file
         self.analytics_toggle.toggled.connect(self.toggle_analytics_mode)
         self.analytics_toggle.setToolTip("Filter abnormal transactions from analytics")
+        self.analytics_toggle.setFont(theme_manager.get_font("main"))
         header_layout.addWidget(self.analytics_toggle)
+
+        header_layout.addStretch()  # Push everything to the left
+
+        # Apply initial theme styling to date LCD, refresh button, and checkbox
+        self.apply_header_theme()
         
         main_layout.addLayout(header_layout)
         
@@ -479,11 +608,16 @@ class DashboardView(QWidget):
         rings_heatmap_container.addWidget(self.heatmap_chart)
         
         bottom_row.addLayout(rings_heatmap_container)
-        
-        # Central GIF holder
-        self.gif_widget = AnimatedGifWidget("dashboard", (150, 100))
-        bottom_row.addWidget(self.gif_widget)
-        
+
+        # Central GIF holder - maximize available space
+        # Height should match left section (rings 65px + heatmap ~200-300px = ~265-365px total)
+        self.gif_widget = AnimatedGifWidget("dashboard", (200, 365))  # Increased size to match full available space
+        self.gif_widget.setMinimumWidth(150)  # Minimum width
+        self.gif_widget.setMaximumWidth(250)  # Maximum width to prevent it from getting too wide
+        self.gif_widget.setMinimumHeight(265)  # Minimum height (rings + min heatmap)
+        # No max height - let it expand to fill available space
+        bottom_row.addWidget(self.gif_widget, stretch=1)  # Allow it to stretch
+
         # Savings progress bars
         self.savings_progress_chart = SavingsProgressWidget("Savings Goals")
         self.savings_progress_chart.setMinimumWidth(150)
@@ -504,37 +638,44 @@ class DashboardView(QWidget):
     def create_category_key(self):
         """Create category color key frame"""
         frame = QFrame()
-        frame.setFrameStyle(QFrame.Shape.Box)
         frame.setMinimumWidth(140)  # Even wider to fit text
         frame.setMinimumHeight(250)  # Much taller to show all categories
         frame.setMaximumHeight(300)  # Allow it to be tall
-        
+
         colors = theme_manager.get_colors()
         frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {colors['surface']};
-                border: 1px solid {colors['border']};
-                border-radius: 4px;
+                border: none;
                 margin: 2px;
             }}
         """)
-        
+
         layout = QVBoxLayout()
         layout.setSpacing(3)
         layout.setContentsMargins(5, 5, 5, 5)
-        
+
         key_title = QLabel("Categories")
         key_title.setFont(theme_manager.get_font("subtitle"))  # Bigger header
         key_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         key_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 3px;")
         layout.addWidget(key_title)
-        
-        # Category key will be populated in refresh
-        self.category_key_layout = QVBoxLayout()
-        self.category_key_layout.setSpacing(2)
-        layout.addLayout(self.category_key_layout)
-        # No stretch - let it fill the space
-        
+
+        # Color key display (single label with HTML like categories tab)
+        self.color_key_label = QLabel("Loading...")
+        self.color_key_label.setFont(theme_manager.get_font("small"))
+        self.color_key_label.setStyleSheet(f"""
+            QLabel {{
+                color: {colors['text_primary']};
+                background-color: transparent;
+                padding: 5px;
+            }}
+        """)
+        self.color_key_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.color_key_label.setWordWrap(True)
+        self.color_key_label.setTextFormat(Qt.TextFormat.RichText)  # Enable HTML support
+        layout.addWidget(self.color_key_label)
+
         frame.setLayout(layout)
         return frame
         
@@ -565,12 +706,12 @@ class DashboardView(QWidget):
         layout.setSpacing(3)  # Reduced spacing
         layout.setContentsMargins(5, 3, 5, 3)  # Reduced margins
         
-        # Title - bigger header 
+        # Title - bigger header
         title_label = QLabel(title)
         title_label.setFont(theme_manager.get_font("subtitle"))  # Bigger font
         title_label.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
         layout.addWidget(title_label)
-        
+
         # Content label - dynamic height
         content_label = QLabel("Loading...")
         content_label.setFont(theme_manager.get_font("monospace"))
@@ -578,12 +719,13 @@ class DashboardView(QWidget):
         content_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         content_label.setStyleSheet(f"color: {colors['text_primary']}; padding: 2px;")
         layout.addWidget(content_label)
-        
+
         frame.setLayout(layout)
-        
-        # Store reference for updating
+
+        # Store references for updating (both title and content)
         setattr(self, f"{content_type}_label", content_label)
-        
+        setattr(self, f"{content_type}_title_label", title_label)
+
         return frame
         
     def create_placeholder_chart(self, title: str):
@@ -618,10 +760,147 @@ class DashboardView(QWidget):
         
         return frame
         
+    def apply_header_theme(self):
+        """Apply theme styling to header elements (LCD date, refresh button, and checkbox)"""
+        colors = theme_manager.get_colors()
+
+        # Style LCD date display
+        self.date_lcd.setStyleSheet(f"""
+            QLCDNumber {{
+                background-color: {colors['surface']};
+                color: {colors['primary']};
+                border: 2px solid {colors['border']};
+                border-radius: 4px;
+            }}
+        """)
+
+        # Style refresh button (QToolButton)
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                    font-size: 16px;
+                }}
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
+        # Style checkbox
+        self.analytics_toggle.setStyleSheet(f"""
+            QCheckBox {{
+                color: {colors['text_primary']};
+                spacing: 8px;
+                font-weight: normal;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 2px solid {colors['border']};
+                border-radius: 3px;
+                background-color: {colors['surface']};
+            }}
+            QCheckBox::indicator:hover {{
+                border: 2px solid {colors['primary']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border-color: {colors['primary']};
+            }}
+        """)
+
+        # Style total accounted label
+        if hasattr(self, 'total_accounted_label'):
+            self.total_accounted_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {colors['accent']};
+                    background-color: {colors['surface']};
+                    border: 2px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px 8px;
+                    font-weight: bold;
+                }}
+            """)
+
     def toggle_analytics_mode(self, checked):
         """Toggle between normal and all spending analytics"""
         self.include_analytics_only = checked
         self.refresh()
+
+    def apply_time_frame_filter(self, transactions):
+        """Apply time frame filtering to a list of transactions"""
+        if self.time_frame_filter == "All Time":
+            return transactions
+
+        from datetime import datetime, timedelta
+        today = datetime.now().date()
+
+        if self.time_frame_filter == "Last Year":
+            cutoff_date = today - timedelta(days=365)
+            return [t for t in transactions if t.date >= cutoff_date]
+
+        elif self.time_frame_filter == "Last Month":
+            cutoff_date = today - timedelta(days=30)
+            return [t for t in transactions if t.date >= cutoff_date]
+
+        elif self.time_frame_filter == "Last 20 Entries":
+            # Sort by date descending and take first 20
+            sorted_transactions = sorted(transactions, key=lambda t: t.date, reverse=True)
+            return sorted_transactions[:20]
+
+        return transactions
+
+    def get_filtered_spending_transactions(self):
+        """Get spending transactions with ONLY analytics and rollover filtering (NO time filter)
+
+        Use this for summary charts like pie charts, heatmaps, histograms, etc.
+        For timeline charts, use get_timeline_filtered_spending_transactions() instead.
+        """
+        transactions = getattr(self, '_cached_spending', None) or self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+        # Filter out rollover transactions (category = "Rollover" or description contains "rollover")
+        filtered_transactions = []
+        for t in transactions:
+            is_rollover = (
+                (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+            )
+            if not is_rollover:
+                filtered_transactions.append(t)
+
+        return filtered_transactions
+
+    def get_timeline_filtered_spending_transactions(self):
+        """Get spending transactions with analytics, rollover, AND time frame filtering
+
+        Use this ONLY for charts with timeline x-axes (stacked area chart, line charts).
+        For summary charts, use get_filtered_spending_transactions() instead.
+        """
+        # Get base filtered transactions (analytics + rollover filtering)
+        filtered_transactions = self.get_filtered_spending_transactions()
+
+        # Apply time frame filter
+        return self.apply_time_frame_filter(filtered_transactions)
+
+    def calculate_category_spending_from_filtered(self):
+        """Calculate category spending totals from filtered transactions"""
+        transactions = self.get_filtered_spending_transactions()
+        transactions = [t for t in transactions if t.amount > 0]  # Exclude placeholder transactions
+
+        category_totals = {}
+        for transaction in transactions:
+            category = getattr(transaction, 'category', 'Miscellaneous') or 'Miscellaneous'
+            category_totals[category] = category_totals.get(category, 0.0) + float(transaction.amount)
+
+        return category_totals
     
     def apply_hour_calc_button_theme(self):
         """Apply accent color theme to hour calculator button"""
@@ -675,16 +954,21 @@ class DashboardView(QWidget):
                 week_start = today - timedelta(days=today.weekday())
                 days_left_in_week = 7 - (today.weekday() + 1)
                 
-                # Get current week spending
-                all_transactions = self.transaction_manager.get_all_transactions()
-                current_week_spending = [
-                    t for t in all_transactions 
-                    if t.transaction_type == "spending" and 
-                       t.amount > 0 and  # Exclude placeholder transactions
-                       t.include_in_analytics and  # Only include analytics transactions
-                       t.date >= week_start.date() and
-                       (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
-                ]
+                # Get current week spending using analytics and rollover filtering (ignore time frame)
+                spending_transactions = getattr(self, '_cached_spending', None) or self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+                # Filter out rollover transactions and get current week data
+                current_week_spending = []
+                for t in spending_transactions:
+                    if (t.amount > 0 and  # Exclude placeholder transactions
+                        t.date >= week_start.date()):
+                        # Check if it's a rollover transaction
+                        is_rollover = (
+                            (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                            (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                        )
+                        if not is_rollover:
+                            current_week_spending.append(t)
                 
                 week_spent = sum(t.amount for t in current_week_spending)
                 
@@ -716,9 +1000,20 @@ class DashboardView(QWidget):
         if not self.transaction_manager or not self.analytics_engine:
             self.set_error_state("Services not available")
             return
-        
+
         try:
-            # Update all sections
+            # Reload settings from file (in case they changed)
+            from views.dialogs.settings_dialog import get_setting
+            self.time_frame_filter = get_setting("time_frame_filter", "All Time")
+
+            # Cache frequently-used data at start to avoid multiple DB queries
+            self._cached_accounts = self.transaction_manager.get_all_accounts()
+            self._cached_bills = self.transaction_manager.get_all_bills()
+            self._cached_spending = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+            self._cached_all_transactions = self.transaction_manager.get_all_transactions()
+
+            # Update all sections (they can now use cached data)
+            self.update_total_accounted()
             self.update_accounts_display()
             self.update_weekly_status()
             self.update_bills_status()
@@ -733,7 +1028,17 @@ class DashboardView(QWidget):
             self.update_weekly_spending_trends()
             self.update_category_boxplot()
             self.update_hour_calc_display()
-            
+
+            # Refresh GIF widget with a new random GIF
+            if hasattr(self, 'gif_widget') and self.gif_widget:
+                self.gif_widget.load_gif()
+
+            # Clear cache after refresh to free memory
+            self._cached_accounts = None
+            self._cached_bills = None
+            self._cached_spending = None
+            self._cached_all_transactions = None
+
         except Exception as e:
             error_msg = f"Error refreshing dashboard: {str(e)}"
             print(error_msg)
@@ -747,11 +1052,22 @@ class DashboardView(QWidget):
             self.weekly_status_label.setText(error_msg)
         if hasattr(self, 'bills_status_label'):
             self.bills_status_label.setText(error_msg)
-    
+
+    def showEvent(self, event):
+        """
+        Called when dashboard tab is shown
+        Refresh the GIF to show a new random one each time user switches to this tab
+        """
+        super().showEvent(event)
+        # Load a new random GIF when dashboard is shown
+        if hasattr(self, 'gif_widget') and self.gif_widget:
+            self.gif_widget.load_gif()
+
     def update_accounts_display(self):
         """Update account summary display"""
         try:
-            accounts = self.transaction_manager.get_all_accounts()
+            # Use cached data if available, otherwise fetch
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
             
             if not accounts:
                 self.account_summary_label.setText("No accounts found")
@@ -770,7 +1086,30 @@ class DashboardView(QWidget):
             
         except Exception as e:
             self.account_summary_label.setText(f"Error: {e}")
-    
+
+    def update_total_accounted(self):
+        """Update the total accounted for display (sum of all savings and bill account balances)"""
+        try:
+            total = 0.0
+
+            # Sum all savings account balances (using cached data)
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
+            for account in accounts:
+                balance = account.get_current_balance()
+                total += balance
+
+            # Sum all bill account balances (using cached data)
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
+            for bill in bills:
+                balance = bill.get_current_balance()
+                total += balance
+
+            # Update label with formatted total (includes negative balances)
+            self.total_accounted_label.setText(f"Total: ${total:,.2f}")
+
+        except Exception as e:
+            self.total_accounted_label.setText(f"Total: Error")
+
     def update_weekly_status(self):
         """Update weekly status display with current week tracking"""
         try:
@@ -779,57 +1118,115 @@ class DashboardView(QWidget):
             week_start = today - timedelta(days=today.weekday())  # Monday of current week
             days_into_week = today.weekday() + 1  # 1-7 (Monday = 1)
             days_left_in_week = 7 - days_into_week
-            
-            # Get current week transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
-            current_week_spending = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and 
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   t.date >= week_start.date() and
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
-            ]
-            
-            # Calculate week spending total
-            week_spent = sum(t.amount for t in current_week_spending)
-            
-            # Get weekly budget/allowance (try to get from paycheck processing or use default)
-            try:
-                # Try to get weekly spending allowance from recent paycheck
-                income_summary = self.transaction_manager.get_income_vs_spending_summary()
-                # Estimate weekly budget as 1/4 of total spending capability
-                estimated_weekly_budget = income_summary.get('total_income', 400) / 4
-            except:
-                estimated_weekly_budget = 200  # Default weekly budget
-            
-            week_started = estimated_weekly_budget
-            week_remaining = max(0, week_started - week_spent)
-            
-            # Calculate daily remaining
-            if days_left_in_week > 0:
-                daily_remaining = week_remaining / days_left_in_week
+
+            # Get the most recent week from the database
+            current_week = self.transaction_manager.get_current_week()
+
+            # STALE DATA DETECTION (Added 2024-10-20):
+            # If user hasn't added their latest paycheck, show warning in Week card
+            # Motivates user to add new paycheck to see current data
+            # Also hides weekly pie chart when data is stale (no current week to show)
+            weeks_overdue = 0
+            data_is_stale = False
+
+            if current_week:
+                # Check if today is after the end date of the most recent week
+                if today.date() > current_week.end_date:
+                    # Calculate how many weeks overdue we are
+                    days_overdue = (today.date() - current_week.end_date).days
+                    weeks_overdue = (days_overdue // 7) + 1  # Round up to show full weeks
+                    data_is_stale = True
+
+            # Update the title based on whether data is stale
+            if hasattr(self, 'weekly_status_title_label'):
+                if data_is_stale:
+                    self.weekly_status_title_label.setText(f"Week: -{weeks_overdue} weeks ago")
+                else:
+                    self.weekly_status_title_label.setText("Week:")
+
+            # If data is stale, zero out remaining and daily
+            if data_is_stale:
+                # Get week data for display but show zeros for remaining/daily
+                if current_week:
+                    week_started = current_week.running_total
+                else:
+                    week_started = 0
+
+                # Get spending from the last tracked week
+                spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+                week_spent = 0
+                if current_week:
+                    for t in spending_transactions:
+                        if (t.amount > 0 and
+                            current_week.start_date <= t.date <= current_week.end_date):
+                            # Check if it's a rollover transaction
+                            is_rollover = (
+                                (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                                (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                            )
+                            if not is_rollover:
+                                week_spent += t.amount
+
+                # Format with zeros for remaining and daily
+                status_text = f"Started: ${week_started:.0f}\n"
+                status_text += f"Spent: ${week_spent:.0f}\n"
+                status_text += f"Remaining: $0\n"
+                status_text += f"Daily: $0"
+
             else:
-                daily_remaining = 0
-            
-            # Format the display
-            status_text = f"Started: ${week_started:.0f}\n"
-            status_text += f"Spent: ${week_spent:.0f}\n"
-            status_text += f"Remaining: ${week_remaining:.0f}\n"
-            if days_left_in_week > 0:
-                status_text += f"Daily: ${daily_remaining:.0f}"
-            else:
-                status_text += "Week done"
-            
+                # Normal case: data is current
+                # Get current week transactions using analytics and rollover filtering (ignore time frame)
+                spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+                # Filter out rollover transactions and get current week data
+                current_week_spending = []
+                for t in spending_transactions:
+                    if (t.amount > 0 and  # Exclude placeholder transactions
+                        t.date >= week_start.date()):
+                        # Check if it's a rollover transaction
+                        is_rollover = (
+                            (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                            (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                        )
+                        if not is_rollover:
+                            current_week_spending.append(t)
+
+                # Calculate week spending total
+                week_spent = sum(t.amount for t in current_week_spending)
+
+                # Get actual current week allocation from V2.0 rollover system
+                if current_week:
+                    week_started = current_week.running_total
+                else:
+                    # No week exists yet - use default
+                    week_started = 200  # Default weekly budget
+
+                week_remaining = max(0, week_started - week_spent)
+
+                # Calculate daily remaining
+                if days_left_in_week > 0:
+                    daily_remaining = week_remaining / days_left_in_week
+                else:
+                    daily_remaining = 0
+
+                # Format the display
+                status_text = f"Started: ${week_started:.0f}\n"
+                status_text += f"Spent: ${week_spent:.0f}\n"
+                status_text += f"Remaining: ${week_remaining:.0f}\n"
+                if days_left_in_week > 0:
+                    status_text += f"Daily: ${daily_remaining:.0f}"
+                else:
+                    status_text += "Week done"
+
             self.weekly_status_label.setText(status_text)
-            
+
         except Exception as e:
             self.weekly_status_label.setText(f"Error: {e}")
     
     def update_bills_status(self):
         """Update bills status display"""
         try:
-            bills = self.transaction_manager.get_all_bills()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
             
             if not bills:
                 self.bills_status_label.setText("No bills configured")
@@ -850,80 +1247,120 @@ class DashboardView(QWidget):
             self.bills_status_label.setText(f"Error: {e}")
     
     def update_category_key(self):
-        """Update category color key"""
+        """Update category color key display with actual colors and dynamic font sizing"""
+        if not hasattr(self, 'color_key_label'):
+            return
+
         try:
-            # Clear existing items
-            for i in reversed(range(self.category_key_layout.count())):
-                self.category_key_layout.itemAt(i).widget().setParent(None)
-            
-            # Get categories from actual transaction data
-            categories = self.analytics_engine.get_all_categories()
-            colors = theme_manager.get_chart_colors()
+            # Get consistent category ordering
+            sorted_categories = self.get_consistent_category_order()
 
-            # Get theme colors for proper text display
-            theme_colors = theme_manager.get_colors()
-
-            # Only show categories if there are actual transactions
-            if not categories:
-                # Show empty state message
-                empty_label = QLabel(f"<span style='color: {theme_colors['text_secondary']}; font-style: italic; font-size: 11px;'>No categories yet</span>")
-                empty_label.setStyleSheet(f"padding: 10px; text-align: center;")
-                self.category_key_layout.addWidget(empty_label)
+            if not sorted_categories:
+                self.color_key_label.setText("No categories available")
                 return
 
-            for i, category in enumerate(categories):  # Show actual categories
-                color = colors[i % len(colors)]  # Chart color for the bullet
-                
-                text_color = theme_colors['text_primary']
-                key_item = QLabel(f"<span style='color: {color}; font-weight: bold;'>●</span> <span style='color: {text_color}; font-size: 11px;'>{category}</span>")
-                key_item.setStyleSheet(f"padding: 2px; background: transparent;")
-                self.category_key_layout.addWidget(key_item)
-                
+            # Filter to only categories with spending data (same as pie chart and box plot)
+            filtered_categories = [(cat, amount) for cat, amount in sorted_categories if amount > 0]
+
+            if not filtered_categories:
+                self.color_key_label.setText("No categories available")
+                return
+
+            # Get consistent color mapping
+            category_totals = {cat: amount for cat, amount in filtered_categories}
+            consistent_colors = self.get_consistent_category_colors(category_totals)
+            color_map = {cat: color for cat, color in zip(category_totals.keys(), consistent_colors)}
+
+            # Calculate dynamic font size based on number of categories
+            num_categories = len(filtered_categories)
+            available_height = 250  # Available height for categories (excluding title and padding)
+            max_font_size = 24
+            min_font_size = 4  # Much smaller minimum - readability over size
+
+            # Calculate optimal font size
+            # Assume each line needs about font_size * 2.0 pixels height (including line spacing)
+            line_height_multiplier = 2.0
+            optimal_font_size = int(available_height / (num_categories * line_height_multiplier))
+
+            # Clamp to min/max bounds
+            font_size = max(min_font_size, min(max_font_size, optimal_font_size))
+
+            # Build color key with HTML for colors using color map and dynamic font size
+            key_html = ""
+            for category, amount in filtered_categories:
+                color = color_map.get(category, "#000000")
+
+                # Truncate long category names
+                display_name = category[:12] + "..." if len(category) > 12 else category
+
+                # Use consistent styling with dynamic font size
+                key_html += f'<span style="color: {color}; font-size: {font_size}px;">● {display_name}</span><br>'
+
+            if not key_html:
+                key_html = "No categories available"
+
+            self.color_key_label.setText(key_html.rstrip('<br>'))
+
         except Exception as e:
-            print(f"Error updating category key: {e}")
+            print(f"Error updating color key: {e}")
+            self.color_key_label.setText("Error loading colors")
     
     def update_pie_charts(self):
         """Update both pie charts with different data sources"""
         try:
-            # Get ALL-TIME spending data by category for the big pie chart
-            all_time_category_spending = self.analytics_engine.analyze_spending_by_category(self.include_analytics_only)
-            
-            # Update total spending pie chart (all-time percentages)
+            # Get spending data by category for the big pie chart (uses ALL data, not time filtered)
+            all_time_category_spending = self.calculate_category_spending_from_filtered()
+
+            # Update total spending pie chart with all-time data
             if self.total_pie_chart and all_time_category_spending:
-                self.total_pie_chart.update_data(all_time_category_spending, "All-Time Spending")
-            
+                chart_title = "Spending by Category"  # Shows all-time data
+                consistent_colors = self.get_consistent_category_colors(all_time_category_spending)
+                self.total_pie_chart.update_data(all_time_category_spending, chart_title, custom_colors=consistent_colors)
+
             # Get CURRENT WEEK spending data for the small pie chart
             from datetime import datetime, timedelta
             today = datetime.now()
             week_start = today - timedelta(days=today.weekday())  # Monday of current week
-            
-            # Get transactions for current week only
-            all_transactions = self.transaction_manager.get_all_transactions()
-            current_week_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and 
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   t.date >= week_start.date() and
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
-            ]
-            
+
+            # Check if data is stale (same logic as Week card)
+            current_week_db = self.transaction_manager.get_current_week()
+            data_is_stale = False
+            if current_week_db and today.date() > current_week_db.end_date:
+                data_is_stale = True
+
+            # Get spending transactions using ONLY analytics filtering (ignore time frame for current week)
+            spending_transactions = self.transaction_manager.get_spending_transactions(self.include_analytics_only)
+
+            # Filter out rollover transactions and get current week data
+            current_week_transactions = []
+            for t in spending_transactions:
+                if (t.amount > 0 and  # Exclude placeholder transactions
+                    t.date >= week_start.date()):
+                    # Check if it's a rollover transaction
+                    is_rollover = (
+                        (hasattr(t, 'category') and t.category and t.category.lower() == 'rollover') or
+                        (hasattr(t, 'description') and t.description and 'rollover' in t.description.lower())
+                    )
+                    if not is_rollover:
+                        current_week_transactions.append(t)
+
             # Calculate current week category spending
             weekly_category_spending = {}
             for transaction in current_week_transactions:
                 category = getattr(transaction, 'category', 'Miscellaneous') or 'Miscellaneous'
                 weekly_category_spending[category] = weekly_category_spending.get(category, 0) + transaction.amount
-            
+
             # Update weekly pie chart (current week only)
             if self.weekly_pie_chart:
-                if weekly_category_spending:
-                    print(f"Current week spending data: {weekly_category_spending}")
-                    self.weekly_pie_chart.update_data(weekly_category_spending, "This Week Spending")
+                # Hide the chart if data is stale OR no spending this week
+                if data_is_stale or not weekly_category_spending:
+                    self.weekly_pie_chart.setVisible(False)
                 else:
-                    # No spending this week - show greyed out empty chart
-                    print(f"No current week spending found. Week start: {week_start.date()}, Today: {today.date()}")
-                    self.weekly_pie_chart.update_data({}, "This Week Spending")
-                
+                    # Show the chart and update with data
+                    self.weekly_pie_chart.setVisible(True)
+                    weekly_consistent_colors = self.get_consistent_category_colors(weekly_category_spending)
+                    self.weekly_pie_chart.update_data(weekly_category_spending, "This Week Spending", custom_colors=weekly_consistent_colors)
+
         except Exception as e:
             print(f"Error updating pie charts: {e}")
     
@@ -931,15 +1368,12 @@ class DashboardView(QWidget):
         """Update stacked area chart with real weekly category percentages"""
         try:
             from datetime import datetime, timedelta
-            
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+
+            # Get spending transactions with TIMELINE filtering (this chart shows time on x-axis)
+            spending_transactions = self.get_timeline_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude $0 placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude $0 placeholder transactions
             ]
             
             if not spending_transactions:
@@ -962,12 +1396,35 @@ class DashboardView(QWidget):
                 category = getattr(transaction, 'category', 'Miscellaneous') or 'Miscellaneous'
                 weekly_data[week_key][category] = weekly_data[week_key].get(category, 0) + transaction.amount
             
-            # Sort weeks chronologically and take last 8 weeks
-            sorted_weeks = sorted(weekly_data.keys())[-8:]
-            filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
-            
+            # Sort weeks chronologically
+            sorted_weeks = sorted(weekly_data.keys())
+
+            # Apply time frame limit based on setting
+            if self.time_frame_filter == "All Time":
+                # Show all weeks
+                filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
+            elif self.time_frame_filter == "Last 20 Entries":
+                # Take last 20 weeks
+                sorted_weeks = sorted_weeks[-20:]
+                filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
+            else:
+                # For "Last Year" and "Last Month", transactions are already filtered
+                # Just show all resulting weeks
+                filtered_weekly_data = {week: weekly_data[week] for week in sorted_weeks}
+
             if self.stacked_area_chart:
-                self.stacked_area_chart.update_data(filtered_weekly_data)
+                # Calculate category totals for consistent color mapping
+                category_totals = {}
+                for week_data in filtered_weekly_data.values():
+                    for category, amount in week_data.items():
+                        category_totals[category] = category_totals.get(category, 0) + amount
+
+                # Get colors and matching category order
+                consistent_colors = self.get_consistent_category_colors(category_totals)
+                # Category order matches the order of keys in category_totals dict
+                category_order = list(category_totals.keys())
+
+                self.stacked_area_chart.update_data(filtered_weekly_data, custom_colors=consistent_colors, category_order=category_order)
                 
         except Exception as e:
             print(f"Error updating stacked area chart: {e}")
@@ -998,7 +1455,7 @@ class DashboardView(QWidget):
         """Update ring charts showing account progress"""
         try:
             # Get all bills from database (rings now represent bills)
-            bills = self.transaction_manager.get_all_bills()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
             
             # Update each ring with bill progress (running_total / typical_amount)
             for i, ring_chart in enumerate(self.ring_charts):
@@ -1022,8 +1479,8 @@ class DashboardView(QWidget):
     def update_heatmap(self):
         """Update day/category heatmap with real data - average spending by day of week and category"""
         try:
-            # Get all spending transactions from the database
-            spending_transactions = self.transaction_manager.get_spending_transactions(include_analytics_only=True)
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             
             # Initialize data structure for day/category averages
             from collections import defaultdict
@@ -1071,7 +1528,7 @@ class DashboardView(QWidget):
         """Update savings progress chart with real account data"""
         try:
             # Get all savings accounts from database
-            accounts = self.transaction_manager.get_all_accounts()
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
             
             if self.savings_progress_chart:
                 self.savings_progress_chart.update_data(accounts)
@@ -1082,14 +1539,11 @@ class DashboardView(QWidget):
     def update_purchase_histogram(self):
         """Update purchase size histogram with spending transaction amounts"""
         try:
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude placeholder transactions
             ]
             
             if not spending_transactions:
@@ -1114,14 +1568,11 @@ class DashboardView(QWidget):
     def update_weekly_spending_trends(self):
         """Update weekly spending trend chart with daily spending by week"""
         try:
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude placeholder transactions
             ]
             
             if not spending_transactions:
@@ -1165,14 +1616,11 @@ class DashboardView(QWidget):
     def update_category_boxplot(self):
         """Update category box plot with spending distributions by category"""
         try:
-            # Get all spending transactions
-            all_transactions = self.transaction_manager.get_all_transactions()
+            # Get spending transactions using proper filtering
+            spending_transactions = self.get_filtered_spending_transactions()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.transaction_type == "spending" and
-                   t.amount > 0 and  # Exclude placeholder transactions
-                   t.include_in_analytics and  # Only include analytics transactions
-                   (not self.include_analytics_only or not getattr(t, 'is_abnormal', False))
+                t for t in spending_transactions
+                if t.amount > 0  # Exclude placeholder transactions
             ]
             
             if not spending_transactions:
@@ -1192,9 +1640,14 @@ class DashboardView(QWidget):
             
             # Convert to dict for the widget
             category_data = dict(category_amounts)
-            
+
             if self.category_boxplot:
-                self.category_boxplot.update_data(category_data)
+                # Get consistent colors for the categories
+                category_totals = {cat: sum(amounts) for cat, amounts in category_data.items()}
+                consistent_colors = self.get_consistent_category_colors(category_totals)
+                # Convert list of colors to color_map dictionary
+                color_map = {cat: color for cat, color in zip(category_totals.keys(), consistent_colors)}
+                self.category_boxplot.update_data(category_data, color_map=color_map)
                 
         except Exception as e:
             print(f"Error updating category box plot: {e}")
@@ -1205,13 +1658,14 @@ class DashboardView(QWidget):
             # Update UI element styling (fast)
             self.update_frame_styling()
             self.apply_hour_calc_button_theme()
-            
+            self.apply_header_theme()  # Update LCD date and checkbox styling
+
             # Update visual theme elements without recalculating data
             self.update_category_key()  # Only updates colors, not data
-            
+
             # Force chart theme updates - they need to redraw with new colors
             self.update_chart_themes_only()
-            
+
         except Exception as e:
             print(f"Error applying theme to dashboard: {e}")
     
@@ -1260,16 +1714,25 @@ class DashboardView(QWidget):
             self.category_key_frame.setStyleSheet(f"""
                 QFrame {{
                     background-color: {colors['surface']};
-                    border: 1px solid {colors['border']};
-                    border-radius: 4px;
+                    border: none;
                     margin: 2px;
                 }}
             """)
-            
-            # Update category key header title
+
+            # Update category key header title and color key label
             for child in self.category_key_frame.findChildren(QLabel):
                 if child.text() == "Categories":  # This is the header
                     child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 3px;")
+
+        # Update color key label styling
+        if hasattr(self, 'color_key_label'):
+            self.color_key_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {colors['text_primary']};
+                    background-color: transparent;
+                    padding: 5px;
+                }}
+            """)
         
         # Update card frames styling - find all dynamic cards
         for attr_name in ['weekly_status_label', 'account_summary_label', 'bills_status_label']:
@@ -1299,7 +1762,7 @@ class DashboardView(QWidget):
         """Setup dynamic bill rings based on available bills"""
         try:
             # Get all bills from database
-            bills = self.transaction_manager.get_all_bills()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
             
             # Limit to max 7 rings to better utilize space
             max_rings = 7
@@ -1415,7 +1878,10 @@ class DashboardView(QWidget):
             from datetime import datetime, timedelta
             
             # Get transactions for this account
-            all_transactions = self.transaction_manager.get_all_transactions()
+            all_transactions = getattr(self, '_cached_all_transactions', None) or self.transaction_manager.get_all_transactions()
+
+            # Apply time filtering to all transactions
+            all_transactions = self.apply_time_frame_filter(all_transactions)
             
             if account_type == 'account':
                 # Filter saving transactions for this account
@@ -1451,29 +1917,31 @@ class DashboardView(QWidget):
             if account_transactions:
                 account_transactions.sort(key=lambda t: t.date)
             
-            # Calculate running totals over time
+            # Calculate running totals over time with DATES on x-axis
             data_points = []
             running_total = 0
-            
+
             if account_type == 'account':
                 # For savings accounts: start at 0, add deposits, subtract withdrawals
-                for i, transaction in enumerate(account_transactions):
+                for transaction in account_transactions:
                     running_total += transaction.amount  # Positive for deposits, negative for withdrawals
-                    data_points.append((i, running_total))
+                    data_points.append((transaction.date, running_total))
             else:
                 # For bills: show accumulation then spending pattern
                 # This tracks how much has been saved/allocated for this bill over time
                 if not account_transactions:
                     # If no transactions, show the current bill running total as a flat line
+                    from datetime import date as date_type, timedelta
                     current_total = getattr(account_obj, 'running_total', 0)
-                    data_points = [(0, current_total), (1, current_total)]
+                    today = date_type.today()
+                    data_points = [(today - timedelta(days=30), current_total), (today, current_total)]
                 else:
-                    for i, transaction in enumerate(account_transactions):
+                    for transaction in account_transactions:
                         if transaction.transaction_type == "bill_pay":
                             running_total -= transaction.amount  # Money spent on bill
                         elif transaction.transaction_type == "saving":
                             running_total += transaction.amount  # Money saved for bill
-                        data_points.append((i, running_total))
+                        data_points.append((transaction.date, running_total))
             
             return data_points
             
@@ -1485,33 +1953,51 @@ class DashboardView(QWidget):
         """Automatically select account or bill for a savings chart based on settings"""
         try:
             import random
-            
+
             # Get available accounts and bills
-            accounts = self.transaction_manager.get_all_accounts()
-            bills = self.transaction_manager.get_all_bills()
-            
+            accounts = getattr(self, '_cached_accounts', None) or self.transaction_manager.get_all_accounts()
+            bills = getattr(self, '_cached_bills', None) or self.transaction_manager.get_all_bills()
+
             # Get setting for this chart
             setting_key = f"dashboard_chart{chart_index + 1}_account"
             preferred_account = get_setting(setting_key, "random")
-            
+
             # Combine accounts and bills into options
             options = []
             for account in accounts:
                 options.append(('account', account, account.name))
             for bill in bills:
                 options.append(('bill', bill, bill.name))
-            
+
             if not options:
                 # No accounts or bills available
                 if chart_index < len(self.savings_line_charts):
                     self.savings_line_charts[chart_index].clear_chart()
                 return
-            
+
+            # Get what the OTHER chart has selected to avoid duplicates
+            other_chart_index = 1 if chart_index == 0 else 0
+            other_chart_selection = None
+            if other_chart_index < len(self.selected_accounts) and self.selected_accounts[other_chart_index]:
+                other_chart_selection = self.selected_accounts[other_chart_index]
+
             # Select option based on settings
             selected_option = None
             if preferred_account == "random":
-                # Random selection (original behavior)
-                selected_option = random.choice(options)
+                # Random selection - avoid selecting what the other chart has
+                available_options = options.copy()
+
+                # Remove the other chart's selection from available options
+                if other_chart_selection:
+                    other_type, other_obj = other_chart_selection
+                    available_options = [opt for opt in available_options
+                                       if not (opt[0] == other_type and opt[1] == other_obj)]
+
+                # If we filtered out everything (only 1 account exists), use original options
+                if not available_options:
+                    available_options = options
+
+                selected_option = random.choice(available_options)
             else:
                 # Look for specific account/bill by name
                 for option in options:
@@ -1519,10 +2005,22 @@ class DashboardView(QWidget):
                     if account_name == preferred_account:
                         selected_option = option
                         break
-                
-                # If preferred account not found, fall back to random
+
+                # If preferred account not found, fall back to random (avoiding duplicates)
                 if selected_option is None:
-                    selected_option = random.choice(options)
+                    available_options = options.copy()
+
+                    # Remove the other chart's selection from available options
+                    if other_chart_selection:
+                        other_type, other_obj = other_chart_selection
+                        available_options = [opt for opt in available_options
+                                           if not (opt[0] == other_type and opt[1] == other_obj)]
+
+                    # If we filtered out everything, use original options
+                    if not available_options:
+                        available_options = options
+
+                    selected_option = random.choice(available_options)
             
             account_type, account_obj, account_name = selected_option
             

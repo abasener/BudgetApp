@@ -2,9 +2,9 @@
 Add Bill Dialog - Create new recurring bills with all configuration options
 """
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
-                             QLineEdit, QDoubleSpinBox, QSpinBox, QDateEdit, 
-                             QPushButton, QLabel, QMessageBox, QTextEdit, QComboBox, QCheckBox)
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+                             QLineEdit, QDoubleSpinBox, QSpinBox, QDateEdit,
+                             QPushButton, QLabel, QMessageBox, QTextEdit, QComboBox, QCheckBox, QWidget)
 from PyQt6.QtCore import QDate
 from datetime import date, timedelta
 from themes import theme_manager
@@ -31,28 +31,17 @@ class SavingsPlanDialog(QDialog):
         # Extract the key parts from explanation_text
         lines = explanation_text.split('\n')
         payment_line = next((line for line in lines if line.startswith('Payment:')), '')
-        bi_weekly_line = next((line for line in lines if line.startswith('Bi-weekly savings needed:')), '')
-        planned_line = next((line for line in lines if line.startswith('Planned amount:')), '')
-        
-        # Find over/under saving status
-        status_line = ""
-        for line in lines:
-            if 'Over saves by' in line or 'Under saves by' in line or 'Saving the amount expected' in line:
-                status_line = line
-                break
-        
+
+        # Reverse the difference sign (negative = not saving enough)
+        difference = current_amount - calculated_amount
+
         comparison_text = f"""
 {payment_line}
-{bi_weekly_line}
-
-{planned_line}
-
-{status_line}
 
 CURRENT VS RECOMMENDED:
-Your current setting: ${current_amount:.2f}
-Calculated recommendation: ${calculated_amount:.2f}
-Difference: ${calculated_amount - current_amount:+.2f}
+Current: ${current_amount:.2f}
+Recommendation: ${calculated_amount:.2f}
+Saving difference: ${difference:+.2f}
 
 Note: This is an estimate. Adjust based on your actual payment schedule.
         """.strip()
@@ -63,22 +52,53 @@ Note: This is an estimate. Adjust based on your actual payment schedule.
         comparison_area.setMinimumHeight(200)
         layout.addWidget(comparison_area)
         
-        # Buttons
+        # Buttons (right-justified with focused style for Proceed)
         button_layout = QHBoxLayout()
-        
-        ok_button = QPushButton("OK")
-        ok_button.clicked.connect(self.reject)  # Just close dialog
-        
-        auto_set_button = QPushButton("Auto Set Calculated Amount")
-        auto_set_button.clicked.connect(self.accept)  # Return 1 to indicate auto set
-        auto_set_button.setFont(theme_manager.get_font("button_bold"))
-        
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(auto_set_button)
+        button_layout.addStretch()
+
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)  # Just close dialog
+
+        proceed_button = QPushButton("Proceed")
+        proceed_button.clicked.connect(self.accept)  # Return 1 to indicate auto set
+        proceed_button.setDefault(True)
+
+        button_layout.addWidget(cancel_button)
+        button_layout.addWidget(proceed_button)
         layout.addLayout(button_layout)
+
+        # Apply button theme
+        self.apply_button_theme(proceed_button, cancel_button)
         
         self.setLayout(layout)
-    
+
+    def apply_button_theme(self, proceed_button, cancel_button):
+        """Apply focused styling to Proceed button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Proceed button - focused style (primary background with primary_dark hover)
+        proceed_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        cancel_button.setStyleSheet("")
+
     def apply_theme(self):
         """Apply current theme to dialog"""
         colors = theme_manager.get_colors()
@@ -131,26 +151,32 @@ class AddBillDialog(QDialog):
         self.transaction_manager = transaction_manager
         self.setWindowTitle("Add New Bill")
         self.setModal(True)
-        self.resize(500, 600)
+        self.resize(800, 500)
         
         self.init_ui()
         self.apply_theme()
     
     def init_ui(self):
-        layout = QVBoxLayout()
-        
+        main_layout = QVBoxLayout()
+
         # Title
         title = QLabel("Create New Recurring Bill")
         title.setFont(theme_manager.get_font("title"))
-        layout.addWidget(title)
-        
-        # Form layout
+        main_layout.addWidget(title)
+
+        # Horizontal layout for fields (left) and preview (right)
+        content_layout = QHBoxLayout()
+
+        # Left side: Form fields (2/3 width)
+        left_widget = QWidget()
         form_layout = QFormLayout()
+        left_widget.setLayout(form_layout)
         
         # Bill name
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Rent, Car Insurance, Phone Bill")
         self.name_edit.textChanged.connect(self.update_preview)
+        self.name_edit.textChanged.connect(self.validate_create_button)
         form_layout.addRow("Bill Name:", self.name_edit)
         
         # Bill type/category (multi-select like spending categories)
@@ -180,31 +206,37 @@ class AddBillDialog(QDialog):
         self.variable_checkbox.toggled.connect(self.update_preview)
         form_layout.addRow("", self.variable_checkbox)
         
-        # Amount to save per bi-weekly period (dollar amount or percentage)
+        # Amount to save per bi-weekly period (with tooltip and calculate button)
+        save_amount_label = QLabel("Amount to Save (bi-weekly):")
+        save_amount_label.setToolTip("Values < 1.0 = % of income (e.g., 0.300 = 30% of paycheck)")
+
+        # Create horizontal layout for spin box and button
+        save_amount_layout = QHBoxLayout()
         self.save_amount_spin = QDoubleSpinBox()
         self.save_amount_spin.setRange(0.00, 99999.99)
-        self.save_amount_spin.setDecimals(2)
+        self.save_amount_spin.setDecimals(3)  # Allow for percentages like 0.300
         self.save_amount_spin.setValue(50.00)
+        self.save_amount_spin.setToolTip("Values < 1.0 = % of income (e.g., 0.300 = 30% of paycheck)")
         self.save_amount_spin.valueChanged.connect(self.update_preview)
-        form_layout.addRow("Amount to Save (bi-weekly):", self.save_amount_spin)
-        
-        # Percentage savings note
-        percentage_note = QLabel("Tip: Use values < 1.0 for percentage (e.g., 0.1 = 10% of income)")
-        percentage_note.setFont(theme_manager.get_font("small"))
-        form_layout.addRow("", percentage_note)
-        
-        # Check savings plan button
-        self.check_plan_button = QPushButton("Check Savings Plan")
+
+        self.check_plan_button = QPushButton("Calculate Savings")
         self.check_plan_button.clicked.connect(self.check_savings_plan)
-        form_layout.addRow("", self.check_plan_button)
-        
-        # Starting saved amount
-        self.saved_amount_spin = QDoubleSpinBox()
-        self.saved_amount_spin.setRange(0.00, 99999.99)
-        self.saved_amount_spin.setDecimals(2)
-        self.saved_amount_spin.setValue(0.00)
-        self.saved_amount_spin.valueChanged.connect(self.update_preview)
-        form_layout.addRow("Already Saved Amount ($):", self.saved_amount_spin)
+
+        save_amount_layout.addWidget(self.save_amount_spin)
+        save_amount_layout.addWidget(self.check_plan_button)
+
+        form_layout.addRow(save_amount_label, save_amount_layout)
+
+        # Starting balance (with tooltip)
+        starting_label = QLabel("Starting Balance ($):")
+        starting_label.setToolTip("Initial amount saved for this bill")
+        self.starting_balance_spin = QDoubleSpinBox()
+        self.starting_balance_spin.setRange(0.00, 99999.99)
+        self.starting_balance_spin.setDecimals(2)
+        self.starting_balance_spin.setValue(0.00)
+        self.starting_balance_spin.setToolTip("Initial amount saved for this bill")
+        self.starting_balance_spin.valueChanged.connect(self.update_preview)
+        form_layout.addRow(starting_label, self.starting_balance_spin)
         
         # Last payment date (optional)
         self.last_payment_edit = QDateEdit()
@@ -216,35 +248,51 @@ class AddBillDialog(QDialog):
         self.notes_edit = QLineEdit()
         self.notes_edit.setPlaceholderText("e.g., 'Varies by semester', 'Due around month-end'")
         form_layout.addRow("Notes:", self.notes_edit)
-        
-        layout.addLayout(form_layout)
-        
-        # Preview section
+
+        # Add left widget to content layout (2/3 width)
+        content_layout.addWidget(left_widget, 2)
+
+        # Right side: Preview (1/3 width, full height)
+        right_layout = QVBoxLayout()
+
         preview_label = QLabel("Bill Preview:")
         preview_label.setFont(theme_manager.get_font("subtitle"))
-        layout.addWidget(preview_label)
-        
+        right_layout.addWidget(preview_label)
+
         self.preview_text = QTextEdit()
         self.preview_text.setReadOnly(True)
-        self.preview_text.setMaximumHeight(150)
-        layout.addWidget(self.preview_text)
-        
-        # Buttons
+        self.preview_text.setMinimumHeight(400)
+        right_layout.addWidget(self.preview_text)
+
+        right_widget = QWidget()
+        right_widget.setLayout(right_layout)
+
+        # Add right widget to content layout (1/3 width)
+        content_layout.addWidget(right_widget, 1)
+
+        main_layout.addLayout(content_layout)
+
+        # Buttons (right-justified with focused style for Create) - full width at bottom
         button_layout = QHBoxLayout()
-        
-        self.create_button = QPushButton("Create Bill")
-        self.create_button.clicked.connect(self.create_bill)
-        self.create_button.setFont(theme_manager.get_font("button_bold"))
-        
+        button_layout.addStretch()
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addWidget(self.create_button)
+
+        self.create_button = QPushButton("Create")
+        self.create_button.clicked.connect(self.create_bill)
+        self.create_button.setDefault(True)
+        self.create_button.setEnabled(False)  # Disabled until name is entered
+
         button_layout.addWidget(self.cancel_button)
-        layout.addLayout(button_layout)
-        
-        self.setLayout(layout)
-        
+        button_layout.addWidget(self.create_button)
+        main_layout.addLayout(button_layout)
+
+        # Apply button theme
+        self.apply_button_theme()
+
+        self.setLayout(main_layout)
+
         # Initial setup
         self.load_bill_types()
         self.update_preview()
@@ -328,6 +376,11 @@ Planned amount: ${planned_amount:.2f}
             self.save_amount_spin.setValue(bi_weekly_savings)
             self.update_preview()
     
+    def validate_create_button(self):
+        """Enable/disable Create button based on whether name is entered"""
+        name = self.name_edit.text().strip()
+        self.create_button.setEnabled(bool(name))
+
     def update_preview(self):
         """Update the preview of the bill to be created"""
         name = self.name_edit.text().strip() or "[Bill Name]"
@@ -335,26 +388,37 @@ Planned amount: ${planned_amount:.2f}
         frequency = self.frequency_combo.currentText()
         amount = self.amount_spin.value()
         save_amount = self.save_amount_spin.value()
-        saved_amount = self.saved_amount_spin.value()
+        starting_balance = self.starting_balance_spin.value()
         is_variable = self.variable_checkbox.isChecked()
         qdate = self.last_payment_edit.date()
         last_payment = date(qdate.year(), qdate.month(), qdate.day())
         notes = self.notes_edit.text().strip()
         
-        # Handle percentage vs dollar amount savings
+        # Calculate recommended bi-weekly savings based on payment frequency
+        frequency_days = {
+            "weekly": 7,
+            "monthly": 30,
+            "quarterly": 90,
+            "semester": 120,
+            "semi-annual": 180,
+            "yearly": 365,
+            "other": 30
+        }
+        days_between = frequency_days.get(frequency, 30)
+        recommended_bi_weekly = (amount / days_between) * 14
+        paychecks_per_cycle = days_between / 14
+
+        # Determine actual bi-weekly amount (handle percentage vs fixed)
         if save_amount < 1.0 and save_amount > 0:
-            # Percentage-based saving
-            savings_display = f"{save_amount * 100:.1f}% of income"
-            savings_type = "Percentage-based"
-            # For preview, assume $1500 bi-weekly income as example
-            example_dollar_amount = save_amount * 1500
-            monthly_savings = example_dollar_amount * 2.17
+            # Percentage-based - estimate using $4000 paycheck
+            actual_bi_weekly = save_amount * 4000
         else:
-            # Dollar amount saving
-            savings_display = f"${save_amount:.2f}"
-            savings_type = "Fixed amount"
-            monthly_savings = save_amount * 2.17
-        
+            # Fixed amount
+            actual_bi_weekly = save_amount
+
+        # Calculate difference (positive = over-saving, negative = under-saving)
+        savings_difference = actual_bi_weekly - recommended_bi_weekly
+
         preview_text = f"""
 BILL PREVIEW:
 
@@ -364,29 +428,42 @@ Payment Frequency: {frequency}
 Typical Amount: ${amount:.2f}
 Variable Amount: {"Yes" if is_variable else "No"}
 
-SAVINGS PLAN:
-Bi-weekly Savings: {savings_display} ({savings_type})
-Approximate Monthly: ${monthly_savings:.2f}
-Currently Saved: ${saved_amount:.2f}
+EXPECTATION:
+Starting Balance: ${starting_balance:.2f}"""
 
-PAYMENT TRACKING:
-System: Manual entry only
-Last Payment: {last_payment} (optional reference)
-        """.strip()
-        
-        if notes:
-            preview_text += f"\nNotes: {notes}"
-        
-        preview_text += "\n\nREADINESS:"
-        
-        if saved_amount >= amount:
-            preview_text += f"\n✓ Fully funded (${saved_amount - amount:.2f} extra)"
+        # Show shortfall if not fully funded
+        if starting_balance < amount:
+            shortfall = amount - starting_balance
+            preview_text += f"\nNeed ${shortfall:.2f} per cycle"
+            preview_text += f"\n     ~{paychecks_per_cycle:.1f} paychecks per billing cycle"
+
+        # Savings Plan Status
+        if abs(savings_difference) < 1.0:
+            # Correct payment
+            preview_text += f"\n\nSAVINGS PLAN: ✅\nCorrect payment: ${actual_bi_weekly:.2f} per paycheck"
+        elif savings_difference < 0:
+            # Under payment
+            # Calculate total under per billing cycle
+            under_per_cycle = abs(savings_difference) * paychecks_per_cycle
+            preview_text += f"\n\nSAVINGS PLAN: ⚠️\nUnder payment: ${under_per_cycle:.2f} per billing cycle"
+            preview_text += f"\n     ~${abs(savings_difference):.2f} per paycheck"
+            # Calculate how many billing cycles they can afford with current savings
+            cycles_affordable = starting_balance / amount if amount > 0 else 0
+            preview_text += f"\nWith savings you have {cycles_affordable:.1f} billing cycles in reserve"
         else:
-            shortfall = amount - saved_amount
-            bi_weekly_periods_needed = shortfall / save_amount if save_amount > 0 else 0
-            preview_text += f"\n⚠ Need ${shortfall:.2f} more (~{bi_weekly_periods_needed:.1f} pay periods)"
-        
-        self.preview_text.setPlainText(preview_text)
+            # Over payment
+            # Calculate total over per billing cycle
+            over_per_cycle = savings_difference * paychecks_per_cycle
+            preview_text += f"\n\nSAVINGS PLAN: ❕\nOver payment: ${over_per_cycle:.2f} per billing cycle"
+            preview_text += f"\n     ~${savings_difference:.2f} per paycheck"
+            # Calculate paychecks needed to get one billing cycle ahead
+            paychecks_to_get_ahead = amount / savings_difference if savings_difference > 0 else 0
+            preview_text += f"\n{paychecks_to_get_ahead:.1f} paychecks to get ahead a billing cycle"
+
+        if notes:
+            preview_text += f"\n\nNotes: {notes}"
+
+        self.preview_text.setPlainText(preview_text.strip())
     
     def validate_form(self):
         """Validate form data"""
@@ -440,67 +517,131 @@ Last Payment: {last_payment} (optional reference)
         """Create the new bill"""
         if not self.validate_form():
             return
-        
+
         try:
+            from views.dialogs.settings_dialog import get_setting
+
             # Collect form data
             name = self.name_edit.text().strip()
             bill_type = self.type_combo.currentText().strip()
             frequency = self.frequency_combo.currentText()
             amount = self.amount_spin.value()
             save_amount = self.save_amount_spin.value()
-            saved_amount = self.saved_amount_spin.value()
+            starting_balance = self.starting_balance_spin.value()
             is_variable = self.variable_checkbox.isChecked()
             qdate = self.last_payment_edit.date()
             last_payment = date(qdate.year(), qdate.month(), qdate.day())
             notes = self.notes_edit.text().strip()
-            
+
             # Create new bill directly in database
             from models import Bill
-            
+
             new_bill = Bill(
                 name=name,
                 bill_type=bill_type,
                 payment_frequency=frequency,
                 typical_amount=amount,
                 amount_to_save=save_amount,
-                running_total=saved_amount,
+                running_total=0.0,  # Will be calculated from AccountHistory
                 last_payment_date=last_payment,
                 last_payment_amount=0.0,  # Will be set when first payment is made
                 is_variable=is_variable,
                 notes=notes if notes else None
             )
-            
+
             self.transaction_manager.db.add(new_bill)
             self.transaction_manager.db.commit()
             self.transaction_manager.db.refresh(new_bill)
-            
-            # Success message
-            success_text = f"Bill '{name}' created successfully!\n\n"
-            success_text += f"Bill ID: {new_bill.id}\n"
-            success_text += f"Typical Amount: ${amount:.2f}\n"
-            success_text += f"Frequency: {frequency}\n"
-            success_text += f"Variable Amount: {'Yes' if is_variable else 'No'}\n"
-            if save_amount < 1.0 and save_amount > 0:
-                success_text += f"Bi-weekly Savings: {save_amount * 100:.1f}% of income\n"
-            else:
-                success_text += f"Bi-weekly Savings: ${save_amount:.2f}\n"
-            
-            if saved_amount > 0:
-                success_text += f"Starting with ${saved_amount:.2f} already saved\n"
-            
-            if notes:
-                success_text += f"Notes: {notes}\n"
-                
-            success_text += "\nRemember: All payments must be entered manually.\n"
-            success_text += "The dashboard will refresh to show the new bill."
-            
-            QMessageBox.information(self, "Bill Created", success_text)
+
+            # Create starting balance entry in AccountHistory if starting_balance > 0
+            if starting_balance > 0:
+                from models.account_history import AccountHistory
+                from datetime import date as date_class
+
+                starting_entry = AccountHistory.create_starting_balance_entry(
+                    account_id=new_bill.id,
+                    account_type="bill",
+                    starting_balance=starting_balance,
+                    date=date_class.today()
+                )
+                self.transaction_manager.db.add(starting_entry)
+                self.transaction_manager.db.commit()
+
+            # Check if testing mode is enabled
+            testing_mode = get_setting("testing_mode", False)
+
+            if testing_mode:
+                # In testing mode, show detailed verification from database
+                saved_bill = self.transaction_manager.db.query(Bill).filter(
+                    Bill.id == new_bill.id
+                ).first()
+
+                if saved_bill:
+                    # Build verification details
+                    details = [
+                        "✓ Bill Created Successfully",
+                        "",
+                        "DATABASE VERIFICATION:",
+                        f"• Bill ID: {saved_bill.id}",
+                        f"• Name: {saved_bill.name}",
+                        f"• Type: {saved_bill.bill_type}",
+                        f"• Typical Amount: ${saved_bill.typical_amount:.2f}",
+                        f"• Frequency: {saved_bill.payment_frequency}",
+                        f"• Variable Amount: {saved_bill.is_variable}",
+                        f"• Amount to Save: {saved_bill.amount_to_save:.3f}",
+                        f"• Starting Balance: ${starting_balance:.2f}",
+                    ]
+
+                    # Show amount to save with percentage if applicable
+                    if saved_bill.amount_to_save < 1.0 and saved_bill.amount_to_save > 0:
+                        details.append(f"• Savings Display: {saved_bill.amount_to_save * 100:.1f}% of income")
+                    else:
+                        details.append(f"• Savings Display: ${saved_bill.amount_to_save:.2f} bi-weekly")
+
+                    if saved_bill.notes:
+                        details.append(f"• Notes: {saved_bill.notes}")
+
+                    QMessageBox.information(
+                        self,
+                        "Success - Testing Mode",
+                        "\n".join(details)
+                    )
+                else:
+                    QMessageBox.warning(self, "Testing Mode", "Bill created but could not verify in database")
+
             self.accept()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error creating bill: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def apply_button_theme(self):
+        """Apply focused styling to Create button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Create button - focused style (primary background with primary_dark hover)
+        self.create_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        self.cancel_button.setStyleSheet("")
     
     def apply_theme(self):
         """Apply current theme to dialog"""

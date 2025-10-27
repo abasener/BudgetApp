@@ -18,24 +18,28 @@ class PayBillDialog(QDialog):
         self.transaction_manager = transaction_manager
         self.setWindowTitle("Pay Bill")
         self.setModal(True)
-        self.resize(450, 500)
-        
+        self.resize(450, 250)
+
         self.selected_bill = None
-        
+
         self.init_ui()
         self.load_bills()
         self.apply_theme()
     
     def init_ui(self):
         layout = QVBoxLayout()
-        
-        # Title
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # Title (set fixed height to match text size)
         title = QLabel("Pay Bill")
         title.setFont(theme_manager.get_font("title"))
+        title.setFixedHeight(30)
         layout.addWidget(title)
-        
+
         # Form layout
         form_layout = QFormLayout()
+        form_layout.setVerticalSpacing(8)
         
         # Bill selection
         self.bill_combo = QComboBox()
@@ -45,6 +49,7 @@ class PayBillDialog(QDialog):
         # Payment date
         self.payment_date_edit = QDateEdit()
         self.payment_date_edit.setDate(QDate.currentDate())
+        self.payment_date_edit.setDisplayFormat("MM/dd/yyyy")
         self.payment_date_edit.setCalendarPopup(True)
         form_layout.addRow("Payment Date:", self.payment_date_edit)
         
@@ -55,22 +60,26 @@ class PayBillDialog(QDialog):
         form_layout.addRow("Payment Amount ($):", self.amount_spin)
         
         layout.addLayout(form_layout)
-        
-        # Buttons
+
+        # Buttons (right-justified with focused style for Pay)
         button_layout = QHBoxLayout()
-        
-        self.pay_button = QPushButton("Pay Bill")
-        self.pay_button.clicked.connect(self.pay_bill)
-        self.pay_button.setFont(theme_manager.get_font("button"))
-        self.pay_button.setEnabled(False)
-        
+        button_layout.addStretch()
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addWidget(self.pay_button)
+
+        self.pay_button = QPushButton("Pay")
+        self.pay_button.clicked.connect(self.pay_bill)
+        self.pay_button.setDefault(True)
+        self.pay_button.setEnabled(False)  # Disabled until bill is selected
+
         button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.pay_button)
         layout.addLayout(button_layout)
-        
+
+        # Apply button theme
+        self.apply_button_theme()
+
         self.setLayout(layout)
     
     def load_bills(self):
@@ -162,7 +171,7 @@ class PayBillDialog(QDialog):
             return False
         
         payment_amount = self.amount_spin.value()
-        saved_amount = self.selected_bill.running_total
+        saved_amount = self.selected_bill.get_current_balance(self.transaction_manager.db)
         
         if payment_amount > saved_amount:
             response = QMessageBox.question(
@@ -192,38 +201,46 @@ class PayBillDialog(QDialog):
             week_number = self.calculate_week_from_date(payment_date)
             
             # Show confirmation
+            current_balance = self.selected_bill.get_current_balance(self.transaction_manager.db)
+            remaining_after_payment = current_balance - payment_amount
+
             response = QMessageBox.question(
                 self,
                 "Confirm Bill Payment",
                 f"Pay {self.selected_bill.name} ${payment_amount:.2f} on {payment_date}?\n\n"
+                f"Current saved amount: ${current_balance:.2f}\n"
+                f"Remaining after payment: ${remaining_after_payment:.2f}\n\n"
                 f"This will:\n"
-                f"• Create a bill payment transaction\n"
+                f"• Create a spending transaction for the payment\n"
                 f"• Update the bill's payment history\n"
-                f"• Reset the bill's saved amount to $0.00",
+                f"• Deduct from the bill's saved amount",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             
             if response != QMessageBox.StandardButton.Yes:
                 return
             
-            # Create bill payment transaction
+            # Create bill payment transaction (deduction from saved amount)
             transaction_data = {
-                "transaction_type": "bill_pay",
+                "transaction_type": "bill_pay",  # bill_pay reduces the saved amount
                 "amount": payment_amount,
                 "date": payment_date,
                 "description": f"Paid {self.selected_bill.name}",
                 "week_number": week_number,
                 "bill_id": self.selected_bill.id,
-                "bill_type": self.selected_bill.bill_type
+                "category": f"Bill Payment - {self.selected_bill.bill_type}"
             }
-            
+
             transaction = self.transaction_manager.add_transaction(transaction_data)
-            
+
             # Update bill payment tracking (manual system - no automatic dates)
             self.selected_bill.last_payment_date = payment_date
             self.selected_bill.last_payment_amount = payment_amount
-            self.selected_bill.running_total = 0.0  # Reset saved amount
+            # Note: running_total is now calculated from AccountHistory, don't set it directly
             self.transaction_manager.db.commit()
+
+            # Get updated balance after payment
+            new_balance = self.selected_bill.get_current_balance(self.transaction_manager.db)
             
             # Show success message
             success_message = f"""
@@ -238,7 +255,7 @@ PAYMENT DETAILS:
 BILL STATUS UPDATED:
 • Last Payment: {payment_date}
 • Last Amount: ${payment_amount:.2f}
-• Saved Amount: Reset to $0.00
+• Remaining Balance: ${new_balance:.2f}
 
 Manual System: No automatic due dates calculated.
 The dashboard will refresh to show updated data.
@@ -260,7 +277,7 @@ The dashboard will refresh to show updated data.
             for week in weeks:
                 if week.start_date <= payment_date <= week.end_date:
                     return week.week_number
-            
+
             # If no week contains this date, use current week
             current_week = self.transaction_manager.get_current_week()
             if current_week:
@@ -268,10 +285,43 @@ The dashboard will refresh to show updated data.
             else:
                 # Fallback to week 1 if no weeks exist
                 return 1
-                
+
         except Exception:
             return 1  # Safe fallback
-    
+
+    def apply_button_theme(self):
+        """Apply focused styling to Pay button, normal styling to Cancel"""
+        colors = theme_manager.get_colors()
+
+        # Pay button - focused style (primary background with primary_dark hover)
+        self.pay_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }}
+
+            QPushButton:hover {{
+                background-color: {colors['primary_dark']};
+            }}
+
+            QPushButton:pressed {{
+                background-color: {colors['selected']};
+            }}
+
+            QPushButton:disabled {{
+                background-color: {colors['surface_variant']};
+                color: {colors['text_secondary']};
+                border: 1px solid {colors['border']};
+            }}
+        """)
+
+        # Cancel button - normal style (will inherit from main apply_theme)
+        self.cancel_button.setStyleSheet("")
+
     def apply_theme(self):
         """Apply current theme to dialog"""
         colors = theme_manager.get_colors()

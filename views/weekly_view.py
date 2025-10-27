@@ -2,10 +2,10 @@
 Bi-weekly Tab - Complete bi-weekly budget tracking with historical view
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QScrollArea, QListWidget, QListWidgetItem, QProgressBar,
                              QSizePolicy, QTableWidget, QTableWidgetItem, QCheckBox,
-                             QPushButton, QMessageBox)
+                             QPushButton, QMessageBox, QToolButton)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import PieChartWidget
@@ -32,11 +32,74 @@ class WeekDetailWidget(QWidget):
         # Connect to theme changes
         theme_manager.theme_changed.connect(self.on_theme_changed)
 
+    def get_consistent_category_order(self):
+        """Get categories in consistent order for color assignment across all charts
+
+        Returns:
+            list: [(category_name, total_amount), ...] sorted by spending amount (highest first)
+        """
+        if not self.transaction_manager:
+            return []
+
+        try:
+            # Get all spending transactions
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+
+            # Calculate spending by category
+            category_spending = {}
+            for transaction in spending_transactions:
+                category = transaction.category or "Uncategorized"
+                category_spending[category] = category_spending.get(category, 0) + transaction.amount
+
+            # Sort by spending amount (highest first) - this is our master ordering
+            sorted_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)
+
+            return sorted_categories
+
+        except Exception as e:
+            print(f"Error getting consistent category order: {e}")
+            return []
+
+    def get_consistent_category_colors(self, week_category_spending):
+        """Get consistent colors for categories based on overall app ordering
+
+        Args:
+            week_category_spending: dict of category spending for this specific week
+
+        Returns:
+            list: colors in same order as week_category_spending keys
+        """
+        # Get the global consistent ordering from all transactions
+        sorted_categories = self.get_consistent_category_order()
+        chart_colors = theme_manager.get_chart_colors()
+
+        # Create color map from global ordering
+        color_map = {}
+        for i, (category, amount) in enumerate(sorted_categories):
+            color_index = i % len(chart_colors)
+            color_map[category] = chart_colors[color_index]
+
+        # Return colors in the same order as week_category_spending
+        consistent_colors = []
+        for category in week_category_spending.keys():
+            if category in color_map:
+                color = color_map[category]
+                # Remove alpha channel if present (Qt CSS compatibility)
+                if len(color) == 9 and color.startswith('#'):
+                    color = color[:7]
+                consistent_colors.append(color)
+            else:
+                # Fallback color for new categories not in global ordering
+                consistent_colors.append(chart_colors[0])
+
+        return consistent_colors
+
     def update_header(self):
         """Update the week header with current week data"""
         if self.week_data:
-            start_date = self.week_data.start_date.strftime('%m/%d')
-            end_date = self.week_data.end_date.strftime('%m/%d')
+            start_date = self.week_data.start_date.strftime('%m/%d/%Y')
+            end_date = self.week_data.end_date.strftime('%m/%d/%Y')
             week_title = f"Week {self.week_number}: {start_date} - {end_date}"
         else:
             week_title = f"Week {self.week_number}: No Data"
@@ -53,8 +116,8 @@ class WeekDetailWidget(QWidget):
         
         # Week header with date range
         if self.week_data:
-            start_date = self.week_data.start_date.strftime('%m/%d')
-            end_date = self.week_data.end_date.strftime('%m/%d')
+            start_date = self.week_data.start_date.strftime('%m/%d/%Y')
+            end_date = self.week_data.end_date.strftime('%m/%d/%Y')
             week_title = f"Week {self.week_number}: {start_date} - {end_date}"
         else:
             week_title = f"Week {self.week_number}: No Data"
@@ -326,22 +389,24 @@ class WeekDetailWidget(QWidget):
         # Buttons on the right side of header
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(10)
-        
-        # Save Changes button
-        self.save_changes_btn = QPushButton("Save Changes")
-        self.save_changes_btn.setStyleSheet("padding: 5px 10px;")
+
+        # Save button
+        self.save_changes_btn = QPushButton("Save")
+        self.save_changes_btn.setFixedHeight(31)
+        self.save_changes_btn.setFixedWidth(65)
+        self.save_changes_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         buttons_layout.addWidget(self.save_changes_btn)
-        
-        # Delete Row button
-        self.delete_row_btn = QPushButton("Delete Row")
-        self.delete_row_btn.setStyleSheet("padding: 5px 10px;")
+
+        # Delete Transaction button
+        self.delete_row_btn = QPushButton("Delete Transaction")
+        self.delete_row_btn.setFixedHeight(31)
+        self.delete_row_btn.setFixedWidth(125)
+        self.delete_row_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         buttons_layout.addWidget(self.delete_row_btn)
-        
-        # Ignore Changes button
-        self.ignore_changes_btn = QPushButton("Ignore Changes")
-        self.ignore_changes_btn.setStyleSheet("padding: 5px 10px;")
-        buttons_layout.addWidget(self.ignore_changes_btn)
-        
+
+        # Apply button styling (subtle outlined style like account buttons)
+        self.apply_table_button_theme()
+
         # Add buttons to header with stretch to push them right
         header_layout.addStretch()
         header_layout.addLayout(buttons_layout)
@@ -403,7 +468,6 @@ class WeekDetailWidget(QWidget):
         # Connect button functionality
         self.save_changes_btn.clicked.connect(self.save_changes)
         self.delete_row_btn.clicked.connect(self.delete_selected_row)
-        self.ignore_changes_btn.clicked.connect(self.ignore_changes)
         
         table_frame.setLayout(table_layout)
         parent_layout.addWidget(table_frame)
@@ -414,13 +478,13 @@ class WeekDetailWidget(QWidget):
             return
 
         try:
-            # Get transactions for this week
-            self.transactions = self.transaction_manager.get_transactions_by_week(self.week_data.week_number)
-            print(f"DEBUG: Week {self.week_data.week_number} loaded {len(self.transactions)} total transactions")
-
-            # Count spending transactions for debugging
-            spending_count = len([t for t in self.transactions if t.is_spending and t.include_in_analytics])
-            print(f"DEBUG: Week {self.week_data.week_number} has {spending_count} spending transactions")
+            # CRITICAL: Must use get_transactions_by_week(), NOT get_transactions_by_date_range()
+            # Reason: Rollover transactions are DATED to Week 1's END date but ASSIGNED to Week 2's week_number
+            # Using date_range would show Week 1's rollover-out as if it's rollover-in, making Week 1 look bigger than Week 2
+            # Using week_number ensures rollover transactions appear in the RECEIVING week, not the source week
+            self.transactions = self.transaction_manager.get_transactions_by_week(
+                self.week_data.week_number
+            )
             
             # Update text display
             self.update_week_text_info()
@@ -440,26 +504,44 @@ class WeekDetailWidget(QWidget):
             
     def update_week_text_info(self):
         """Update the 4-line text display with week financial info"""
-        # Calculate spending for this week
-        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        # Calculate spending for this week (spending only, not bill pays)
+        # Bill pays come from bill accounts, not weekly spending money
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending and t.include_in_analytics
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            if t.is_spending
+            and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
         total_spent = sum(t.amount for t in spending_transactions)
-        
-        # Calculate effective starting amount: base allocation + rollover income - rollover deficits
-        # Note: Bill/savings allocation transactions are already deducted from base_allocation
+
+        # Calculate starting amount correctly:
+        # CRITICAL UNDERSTANDING: Week.running_total = BASE ALLOCATION ONLY (half of spendable income)
+        # Week.running_total does NOT and NEVER includes rollovers!
+        # Rollovers are separate transactions that we ADD to the base for display purposes
+        #
+        # Formula: Starting = base_allocation + rollover_in - rollover_out
+        # - base_allocation: From Week.running_total (set when paycheck processed)
+        # - rollover_in: Positive rollover transactions (Week 1→Week 2 rollover)
+        # - rollover_out: Negative rollover transactions (deficit scenarios)
+        #
+        # Example: Pay period with $908.91 spendable
+        #   Week 1 (57): base=$454.46, rollover_in=$0, starting=$454.46
+        #   Week 2 (58): base=$454.46, rollover_in=$312.76, starting=$767.22
+        #
         if self.week_data:
-            base_allocation = self.week_data.running_total
-            # Add rollover income transactions (positive rollover from previous week)
-            rollover_income = [t for t in self.transactions if t.transaction_type == "income" and "rollover" in t.description.lower()]
+            base_allocation = self.week_data.running_total  # Base allocation ONLY (never includes rollovers)
+
+            # Get rollover transactions INTO this week (positive rollovers only)
+            rollover_income = [t for t in self.transactions
+                             if t.is_rollover and t.amount > 0]
             rollover_income_total = sum(t.amount for t in rollover_income)
-            # Subtract rollover deficit transactions (negative rollover from previous week)
-            rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
-            rollover_deficit_total = sum(t.amount for t in rollover_deficits)
+
+            # Get rollover deficits (negative rollovers from previous week)
+            rollover_deficits = [t for t in self.transactions
+                               if t.is_rollover and t.amount < 0]
+            rollover_deficit_total = abs(sum(t.amount for t in rollover_deficits))
+
+            # Calculate final starting amount (base + rollovers)
             starting_amount = base_allocation + rollover_income_total - rollover_deficit_total
         else:
             # Fallback to calculated amount if no week data
@@ -492,40 +574,59 @@ class WeekDetailWidget(QWidget):
         self.ring_figure.clear()
         ax = self.ring_figure.add_subplot(111)
         
-        # Calculate actual data: paycheck/2 as total, then portions
+        # Calculate actual money breakdown for this specific week
         if self.pay_period_data:
-            paycheck = self.pay_period_data.get('paycheck', 0.0)
             bills_total = self.pay_period_data.get('bills', 0.0)
-            savings_total = self.pay_period_data.get('savings', 0.0)
-            
-            # Divide by 2 for per-week amounts
-            total_week_money = paycheck / 2
-            week_bills = bills_total / 2
-            week_savings = savings_total / 2
 
-            # Calculate spent for this week
-            # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+            # Bills allocation for this week (half of bi-weekly total)
+            week_bills_allocation = bills_total / 2
+
+            # Calculate actual spending transactions in this week (positive amounts only)
             spending_transactions = [
                 t for t in self.transactions
-                if t.is_spending and t.include_in_analytics
-                and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+                if t.is_spending
+                and t.amount > 0
+                and not t.is_rollover
+                and not (t.description and "rollover" in t.description.lower())
                 and not (t.description and "allocation" in t.description.lower())
             ]
-            week_spent = sum(t.amount for t in spending_transactions)
+            week_spending = sum(t.amount for t in spending_transactions)
 
-            # Rollover is any amount left
-            week_rollover = max(0, total_week_money - week_bills - week_savings - week_spent)
+            # Calculate actual savings transactions in this week (positive amounts only)
+            savings_transactions = [
+                t for t in self.transactions
+                if t.is_saving
+                and t.amount > 0
+                and not (t.description and "allocation" in t.description.lower())
+            ]
+            week_savings = sum(t.amount for t in savings_transactions)
 
-            # Debug output
-            print(f"Week {self.week_number} Ring Chart Data:")
-            print(f"  Total week money: ${total_week_money:.2f}")
-            print(f"  Week savings: ${week_savings:.2f}")
-            print(f"  Week bills: ${week_bills:.2f}")
-            print(f"  Week spent: ${week_spent:.2f}")
-            print(f"  Week rollover: ${week_rollover:.2f}")
+            # Calculate rollover income for this week (positive rollover from previous week)
+            rollover_transactions = [
+                t for t in self.transactions
+                if t.is_rollover and t.amount > 0
+            ]
+            week_rollover = sum(t.amount for t in rollover_transactions)
 
-            sizes = [week_savings, week_bills, week_spent, week_rollover]
-            labels = ['Savings', 'Bills', 'Spent', 'Rollover']
+            # Ring chart shows actual money flow breakdown
+            sizes = [week_bills_allocation, week_spending, week_savings, week_rollover]
+            labels = ['Bills', 'Spending', 'Savings', 'Rollover In']
+
+            # Only show segments with positive values
+            filtered_sizes = []
+            filtered_labels = []
+            for size, label in zip(sizes, labels):
+                if size > 0:
+                    filtered_sizes.append(size)
+                    filtered_labels.append(label)
+
+            # If no positive values, show minimal default
+            if not filtered_sizes:
+                sizes = [1]
+                labels = ['No Activity']
+            else:
+                sizes = filtered_sizes
+                labels = filtered_labels
         else:
             # Fallback data
             sizes = [0, 0, 0, 100]
@@ -557,34 +658,38 @@ class WeekDetailWidget(QWidget):
         
     def update_category_pie_chart(self):
         """Update category pie chart with spending breakdown"""
-        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        # Only include SPENDING transactions with positive amounts, exclude rollovers and allocations
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending and t.include_in_analytics
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            if t.is_spending  # Only spending, not bill_pay
+            and t.amount > 0  # Only positive amounts
+            and t.category != "Rollover"
+            and not (t.description and "rollover" in t.description.lower())
             and not (t.description and "allocation" in t.description.lower())
         ]
-        
+
         if not spending_transactions:
             self.category_pie_chart.update_data({}, "No Spending")
             return
-            
-        # Calculate spending by category
+
+        # Calculate spending by category (all amounts are now guaranteed positive)
         category_spending = {}
         for transaction in spending_transactions:
             category = transaction.category or "Uncategorized"
             category_spending[category] = category_spending.get(category, 0) + transaction.amount
-            
-        self.category_pie_chart.update_data(category_spending, "Category Spending")
+
+        # Use consistent category-to-color mapping like Categories tab
+        consistent_colors = self.get_consistent_category_colors(category_spending)
+        self.category_pie_chart.update_data(category_spending, "Category Spending", custom_colors=consistent_colors)
         
     def update_week_progress_bars(self):
         """Update progress bars for this specific week"""
-        # Money progress (similar to bi-weekly but for single week)
-        # Only count actual spending transactions, exclude rollovers and bill/savings allocations
+        # Money progress (spending only, not bill pays)
+        # Bill pays come from bill accounts, not weekly spending money
         spending_transactions = [
             t for t in self.transactions
-            if t.is_spending and t.include_in_analytics
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            if t.is_spending
+            and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
         total_spent = sum(t.amount for t in spending_transactions)
@@ -593,7 +698,7 @@ class WeekDetailWidget(QWidget):
         if self.week_data:
             base_allocation = self.week_data.running_total
             # Add rollover income transactions (positive rollover from previous week)
-            rollover_income = [t for t in self.transactions if t.transaction_type == "income" and "rollover" in t.description.lower()]
+            rollover_income = [t for t in self.transactions if t.is_rollover and t.amount > 0]
             rollover_income_total = sum(t.amount for t in rollover_income)
             # Subtract rollover deficit transactions (negative rollover from previous week)
             rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
@@ -629,12 +734,13 @@ class WeekDetailWidget(QWidget):
         
     def update_transaction_table(self):
         """Update transaction table with week's spending transactions only"""
-        # Filter to only spending transactions (exclude paychecks, bills, savings)
+        # Filter to only spending transactions (exclude paychecks, income, savings allocations, bill pays)
         # Show ALL spending transactions regardless of analytics flag, exclude rollovers and allocations
+        # Bill pays are excluded since they come from bill accounts, not weekly spending money
         spending_transactions = [
             t for t in self.transactions
             if t.is_spending
-            and not (t.category == "Rollover" or (t.description and "rollover" in t.description.lower()))
+            and not t.is_rollover
             and not (t.description and "allocation" in t.description.lower())
         ]
 
@@ -852,10 +958,41 @@ class WeekDetailWidget(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
             print(f"Error applying changes: {e}")
     
+    def apply_table_button_theme(self):
+        """Apply theme styling to table buttons (Save, Delete Transaction)"""
+        colors = theme_manager.get_colors()
+
+        # Style for both buttons - subtle outlined style with tighter sizing
+        button_style = f"""
+            QPushButton {{
+                background-color: {colors['background']};
+                color: {colors['text_primary']};
+                border: 2px solid {colors['border']};
+                border-radius: 6px;
+                font-weight: normal;
+                padding: 7px 11px;
+            }}
+            QPushButton:hover {{
+                background-color: {colors['surface_variant']};
+                border-color: {colors['primary']};
+                color: {colors['primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {colors['hover']};
+                border-color: {colors['primary']};
+            }}
+        """
+
+        if hasattr(self, 'save_changes_btn'):
+            self.save_changes_btn.setStyleSheet(button_style)
+        if hasattr(self, 'delete_row_btn'):
+            self.delete_row_btn.setStyleSheet(button_style)
+
     def on_theme_changed(self, theme_id):
         """Handle theme change for week detail widget"""
         try:
             self.update_week_detail_styling(theme_id)
+            self.apply_table_button_theme()  # Update button styling
         except Exception as e:
             print(f"Error applying theme to week detail widget: {e}")
     
@@ -968,24 +1105,6 @@ class WeekDetailWidget(QWidget):
                 }}
             """)
         
-        # Update button styling
-        for button in [getattr(self, 'save_changes_btn', None),
-                      getattr(self, 'delete_row_btn', None),
-                      getattr(self, 'ignore_changes_btn', None)]:
-            if button:
-                button.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {colors['surface']};
-                        color: {colors['text_primary']};
-                        border: 1px solid {colors['border']};
-                        border-radius: 4px;
-                        padding: 5px 10px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {colors['hover']};
-                    }}
-                """)
-        
         # Update table title color
         for child in self.findChildren(QLabel):
             if child.text() == "Week Transactions":
@@ -1036,13 +1155,32 @@ class WeeklyView(QWidget):
         content_layout.setSpacing(10)
         content_layout.setContentsMargins(10, 10, 10, 10)
         
+        # Header with title and refresh button
+        header_layout = QHBoxLayout()
+
         # Title
         title = QLabel("📅 Bi-weekly Tab")
         title.setFont(theme_manager.get_font("title"))
         colors = theme_manager.get_colors()
         title.setStyleSheet(f"color: {colors['text_primary']};")
-        content_layout.addWidget(title)
-        
+        header_layout.addWidget(title)
+
+        # Refresh button - compact tool button with just emoji (left justified next to title)
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("🔄")
+        self.refresh_button.setToolTip("Refresh Weekly View")
+        self.refresh_button.setFixedSize(40, 30)
+        self.refresh_button.clicked.connect(self.refresh)
+        # Styling applied in on_theme_changed method
+        header_layout.addWidget(self.refresh_button)
+
+        header_layout.addStretch()
+
+        content_layout.addLayout(header_layout)
+
+        # Apply initial theme to refresh button
+        self.apply_header_theme()
+
         # TOP ROW (1/4 of screen) - Week selector and info columns
         top_row = self.create_top_row()
         content_layout.addWidget(top_row)
@@ -1461,7 +1599,9 @@ class WeeklyView(QWidget):
                 name = account.name[:14] + "..." if len(account.name) > 14 else account.name
 
                 # Get balance history for this account
-                history = account.get_balance_history_copy()
+                account_history = account.get_account_history(self.transaction_manager.db)
+                # Convert to simple list of running totals for compatibility
+                history = [entry.running_total for entry in account_history] if account_history else []
 
                 if not history:
                     # No history available, assume 0 change
@@ -1570,61 +1710,59 @@ class WeeklyView(QWidget):
         return current_pay_period_index
 
     def update_savings_values(self):
-        """Update starting and ending savings account values using balance history arrays"""
+        """Update starting and ending savings account values using AccountHistory"""
         try:
+            if not self.selected_week or not self.transaction_manager:
+                self.start_savings_label.setText("No period selected")
+                self.final_savings_label.setText("No period selected")
+                return
+
             # Get all accounts
             accounts = self.transaction_manager.get_all_accounts()
 
-            # Get current pay period index
-            current_pay_period_index = self.get_current_pay_period_index()
+            # Get period dates
+            period_start_date = self.selected_week['start_date']
+            period_end_date = self.selected_week['end_date']
 
-            # Display values for each account using balance history
+
+            # Display values for each account using AccountHistory
             start_account_text = ""
             final_account_text = ""
+            amount_paid_text = ""
 
             for account in accounts:
                 name = account.name[:14] + "..." if len(account.name) > 14 else account.name
 
-                # Get balance history for this account
-                history = account.get_balance_history_copy()
+                # Get AccountHistory for this account
+                account_history = account.get_account_history(self.transaction_manager.db)
 
-                if not history:
-                    # No history available, use current balance
-                    starting_balance = account.running_total
-                    final_balance = account.running_total
-                else:
-                    # Use balance history indexing:
-                    # payweek1: starting = array[0], final = array[1]
-                    # payweek2: starting = array[1], final = array[2]
-                    # etc.
+                # Find starting balance (latest entry BEFORE period start date - not including start date)
+                day_before_period = period_start_date - timedelta(days=1)
+                starting_balance = self._find_balance_on_or_before_date(account_history, day_before_period)
 
-                    starting_index = current_pay_period_index - 1  # Convert to 0-based
-                    final_index = current_pay_period_index
+                # Find final balance (latest entry between period start and end dates)
+                final_balance = self._find_balance_between_dates(account_history, period_start_date, period_end_date, starting_balance)
 
-                    # Get starting balance (beginning of this pay period)
-                    if starting_index < len(history):
-                        starting_balance = history[starting_index]
-                    else:
-                        # Not enough history, use last available or current balance
-                        starting_balance = history[-1] if history else account.running_total
+                # Calculate amount paid to savings (final - starting)
+                amount_paid = final_balance - starting_balance
 
-                    # Get final balance (end of this pay period)
-                    if final_index < len(history):
-                        final_balance = history[final_index]
-                    else:
-                        # This pay period hasn't finished yet, use current balance
-                        final_balance = account.running_total
 
                 # Format display
                 start_amount_str = f"${starting_balance:.0f}"
                 final_amount_str = f"${final_balance:.0f}"
+                paid_amount_str = f"${amount_paid:.0f}"
 
                 start_account_text += f"{name:<16} {start_amount_str:>10}\n"
                 final_account_text += f"{name:<16} {final_amount_str:>10}\n"
+                amount_paid_text += f"{name:<16} {paid_amount_str:>10}\n"
 
             # Set the display text
             self.start_savings_label.setText(start_account_text.rstrip() or "No accounts")
             self.final_savings_label.setText(final_account_text.rstrip() or "No accounts")
+
+            # Update amount paid to savings (if that label exists)
+            if hasattr(self, 'savings_payments_label'):
+                self.savings_payments_label.setText(amount_paid_text.rstrip() or "No accounts")
 
         except Exception as e:
             print(f"Error updating savings values: {e}")
@@ -1632,7 +1770,41 @@ class WeeklyView(QWidget):
             traceback.print_exc()
             self.start_savings_label.setText("Error loading data")
             self.final_savings_label.setText("Error loading data")
-            
+
+    def _find_balance_on_or_before_date(self, account_history, target_date):
+        """Find the running total from the latest AccountHistory entry on or before target_date"""
+        if not account_history:
+            return 0.0
+
+        # Find the latest entry on or before the target date
+        latest_entry = None
+        for entry in account_history:
+            if entry.transaction_date <= target_date:
+                if latest_entry is None or entry.transaction_date > latest_entry.transaction_date:
+                    latest_entry = entry
+                elif entry.transaction_date == latest_entry.transaction_date and entry.id > latest_entry.id:
+                    # Same date, take the later entry by ID
+                    latest_entry = entry
+
+        return latest_entry.running_total if latest_entry else 0.0
+
+    def _find_balance_between_dates(self, account_history, start_date, end_date, fallback_balance):
+        """Find the running total from the latest AccountHistory entry between start_date and end_date"""
+        if not account_history:
+            return fallback_balance
+
+        # Find the latest entry between start and end dates (inclusive)
+        latest_entry = None
+        for entry in account_history:
+            if start_date <= entry.transaction_date <= end_date:
+                if latest_entry is None or entry.transaction_date > latest_entry.transaction_date:
+                    latest_entry = entry
+                elif entry.transaction_date == latest_entry.transaction_date and entry.id > latest_entry.id:
+                    # Same date, take the later entry by ID
+                    latest_entry = entry
+
+        return latest_entry.running_total if latest_entry else fallback_balance
+
     def update_progress_bars(self, transactions):
         """Update progress bars for money spent and time progress"""
         try:
@@ -1678,17 +1850,11 @@ class WeeklyView(QWidget):
         
     def populate_week_list(self):
         """Populate the week list with bi-weekly periods (newest first)"""
-        print("=" * 50)
-        print("DEBUG: Starting populate_week_list")
 
         if not self.transaction_manager:
-            print("DEBUG: No transaction manager!")
             return
 
         weeks = self.transaction_manager.get_all_weeks()
-        print(f"DEBUG: populate_week_list found {len(weeks)} weeks")
-        for week in weeks:
-            print(f"DEBUG: Week {week.week_number} - Start: {week.start_date} - End: {week.end_date}")
         self.week_list.clear()
         
         # Group weeks into bi-weekly periods based on consecutive week numbers
@@ -1722,7 +1888,6 @@ class WeeklyView(QWidget):
 
             if week1 and week2 and week1_num not in processed_weeks and week2_num not in processed_weeks:
                 # Both weeks exist - create bi-weekly period
-                print(f"DEBUG: Creating Pay Period {period_counter} with Week {week1_num} and Week {week2_num}")
                 bi_weekly_periods.append({
                     'period_id': period_counter,
                     'week1': week1,
@@ -1735,7 +1900,6 @@ class WeeklyView(QWidget):
                 period_counter -= 1
             elif week2 and week2_num not in processed_weeks:
                 # Only week 2 exists - single week period
-                print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week2_num}")
                 bi_weekly_periods.append({
                     'period_id': period_counter,
                     'week1': week2,
@@ -1747,7 +1911,6 @@ class WeeklyView(QWidget):
                 period_counter -= 1
             elif week1 and week1_num not in processed_weeks:
                 # Only week 1 exists - single week period
-                print(f"DEBUG: Creating Pay Period {period_counter} with single Week {week1_num}")
                 bi_weekly_periods.append({
                     'period_id': period_counter,
                     'week1': week1,
@@ -1766,7 +1929,6 @@ class WeeklyView(QWidget):
         orphaned_weeks.sort(key=lambda x: x[0], reverse=True)  # Highest week numbers first
 
         for week_num, week in orphaned_weeks:
-            print(f"DEBUG: Creating Pay Period {period_counter} with orphaned Week {week_num}")
             bi_weekly_periods.append({
                 'period_id': period_counter,
                 'week1': week,
@@ -1780,21 +1942,13 @@ class WeeklyView(QWidget):
         # Sort periods by period_id (newest first)
         bi_weekly_periods.sort(key=lambda p: p['period_id'], reverse=True)
 
-        print(f"DEBUG: Created {len(bi_weekly_periods)} pay periods")
-        for period in bi_weekly_periods:
-            print(f"DEBUG: Pay Period {period['period_id']} - Start: {period['start_date']} - Weeks: {period['week1'].week_number if period['week1'] else 'None'},{period['week2'].week_number if period['week2'] else 'None'}")
-
-        print("DEBUG: Adding periods to QListWidget...")
         for period in bi_weekly_periods:
             start_date = period['start_date']
-            item_text = f"Pay Period {period['period_id']}\n{start_date.strftime('%m/%d')}"
+            item_text = f"Pay Period {period['period_id']}\n{start_date.strftime('%m/%d/%Y')}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, period)
             self.week_list.addItem(item)
-            print(f"DEBUG: Added {item_text} to list widget")
 
-        print(f"DEBUG: QListWidget now has {self.week_list.count()} items")
-        print("=" * 50)
             
         # Select first item by default
         if self.week_list.count() > 0:
@@ -1803,9 +1957,32 @@ class WeeklyView(QWidget):
             if self.selected_week:
                 self.week_title.setText(f"Pay Period {self.selected_week['period_id']}")
             
+    def apply_header_theme(self):
+        """Apply theme styling to header elements (refresh button)"""
+        colors = theme_manager.get_colors()
+
+        # Style refresh button (QToolButton)
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                    font-size: 16px;
+                }}
+                QToolButton:hover {{
+                    background-color: {colors['primary_dark']};
+                    border-color: {colors['primary']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
     def refresh(self):
         """Refresh weekly data"""
-        print("Refreshing bi-weekly view...")
         self.populate_week_list()
         self.update_week_info()
         
@@ -1814,6 +1991,7 @@ class WeeklyView(QWidget):
         try:
             # Update UI styling without recalculating data
             self.update_view_styling()
+            self.apply_header_theme()  # Update refresh button styling
             # Week detail widgets will auto-update via their own theme_changed signals
         except Exception as e:
             print(f"Error applying theme to weekly view: {e}")
