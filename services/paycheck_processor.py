@@ -190,6 +190,10 @@ class PaycheckProcessor:
         next_week_start = week_start + timedelta(days=7)  # Start date for week 2
         next_week = self.create_new_week(next_week_start)
 
+        # Load any pre-existing transactions for these weeks
+        self._assign_existing_transactions_to_weeks(current_week)
+        self._assign_existing_transactions_to_weeks(next_week)
+
         # Set appropriate rollover flags for new bi-weekly period
         # Week 1 (odd): Can process rollover immediately when complete
         # Week 2 (even): Should only process rollover at end of bi-weekly period
@@ -313,7 +317,32 @@ class PaycheckProcessor:
         self.db.refresh(new_week)
 
         return new_week
-    
+
+    def _assign_existing_transactions_to_weeks(self, week: Week):
+        """
+        Find and assign any pre-existing transactions to this newly created week.
+
+        This handles the case where a user added transactions for a future date
+        before the paycheck was processed. When the paycheck is added, those
+        transactions need to be assigned to the appropriate week.
+        """
+        # Get all transactions that don't have a week number assigned (week_number is None)
+        # and fall within this week's date range
+        orphaned_transactions = self.db.query(Transaction).filter(
+            Transaction.week_number == None,
+            Transaction.date >= week.start_date,
+            Transaction.date <= week.end_date
+        ).all()
+
+        if orphaned_transactions:
+            print(f"Found {len(orphaned_transactions)} pre-existing transaction(s) for Week {week.week_number}")
+
+            for txn in orphaned_transactions:
+                txn.week_number = week.week_number
+                print(f"  Assigned transaction ID {txn.id} (${txn.amount}, {txn.date}) to Week {week.week_number}")
+
+            self.db.commit()
+
     def calculate_week_rollover(self, week_number: int) -> WeekRollover:
         """Calculate rollover amount for a completed week"""
         week = self.transaction_manager.get_week_by_number(week_number)

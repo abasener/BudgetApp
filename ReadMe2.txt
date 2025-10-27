@@ -975,3 +975,176 @@ CODE STRUCTURE:
 - refresh(): Finds all years with data, creates boxes newest-first
 
 ================================================================================
+YEAR OVERVIEW TAB - RIGHT PANEL VISUALIZATIONS (October 2025)
+================================================================================
+
+LAYOUT OVERVIEW (Top to Bottom):
+1. Average Monthly Financial Activity - Full-width line plot
+2. Pie Chart | Violin Plot - Side-by-side row (1/3 | 2/3 width)
+3. Correlation Plots - Three scatter plots in row
+4. Income by Year - Full-width line plot
+5. Spending by Year - Full-width line plot with smooth curves
+6. Bills by Year - Full-width line plot with smooth curves
+7. Savings by Year - Full-width line plot with 3-day buckets
+
+PLOT 1: AVERAGE MONTHLY FINANCIAL ACTIVITY
+Purpose: Shows average spending/income patterns across all months
+- 4 lines (12 datapoints each from Jan-Dec)
+- Income: Fully opaque (stands out)
+- Spending/Bills/Savings: 40% opacity (subtle background)
+- Monthly averages calculated PER MONTH (not per year)
+  * If December exists in 1 year only → average over 1 month
+  * If August exists in 2 years → average over 2 months
+- Uses analytics toggle for spending filter
+
+PLOT 2: PIE CHART (Left 1/3)
+Purpose: Shows distribution of income allocation
+- Segments: Spending, Bills, Savings
+- CRITICAL: Percentages calculated correctly based on analytics toggle
+  * Normal Only ON: % of (income - abnormal_spending)
+  * Normal Only OFF: % of total_income
+- Title updates: "Average Distribution of Income (Normal Only)"
+- Ensures Spending + Bills + Savings = 100%
+
+PLOT 3: VIOLIN PLOT (Right 2/3)
+Purpose: Shows distribution of transaction amounts
+- 4 violins: Income, Spending, Bills, Savings
+- Width = frequency of transactions at that dollar amount
+- Shows median (white line) and mean (thick bar)
+- Helps identify: consistent income vs variable spending
+- Uses analytics toggle for spending filter
+
+PLOT 4-6: CORRELATION PLOTS (Income vs Spending/Bills/Savings)
+Purpose: Shows how categories correlate with income changes
+- 3 square scatter plots (20% axis padding)
+- Y-axis: Income per paycheck (shared across all 3)
+- X-axis: Spending/Bills/Savings per paycheck
+- Each year = 1 colored datapoint (year-specific color)
+- Linear regression line with beta value in title
+- Beta interpretation: "For every $1 increase in income, spending increases by β"
+- Only leftmost plot shows y-axis labels (cleaner layout)
+- Square aspect ratio maintained (set_aspect('equal'))
+
+PLOT 7: INCOME BY YEAR
+Purpose: Compare paycheck amounts across years
+- One line per year (year-specific color)
+- Datapoint on each paycheck date
+- X-axis: Months (Jan-Dec), all years aligned
+- No filtering needed (income is income)
+
+PLOT 8: SPENDING BY YEAR
+Purpose: Track spending trends with noise reduction
+- Daily datapoints (tiny dots, 30% alpha)
+- 14-day moving average trendline (smooth spline curve)
+- Handles Feb 29 in leap years gracefully
+- Uses analytics toggle for filtering
+- X-axis aligned by month for year-over-year comparison
+
+PLOT 9: BILLS BY YEAR
+Purpose: Track bill payment patterns
+- Datapoints when bills are actually paid
+- Smooth spline curve (no straight lines)
+- Larger markers (s=30) with black edge
+- No daily interpolation (bills aren't daily)
+
+PLOT 10: SAVINGS BY YEAR
+Purpose: Track savings contributions over time
+- 3-DAY BUCKETS: Aggregates transactions into 3-day periods
+  * Reduces noise from frequent small transactions
+  * Formula: bucket_num = days_into_year // 3
+- Smooth spline curve through bucket centers
+- Shows only money going INTO savings accounts
+
+MONTHLY AVERAGE CALCULATION LOGIC:
+Old (WRONG): Divided all months by total number of years
+New (CORRECT): Tracks which months have data per year
+
+Example with 2 years of data:
+- December 2024: has data
+- December 2025: NO data yet
+- Result: December average = sum(Dec2024) / 1 (not /2)
+
+Algorithm:
+```python
+monthly_counts = [0] * 12  # Track years with data per month
+for year in years:
+    months_with_data = set()
+    for transaction in year_transactions:
+        months_with_data.add(transaction.month - 1)
+    for month_idx in months_with_data:
+        monthly_counts[month_idx] += 1
+
+# Later: divide by actual count
+monthly_avg[i] = monthly_sum[i] / monthly_counts[i]
+```
+
+PIE CHART PERCENTAGE CALCULATION:
+Normal spending mode affects how percentages are calculated to ensure they add up to 100%
+
+When "Normal Spending Only" is CHECKED:
+- effective_income = (total_income - abnormal_spending) / num_years
+- spending = normal_spending_only / num_years
+- percentages = [spending, bills, savings] / effective_income * 100
+- Result: Pie adds up to 100% of "normal" income
+
+When "Normal Spending Only" is UNCHECKED:
+- effective_income = total_income / num_years
+- spending = (normal + abnormal_spending) / num_years
+- percentages = [spending, bills, savings] / total_income * 100
+- Result: Pie adds up to 100% of total income
+
+ANALYTICS TOGGLE INTEGRATION:
+Plots that filter by toggle:
+✓ Monthly Line Plot - Spending line only
+✓ Pie Chart - Percentages adjust for abnormal spending
+✓ Violin Plot - Spending violin only
+✓ Spending by Year - All datapoints and trendline
+
+Plots that don't filter (correct behavior):
+✓ Correlation Plots - Uses year averages (already filtered)
+✓ Income by Year - Income is income
+✓ Bills by Year - Bills don't filter
+✓ Savings by Year - Savings don't filter
+
+SMOOTH CURVE IMPLEMENTATION:
+Uses scipy.interpolate.make_interp_spline with cubic splines (k=3)
+- Creates 3x-5x more interpolation points than original data
+- Follows natural flow of data without sharp corners
+- Applied to: Spending, Bills, Savings plots
+
+3-DAY BUCKET ALGORITHM:
+```python
+days_into_year = (transaction.date - jan_1).days
+bucket_num = days_into_year // 3
+bucket_start = jan_1 + timedelta(days=bucket_num * 3)
+bucketed_data[bucket_start] += transaction.amount
+```
+Result: ~122 buckets per year instead of 365 daily points
+
+THEME INTEGRATION:
+- All plots use theme colors (background, text, accent)
+- Year-specific colors from chart_colors array
+- Pie chart uses accent_colors (not chart_colors to avoid year confusion)
+- Correlation plots use square aspect ratio with proper padding
+- All plots refresh on theme change
+
+CODE LOCATIONS:
+- views/year_overview_view.py: Main implementation (1500+ lines)
+- update_yoy_growth_bars(): Monthly line plot with per-month averaging
+- update_master_pie_chart(): Pie chart with analytics-aware percentages
+- update_violin_plots(): Violin plot with analytics filter
+- update_correlation_plots(): Scatter plots with regression and padding
+- update_income_plot(): Income by year plot
+- update_spending_plot(): Spending with smooth curves and analytics filter
+- update_bills_plot(): Bills with smooth curves
+- update_savings_plot(): Savings with 3-day buckets and smooth curves
+- toggle_analytics_mode(): Refreshes affected plots when toggle changes
+
+FUTURE ENHANCEMENTS (Potential):
+- Seasonal analysis (which months cost more/less)
+- Category breakdown by year (not just totals)
+- Spending velocity trends (acceleration/deceleration)
+- Bill increase predictions based on historical rates
+- Interactive tooltips showing exact values on hover
+
+================================================================================

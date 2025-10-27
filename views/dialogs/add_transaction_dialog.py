@@ -250,11 +250,26 @@ class AddTransactionDialog(QDialog):
         """Save the transaction to database"""
         if not self.validate_form():
             return
-        
+
         try:
             mode = self.mode_combo.currentText()
             transaction_date = self.date_edit.date().toPyDate()
             amount = self.amount_spin.value()
+
+            # Validate future date limit (max 4 weeks / 28 days ahead)
+            today = date.today()
+            days_into_future = (transaction_date - today).days
+
+            if days_into_future > 28:
+                QMessageBox.warning(
+                    self,
+                    "Future Transaction Limit",
+                    "Cannot add transactions more than 4 weeks (28 days) into the future.\n\n"
+                    "Please either:\n"
+                    "• Wait until the next paycheck has been added, or\n"
+                    "• Create a savings account for expected future charges"
+                )
+                return
 
             # Calculate week number from date (auto-generated)
             week_number = self.calculate_week_from_date(transaction_date)
@@ -351,7 +366,12 @@ class AddTransactionDialog(QDialog):
             QMessageBox.critical(self, "Error", f"Error saving transaction: {str(e)}")
     
     def calculate_week_from_date(self, transaction_date):
-        """Calculate week number from transaction date"""
+        """
+        Calculate week number from transaction date.
+
+        For future dates without a week yet, returns None to indicate
+        the transaction will be assigned a week when the paycheck is added.
+        """
         try:
             # Find the week that contains this date
             weeks = self.transaction_manager.get_all_weeks()
@@ -359,16 +379,13 @@ class AddTransactionDialog(QDialog):
                 if week.start_date <= transaction_date <= week.end_date:
                     return week.week_number
 
-            # If no week contains this date, use current week or create one
-            current_week = self.transaction_manager.get_current_week()
-            if current_week:
-                return current_week.week_number
-            else:
-                # Fallback to week 1 if no weeks exist
-                return 1
+            # If no week contains this date, return None
+            # This allows future transactions to be saved with their original date
+            # They will be assigned to a week when the matching paycheck is added
+            return None
 
         except Exception:
-            return 1  # Safe fallback
+            return None  # Allow transaction to be saved without a week
 
     def apply_button_theme(self):
         """Apply focused styling to Save button, normal styling to Cancel"""

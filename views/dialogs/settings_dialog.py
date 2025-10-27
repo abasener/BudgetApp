@@ -1037,161 +1037,291 @@ class SettingsDialog(QDialog):
             QMessageBox.critical(self, "Export Failed", f"Error during data export: {e}")
 
     def import_test_data(self):
-        """Import test data from TestData/Data2.xlsx with validation"""
+        """Import data from user-selected Excel file with validation and mode selection"""
+        from PyQt6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QLabel, QRadioButton, QDialogButtonBox
         import os
 
-        # Step 1: Check if file exists
-        excel_file = "TestData/Data2.xlsx"
-        if not os.path.exists(excel_file):
-            QMessageBox.warning(
-                self,
-                "File Not Found",
-                f"Step 1 Failed: Test data file not found.\n\n"
-                f"Expected file: {excel_file}\n"
-                f"Please ensure the test data file exists in the TestData directory."
-            )
+        # Let user choose file
+        excel_file, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Excel File to Import",
+            os.path.expanduser("~"),
+            "Excel Files (*.xlsx *.xls)"
+        )
+
+        if not excel_file:
             return
 
         try:
             import pandas as pd
 
-            # Step 2: Try to read the Excel file and verify structure
-            try:
-                # Read Spending table (columns 0-3)
-                spending_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[0, 1, 2, 3])
-                spending_df = spending_df.dropna(how='all')
+            # Read entire file once to avoid pandas usecols bug with formatted/merged cells
+            full_df = pd.read_excel(excel_file, sheet_name=0, header=0)
 
-                # Read Paychecks table (columns 5-7)
-                paychecks_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[5, 6, 7])
-                paychecks_df = paychecks_df.dropna(how='all')
-
-                # Read BillPays table (columns 9-11)
-                try:
-                    billpays_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[9, 10, 11])
-                    billpays_df = billpays_df.dropna(how='all')
-                except:
-                    # BillPays table is optional
-                    billpays_df = pd.DataFrame()
-
-            except Exception as e:
-                QMessageBox.warning(
-                    self,
-                    "File Format Error",
-                    f"Step 2 Failed: Could not read expected table structure.\n\n"
-                    f"Error: {e}\n\n"
-                    f"Expected: Tables in the Excel file (Spending, Paychecks, and optionally BillPays)."
-                )
-                return
-
-            # Step 3: Verify headers
-            expected_spending_headers = ["Date", "Day", "Catigorie", "Amount"]
-            expected_paycheck_headers = ["Start date", "Pay Date", "Amount.1"]
-            expected_billpays_headers = ["Date.1", "Bill", "Amount.2"]
-
-            spending_headers = list(spending_df.columns)
-            paycheck_headers = list(paychecks_df.columns)
-
-            if spending_headers != expected_spending_headers:
-                QMessageBox.warning(
-                    self,
-                    "Header Validation Failed",
-                    f"Step 3 Failed: Spending table headers don't match.\n\n"
-                    f"Expected: {expected_spending_headers}\n"
-                    f"Found: {spending_headers}\n\n"
-                    f"Please check the Excel file format."
-                )
-                return
-
-            if paycheck_headers != expected_paycheck_headers:
-                QMessageBox.warning(
-                    self,
-                    "Header Validation Failed",
-                    f"Step 3 Failed: Paycheck table headers don't match.\n\n"
-                    f"Expected: {expected_paycheck_headers}\n"
-                    f"Found: {paycheck_headers}\n\n"
-                    f"Please check the Excel file format."
-                )
-                return
-
-            # Check BillPays headers if table exists
-            if not billpays_df.empty:
-                billpays_headers = list(billpays_df.columns)
-                if billpays_headers != expected_billpays_headers:
-                    QMessageBox.warning(
-                        self,
-                        "Header Validation Failed",
-                        f"Step 3 Failed: BillPays table headers don't match.\n\n"
-                        f"Expected: {expected_billpays_headers}\n"
-                        f"Found: {billpays_headers}\n\n"
-                        f"Please check the Excel file format."
-                    )
-                    return
-
-            # All validation passed - confirm import
-            billpays_count = len(billpays_df) if not billpays_df.empty else 0
-            reply = QMessageBox.question(
-                self,
-                "Import Test Data",
-                f"All validation checks passed!\n\n"
-                f"Found:\n"
-                f"• {len(spending_df)} spending transactions\n"
-                f"• {len(paychecks_df)} paychecks\n"
-                f"• {billpays_count} bill payments\n\n"
-                f"This will import the test data into your current database.\n"
-                f"Are you sure you want to proceed?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
-            )
-
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
-            # Import the data using our existing import script logic
-            self.perform_test_data_import(excel_file)
-
-        except ImportError:
-            QMessageBox.critical(
-                self,
-                "Missing Dependency",
-                "pandas library is required for Excel file processing.\n"
-                "Please install pandas to use this feature."
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Import Error",
-                f"Unexpected error during validation: {e}"
-            )
-
-    def perform_test_data_import(self, excel_file):
-        """Perform the actual test data import"""
-        try:
-            import pandas as pd
-            from services.transaction_manager import TransactionManager
-            from services.paycheck_processor import PaycheckProcessor
-            from models import get_db, Bill
-            from datetime import datetime
-
-            transaction_manager = TransactionManager()
-            paycheck_processor = PaycheckProcessor()
-
-            # Read the Excel data
-            spending_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[0, 1, 2, 3])
+            # Extract transaction tables
+            spending_df = full_df.iloc[:, 0:4].copy()
+            spending_df.columns = ['Date', 'Day', 'Catigorie', 'Amount']
             spending_df = spending_df.dropna(how='all')
 
-            paychecks_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[5, 6, 7])
+            paychecks_df = full_df.iloc[:, 5:8].copy()
+            paychecks_df.columns = ['Start date', 'Pay Date', 'Amount.1']
             paychecks_df = paychecks_df.dropna(how='all')
 
-            # Read BillPays table (optional)
             try:
-                billpays_df = pd.read_excel(excel_file, sheet_name=0, header=0, usecols=[9, 10, 11])
+                billpays_df = full_df.iloc[:, 9:12].copy()
+                billpays_df.columns = ['Date.1', 'Bill', 'Amount.2']
                 billpays_df = billpays_df.dropna(how='all')
             except:
                 billpays_df = pd.DataFrame()
 
-            # Import paychecks first
+            # Extract metadata tables
+            try:
+                accounts_df = full_df.iloc[:, 13:18].copy()
+                accounts_df.columns = ['Account Name', 'Starting Balance', 'Goal Amount', 'Auto Save Amount', 'Is Default']
+                accounts_df = accounts_df[accounts_df['Account Name'].notna()]
+            except:
+                accounts_df = pd.DataFrame()
+
+            try:
+                bills_df = full_df.iloc[:, 19:27].copy()
+                bills_df.columns = ['Bill Name', 'Bill Type', 'Bill Starting Balance', 'Payment Frequency',
+                                   'Typical Amount', 'Amount To Save', 'Is Variable', 'Notes']
+                bills_df = bills_df[bills_df['Bill Name'].notna()]
+            except:
+                bills_df = pd.DataFrame()
+
+            # Show import mode dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Select Import Mode")
+            layout = QVBoxLayout()
+
+            layout.addWidget(QLabel(f"Found:\n• {len(spending_df)} spending transactions\n• {len(paychecks_df)} paychecks\n• {len(billpays_df)} bill payments\n• {len(accounts_df)} accounts\n• {len(bills_df)} bills\n"))
+            layout.addWidget(QLabel("Choose import mode:"))
+
+            replace_radio = QRadioButton("Replace - Delete all existing data and import fresh")
+            merge_radio = QRadioButton("Merge - Add only new data, skip duplicates")
+            append_radio = QRadioButton("Append - Add all data (may create duplicates)")
+            replace_radio.setChecked(True)
+
+            layout.addWidget(replace_radio)
+            layout.addWidget(merge_radio)
+            layout.addWidget(append_radio)
+
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            buttons.accepted.connect(dialog.accept)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+
+            dialog.setLayout(layout)
+
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            if replace_radio.isChecked():
+                import_mode = "replace"
+            elif merge_radio.isChecked():
+                import_mode = "merge"
+            else:
+                import_mode = "append"
+
+            # Perform import
+            self.perform_test_data_import(excel_file, import_mode, spending_df, paychecks_df, billpays_df, accounts_df, bills_df)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Error during import: {e}")
+
+    def perform_test_data_import(self, excel_file, import_mode, spending_df, paychecks_df, billpays_df, accounts_df, bills_df):
+        """Perform the actual data import with specified mode and pre-read DataFrames"""
+        from PyQt6.QtWidgets import QProgressDialog
+        from PyQt6.QtCore import Qt
+
+        # Create progress dialog
+        progress = QProgressDialog("Importing data...", "Cancel", 0, 100, self)
+        progress.setWindowTitle("Import Progress")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+
+        try:
+            import pandas as pd
+            from services.transaction_manager import TransactionManager
+            from services.paycheck_processor import PaycheckProcessor
+            from models import get_db, Bill, Transaction, Week, Account, AccountHistory
+            from datetime import datetime
+
+            db = get_db()
+            transaction_manager = TransactionManager()
+            paycheck_processor = PaycheckProcessor()
+
+            progress.setValue(10)
+
+            # Handle Replace mode: Clear all existing data
+            if import_mode == "replace":
+                progress.setLabelText("Clearing existing data...")
+                try:
+                    db.query(Transaction).delete()
+                    db.query(Week).delete()
+                    db.query(AccountHistory).delete()
+                    if not accounts_df.empty:
+                        db.query(Account).delete()
+                    if not bills_df.empty:
+                        db.query(Bill).delete()
+                    db.commit()
+                except Exception as e:
+                    db.rollback()
+                    print(f"Error clearing data: {e}")
+
+            # For merge mode, get existing data for duplicate detection
+            existing_weeks = set()
+            existing_transactions = set()
+            if import_mode == "merge":
+                weeks = db.query(Week).all()
+                for week in weeks:
+                    existing_weeks.add((week.start_date, week.end_date))
+                transactions = db.query(Transaction).all()
+                for txn in transactions:
+                    key = (txn.date, txn.amount, txn.category or txn.bill_type or "")
+                    existing_transactions.add(key)
+
+            progress.setValue(20)
+
+            # Import accounts metadata FIRST
+            progress.setLabelText("Importing accounts metadata...")
+            account_created = 0
+            account_updated = 0
+            account_skipped = 0
+
+            if not accounts_df.empty:
+                for idx, row in accounts_df.iterrows():
+                    if pd.isna(row["Account Name"]):
+                        continue
+
+                    account_name = str(row["Account Name"]).strip()
+                    starting_balance = float(row["Starting Balance"]) if not pd.isna(row["Starting Balance"]) else 0.0
+                    goal_amount = float(row["Goal Amount"]) if not pd.isna(row["Goal Amount"]) else 0.0
+                    auto_save_amount = float(row["Auto Save Amount"]) if not pd.isna(row["Auto Save Amount"]) else 0.0
+                    is_default = bool(row["Is Default"]) if not pd.isna(row["Is Default"]) else False
+
+                    existing_account = db.query(Account).filter(Account.name == account_name).first()
+
+                    if import_mode == "append" and existing_account:
+                        account_skipped += 1
+                        continue
+
+                    if import_mode == "merge":
+                        if existing_account:
+                            existing_account.goal_amount = goal_amount
+                            existing_account.auto_save_amount = auto_save_amount
+                            existing_account.is_default_save = is_default
+                            account_updated += 1
+                        else:
+                            new_account = Account(
+                                name=account_name,
+                                goal_amount=goal_amount,
+                                auto_save_amount=auto_save_amount,
+                                is_default_save=is_default
+                            )
+                            db.add(new_account)
+                            db.flush()
+                            new_account.initialize_history(db, starting_balance=starting_balance)
+                            account_created += 1
+                    else:
+                        new_account = Account(
+                            name=account_name,
+                            goal_amount=goal_amount,
+                            auto_save_amount=auto_save_amount,
+                            is_default_save=is_default
+                        )
+                        db.add(new_account)
+                        db.flush()
+                        new_account.initialize_history(db, starting_balance=starting_balance)
+                        account_created += 1
+
+                db.commit()
+
+            progress.setValue(30)
+
+            # Import bills metadata SECOND
+            progress.setLabelText("Importing bills metadata...")
+            bill_created = 0
+            bill_updated = 0
+            bill_skipped = 0
+
+            if not bills_df.empty:
+                for idx, row in bills_df.iterrows():
+                    if pd.isna(row["Bill Name"]):
+                        continue
+
+                    bill_name = str(row["Bill Name"]).strip()
+                    bill_type = str(row["Bill Type"]).strip() if not pd.isna(row["Bill Type"]) else ""
+                    starting_balance = float(row["Bill Starting Balance"]) if not pd.isna(row["Bill Starting Balance"]) else 0.0
+                    payment_frequency = str(row["Payment Frequency"]).strip() if not pd.isna(row["Payment Frequency"]) else "monthly"
+                    typical_amount = float(row["Typical Amount"]) if not pd.isna(row["Typical Amount"]) else 0.0
+                    amount_to_save = float(row["Amount To Save"]) if not pd.isna(row["Amount To Save"]) else 0.0
+                    is_variable = bool(row["Is Variable"]) if not pd.isna(row["Is Variable"]) else False
+                    notes = str(row["Notes"]).strip() if not pd.isna(row["Notes"]) else ""
+
+                    existing_bill = db.query(Bill).filter(Bill.name == bill_name).first()
+
+                    if import_mode == "append" and existing_bill:
+                        bill_skipped += 1
+                        continue
+
+                    if import_mode == "merge":
+                        if existing_bill:
+                            existing_bill.bill_type = bill_type
+                            existing_bill.payment_frequency = payment_frequency
+                            existing_bill.typical_amount = typical_amount
+                            existing_bill.amount_to_save = amount_to_save
+                            existing_bill.is_variable = is_variable
+                            existing_bill.notes = notes
+                            bill_updated += 1
+                        else:
+                            new_bill = Bill(
+                                name=bill_name,
+                                bill_type=bill_type,
+                                payment_frequency=payment_frequency,
+                                typical_amount=typical_amount,
+                                amount_to_save=amount_to_save,
+                                is_variable=is_variable,
+                                notes=notes
+                            )
+                            db.add(new_bill)
+                            db.flush()
+                            new_bill.initialize_history(db, starting_balance=starting_balance)
+                            bill_created += 1
+                    else:
+                        new_bill = Bill(
+                            name=bill_name,
+                            bill_type=bill_type,
+                            payment_frequency=payment_frequency,
+                            typical_amount=typical_amount,
+                            amount_to_save=amount_to_save,
+                            is_variable=is_variable,
+                            notes=notes
+                        )
+                        db.add(new_bill)
+                        db.flush()
+                        new_bill.initialize_history(db, starting_balance=starting_balance)
+                        bill_created += 1
+
+                db.commit()
+
+            progress.setValue(40)
+
+            # Import paychecks THIRD (creates Week records needed by transactions)
+            progress.setLabelText(f"Importing {len(paychecks_df)} paychecks...")
             paycheck_count = 0
+            paycheck_skipped = 0
+
             for idx, row in paychecks_df.iterrows():
+                if progress.wasCanceled():
+                    transaction_manager.close()
+                    paycheck_processor.close()
+                    db.close()
+                    progress.close()
+                    return
+
                 if pd.isna(row["Start date"]) or pd.isna(row["Pay Date"]) or pd.isna(row["Amount.1"]):
                     continue
 
@@ -1199,24 +1329,46 @@ class SettingsDialog(QDialog):
                 pay_date = pd.to_datetime(row["Pay Date"]).date()
                 amount = float(row["Amount.1"])
 
+                if import_mode == "merge" and (start_date, pay_date) in existing_weeks:
+                    paycheck_skipped += 1
+                    continue
+
                 try:
                     paycheck_processor.process_new_paycheck(amount, pay_date, start_date)
                     paycheck_count += 1
                 except Exception as e:
-                    print(f"Error processing paycheck: {e}")
+                    if import_mode == "append":
+                        paycheck_skipped += 1
                     continue
 
-            # Import spending transactions
+            progress.setValue(55)
+
+            # Import spending transactions FOURTH
+            progress.setLabelText(f"Importing {len(spending_df)} spending transactions...")
             transaction_count = 0
+            transaction_skipped = 0
             negative_count = 0
 
             for idx, row in spending_df.iterrows():
+                if progress.wasCanceled():
+                    transaction_manager.close()
+                    paycheck_processor.close()
+                    db.close()
+                    progress.close()
+                    return
                 if pd.isna(row["Date"]) or pd.isna(row["Catigorie"]) or pd.isna(row["Amount"]):
                     continue
 
                 transaction_date = pd.to_datetime(row["Date"]).date()
                 category = str(row["Catigorie"]).strip()
                 amount = float(row["Amount"])
+
+                # For merge mode, skip if transaction already exists
+                if import_mode == "merge":
+                    txn_key = (transaction_date, abs(amount), category)
+                    if txn_key in existing_transactions:
+                        transaction_skipped += 1
+                        continue
 
                 # Determine which week this transaction belongs to
                 week_number = transaction_manager.get_week_number_for_date(transaction_date)
@@ -1242,18 +1394,18 @@ class SettingsDialog(QDialog):
                     transaction_manager.add_transaction(transaction_data)
                     transaction_count += 1
                 except Exception as e:
-                    print(f"Error adding transaction: {e}")
                     continue
 
-            # Import bill payments
+            progress.setValue(75)
+
+            # Import bill payments FIFTH
+            progress.setLabelText(f"Importing {len(billpays_df)} bill payments...")
             billpay_count = 0
+            billpay_skipped = 0
             unmatched_bills = set()
 
             if not billpays_df.empty:
-                # Get all existing bills for matching
-                db = get_db()
                 existing_bills = {bill.name.lower(): bill for bill in db.query(Bill).all()}
-                db.close()
 
                 for idx, row in billpays_df.iterrows():
                     if pd.isna(row["Date.1"]) or pd.isna(row["Bill"]) or pd.isna(row["Amount.2"]):
@@ -1271,30 +1423,34 @@ class SettingsDialog(QDialog):
 
                     matched_bill = existing_bills[bill_name_lower]
 
+                    # For merge mode, skip if bill transaction already exists
+                    if import_mode == "merge":
+                        txn_key = (transaction_date, abs(amount), matched_bill.bill_type)
+                        if txn_key in existing_transactions:
+                            billpay_skipped += 1
+                            continue
+
                     # Determine which week this transaction belongs to
                     week_number = transaction_manager.get_week_number_for_date(transaction_date)
                     if week_number is None:
                         continue
 
                     # Determine transaction type based on amount sign
-                    # Positive = adding to bill (savings), Negative = paying bill
                     if amount < 0:
-                        # Negative amount = bill payment (deduction)
                         transaction_data = {
-                            "transaction_type": "bill_pay",  # Use enum value
+                            "transaction_type": "bill_pay",
                             "week_number": week_number,
-                            "amount": abs(amount),  # Use absolute value
+                            "amount": abs(amount),
                             "date": transaction_date,
                             "description": f"Payment for {bill_name}",
                             "bill_id": matched_bill.id,
                             "bill_type": matched_bill.bill_type
                         }
                     else:
-                        # Positive amount = bill saving (addition)
                         transaction_data = {
-                            "transaction_type": "saving",  # Match auto bill savings format
+                            "transaction_type": "saving",
                             "week_number": week_number,
-                            "amount": amount,  # Keep positive
+                            "amount": amount,
                             "date": transaction_date,
                             "description": f"Manual savings for {bill_name}",
                             "bill_id": matched_bill.id,
@@ -1305,47 +1461,57 @@ class SettingsDialog(QDialog):
                         transaction_manager.add_transaction(transaction_data)
                         billpay_count += 1
                     except Exception as e:
-                        print(f"Error adding bill payment: {e}")
                         continue
 
             transaction_manager.close()
             paycheck_processor.close()
+            db.close()
+
+            progress.setValue(100)
+            progress.close()
 
             # Build success message
-            message = f"Test data imported successfully!\n\n"
-            message += f"Imported:\n"
-            message += f"• {paycheck_count} paychecks\n"
-            message += f"• {transaction_count} spending transactions\n"
-            message += f"  - {transaction_count - negative_count} positive (included in analytics)\n"
+            mode_names = {"replace": "Replace", "merge": "Merge", "append": "Append"}
+            message = f"Data imported successfully using {mode_names.get(import_mode, import_mode)} mode!\n\n"
+
+            if not accounts_df.empty or not bills_df.empty:
+                message += "Metadata:\n"
+                if not accounts_df.empty:
+                    message += f"• Accounts - Created: {account_created}, Updated: {account_updated}, Skipped: {account_skipped}\n"
+                if not bills_df.empty:
+                    message += f"• Bills - Created: {bill_created}, Updated: {bill_updated}, Skipped: {bill_skipped}\n"
+                message += "\n"
+
+            message += "Transactions:\n"
+            message += f"• {paycheck_count} paychecks imported"
+            if paycheck_skipped > 0:
+                message += f" ({paycheck_skipped} skipped)"
+            message += "\n"
+
+            message += f"• {transaction_count} spending transactions imported"
+            if transaction_skipped > 0:
+                message += f" ({transaction_skipped} skipped)"
+            message += f"\n  - {transaction_count - negative_count} positive (included in analytics)\n"
             message += f"  - {negative_count} negative (excluded from analytics)\n"
 
             if not billpays_df.empty:
-                message += f"• {billpay_count} bill payments\n"
+                message += f"• {billpay_count} bill payments imported"
+                if billpay_skipped > 0:
+                    message += f" ({billpay_skipped} skipped)"
+                message += "\n"
 
             if unmatched_bills:
                 message += f"\n⚠️ Unmatched Bills (not imported):\n"
                 for bill in sorted(unmatched_bills):
                     message += f"  - {bill}\n"
-                message += "\nThese bills don't exist in your system."
 
-            message += "\nThe application data has been updated with the test dataset."
-
-            # Show success message
-            QMessageBox.information(
-                self,
-                "Import Successful",
-                message
-            )
-
-            # Signal that data changed so main window refreshes
+            QMessageBox.information(self, "Import Successful", message)
             self.settings_saved.emit()
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Import Failed",
-                f"Error during test data import: {e}"
-            )
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Import Failed", f"Error during import: {e}")
 
 
 def load_app_settings():
