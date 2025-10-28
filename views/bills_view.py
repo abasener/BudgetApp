@@ -86,11 +86,11 @@ class BillsView(QWidget):
         """)
     
     def create_toolbar(self):
-        """Create slim toolbar with refresh and sort options"""
+        """Create slim toolbar with add bill, refresh and sort options"""
         self.toolbar = QFrame()
         self.toolbar.setFrameStyle(QFrame.Shape.Box)
         self.toolbar.setFixedHeight(45)  # Slim height
-        
+
         colors = theme_manager.get_colors()
         self.toolbar.setStyleSheet(f"""
             QFrame {{
@@ -100,12 +100,20 @@ class BillsView(QWidget):
                 padding: 2px;
             }}
         """)
-        
+
         toolbar_layout = QHBoxLayout(self.toolbar)
         toolbar_layout.setSpacing(8)
         toolbar_layout.setContentsMargins(8, 4, 8, 4)
 
-        # Refresh button - compact tool button with just emoji
+        # Add Bill button - secondary focus
+        self.add_bill_button = QPushButton("+ Bill")
+        self.add_bill_button.setFont(theme_manager.get_font("button"))
+        self.add_bill_button.setFixedHeight(30)
+        self.add_bill_button.clicked.connect(self.on_add_bill_clicked)
+        # Styling applied in apply_toolbar_theme method
+        toolbar_layout.addWidget(self.add_bill_button)
+
+        # Refresh button - compact tool button with just emoji (primary focus)
         self.refresh_button = QToolButton()
         self.refresh_button.setText("🔄")
         self.refresh_button.setToolTip("Refresh Bills")
@@ -113,24 +121,24 @@ class BillsView(QWidget):
         self.refresh_button.clicked.connect(self.refresh)
         # Styling applied in on_theme_changed method
         toolbar_layout.addWidget(self.refresh_button)
-        
+
         # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setStyleSheet(f"color: {colors['border']};")
         toolbar_layout.addWidget(separator)
-        
+
         # Sort label
         sort_label = QLabel("Sort by:")
         sort_label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold; font-size: 12px;")
         toolbar_layout.addWidget(sort_label)
-        
+
         # Sort dropdown - slim design
         self.sort_combo = QComboBox()
         self.sort_combo.addItems([
             "Alphabetical",
-            "Richest", 
+            "Richest",
             "Closest",
             "Payment Size"
         ])
@@ -167,8 +175,8 @@ class BillsView(QWidget):
             }}
         """)
         toolbar_layout.addWidget(self.sort_combo)
-        
-        
+
+
         # Push everything to the left
         toolbar_layout.addStretch()
     
@@ -186,7 +194,27 @@ class BillsView(QWidget):
         """Apply theme styling to toolbar elements"""
         colors = theme_manager.get_colors()
 
-        # Style refresh button (QToolButton)
+        # Style Add Bill button (QPushButton) - secondary focus
+        if hasattr(self, 'add_bill_button'):
+            self.add_bill_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['secondary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px 12px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['accent']};
+                    border-color: {colors['secondary']};
+                }}
+                QPushButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
+        # Style refresh button (QToolButton) - primary focus
         if hasattr(self, 'refresh_button'):
             self.refresh_button.setStyleSheet(f"""
                 QToolButton {{
@@ -383,9 +411,24 @@ class BillsView(QWidget):
         try:
             # Refresh the entire bills view to reflect changes
             self.refresh()
-            
+
         except Exception as e:
             print(f"Error refreshing bills view: {e}")
+
+    def on_add_bill_clicked(self):
+        """Handle Add Bill button click - open add bill dialog"""
+        try:
+            from views.dialogs.add_bill_dialog import AddBillDialog
+            from PyQt6.QtWidgets import QDialog
+
+            dialog = AddBillDialog(self.transaction_manager, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.refresh()
+
+        except Exception as e:
+            print(f"Error opening add bill dialog: {e}")
+            import traceback
+            traceback.print_exc()
     
     def on_theme_changed(self, theme_id):
         """Handle theme change for bills view - optimized for performance"""
@@ -416,7 +459,27 @@ class BillsView(QWidget):
                 }}
             """)
         
-        # Update refresh button (QToolButton)
+        # Update Add Bill button (QPushButton) - secondary focus
+        if hasattr(self, 'add_bill_button'):
+            self.add_bill_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['secondary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px 12px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['accent']};
+                    border-color: {colors['secondary']};
+                }}
+                QPushButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
+        # Update refresh button (QToolButton) - primary focus
         if hasattr(self, 'refresh_button'):
             self.refresh_button.setStyleSheet(f"""
                 QToolButton {{

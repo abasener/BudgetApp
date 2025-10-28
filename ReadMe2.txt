@@ -1,7 +1,17 @@
 ================================================================================
 BudgetApp V2 - Dynamic Rollover System Documentation
 ================================================================================
-Last Updated: 2024-10-20
+Last Updated: 2024-10-28
+
+RECENT FIXES & ADDITIONS (2024-10-28):
+- Added: Transfer Money dialog - transfer funds between accounts, bills, and weeks
+- Added: + Bill and + Savings buttons to Bills and Savings tab toolbars
+- Added: Reorganized menubar with File/Edit/View/Tools/Help structure
+- Added: Import/Export Data directly accessible from File menu
+- Added: Hour Calculator accessible from Tools menu
+- Added: Help menu with About, User Guide, FAQ, and Report Bug options
+- Fixed: Category color consistency - alphabetical ordering ensures same colors across all charts
+- Fixed: secondary_dark theme color reference (changed to use 'accent' color for hover states)
 
 RECENT FIXES & ADDITIONS (2024-10-20):
 - Fixed: TransactionManager missing get_transaction_by_id method
@@ -1146,5 +1156,140 @@ FUTURE ENHANCEMENTS (Potential):
 - Spending velocity trends (acceleration/deceleration)
 - Bill increase predictions based on historical rates
 - Interactive tooltips showing exact values on hover
+
+================================================================================
+MENUBAR & UI ORGANIZATION (October 2024)
+================================================================================
+
+MENUBAR RESTRUCTURE:
+The application menubar has been reorganized to follow standard desktop application conventions
+with clear separation of concerns across five main menus.
+
+FILE MENU - Document/Data Operations:
+- Import Data (Excel): Import transactions from Excel file (Replace/Merge/Append modes)
+- Export Data (Excel): Export all data to Excel file for backup or analysis
+- ────────
+- Reset All Data...: Permanently delete all data with math-based confirmation
+- ────────
+- Exit: Close application
+
+Note: Future planned addition of SQL bulk import/export for database operations
+
+EDIT MENU - Data Modification:
+- Add Transaction: Add spending transaction to weekly budget
+- Add Paycheck: Process bi-weekly paycheck with automatic distribution
+- Pay Bill: Pay a bill from bill account balance
+- Transfer Money: Transfer funds between accounts, bills, and weeks
+- ────────
+- Add Savings Account: Create new savings account with goal tracking
+- Add Bill Account: Create new bill with payment frequency and auto-save amount
+
+Philosophy: All operations that modify budget data are grouped in Edit menu for intuitive access
+
+VIEW MENU - Navigation & Display:
+- Refresh All: Refresh all views and recalculate balances
+- ────────
+- Dashboard: Navigate to Dashboard tab
+- Bills: Navigate to Bills tab
+- Savings: Navigate to Savings tab
+- Weekly: Navigate to Weekly tab
+- Categories: Navigate to Categories tab
+- Yearly: Navigate to Yearly tab
+
+Future: Keyboard shortcuts (Ctrl+1-6) for quick tab navigation
+
+TOOLS MENU - Utilities:
+- Hour Calculator...: Calculate hours needed for expenses and savings goals
+
+Future additions: Additional financial calculators, goal planning tools
+
+HELP MENU - Documentation & Support:
+- About Budget App: Version info and feature overview
+- User Guide: Opens readme2.txt with complete documentation
+- ────────
+- Questions / FAQ: Placeholder for future FAQ resource document
+- Report Bug: Opens GitHub for issue reporting
+
+TRANSFER MONEY DIALOG:
+Comprehensive transfer system for moving funds between any account types.
+
+FEATURES:
+- FROM/TO dropdowns with current balances displayed
+- Week number spinbox appears when "Current Week" selected
+- Auto-updating transaction notes (lock when manually edited)
+- Real-time balance validation (prevents overdrafts)
+- Single transaction for week transfers, double for account-to-account
+
+TRANSACTION PATTERNS:
+- Week → Account/Bill: Creates positive SAVING transaction (money into account)
+- Account/Bill → Week: Creates negative SAVING transaction (money out of account)
+- Account → Account: Creates two SAVING transactions (one negative, one positive)
+- Notes always reference the OTHER side for clarity in transaction history
+
+VALIDATION:
+- Prevents transfers from same account to itself
+- Checks for sufficient balance before allowing transfer
+- Amount must be greater than zero
+- Refresh happens before success message for immediate feedback
+
+CODE LOCATIONS:
+- views/dialogs/transfer_dialog.py: Main dialog implementation
+- _create_week_transfer(): Single-transaction week transfer logic (lines 406-439)
+- _create_account_to_account_transfer(): Double-transaction account logic (lines 441-484)
+
+TAB-LOCAL TOOLBARS:
+Bills and Savings tabs now have mini-toolbars for quick access to common actions.
+
+BILLS TAB TOOLBAR:
+- + Bill (secondary styling - light blue): Opens Add Bill dialog
+- 🔄 Refresh (primary styling - green): Refreshes bill data
+- Sort by: [Dropdown] - Alphabetical, Richest, Closest, Payment Size
+
+SAVINGS TAB TOOLBAR:
+- + Savings (secondary styling - light blue): Opens Add Account dialog
+- 🔄 Refresh (primary styling - green): Refreshes savings data
+- Sort by: [Dropdown] - Alphabetical, Highest Balance, Goal Progress, Goal Amount
+
+BUTTON STYLING HIERARCHY:
+- Primary (green): Main action buttons for critical operations
+- Secondary (light blue): Supporting action buttons for data entry
+- Normal (gray): Regular buttons for standard operations
+- Small (compact): Icon-only buttons like Settings (⚙️) and Refresh (🔄)
+
+MAIN TOOLBAR (Below menubar):
+- Add Transaction (primary - green)
+- Add Paycheck (secondary - light blue)
+- Pay Bill (normal)
+- Transfer Money (normal)
+- | Theme Selector Dropdown |
+- Settings ⚙️ (small)
+- Refresh 🔄 (small)
+
+CATEGORY COLOR CONSISTENCY:
+Categories are now sorted alphabetically (A-Z) for consistent color assignment across all charts.
+
+SYSTEM:
+- get_consistent_category_order(): Returns alphabetical category list
+- Same category always receives same color from theme's chart_colors array
+- Applies to: Dashboard, Categories tab, Weekly tab, all pie charts
+- Future: custom_order parameter for user-defined category ordering in settings
+
+BENEFITS:
+- Users learn category colors quickly (not changing based on spending amounts)
+- Visual consistency across all tabs and time periods
+- Color key matches chart colors perfectly
+- Easier to identify categories at a glance
+
+CODE LOCATIONS:
+- views/dashboard.py:351-405: get_consistent_category_order()
+- views/categories_view.py:1001-1055: Same alphabetical implementation
+- views/weekly_view.py:35-89: Same alphabetical implementation
+- All three use custom_order parameter for future user customization
+
+THEME COLOR FIX:
+Fixed secondary_dark color reference that didn't exist in theme definitions.
+- Changed hover states from colors['secondary_dark'] to colors['accent']
+- Applies to: Bills tab + Bill button, Savings tab + Savings button
+- All theme colors properly support button styling hierarchy
 
 ================================================================================

@@ -86,11 +86,11 @@ class SavingsView(QWidget):
         """)
     
     def create_toolbar(self):
-        """Create slim toolbar with refresh and sort options"""
+        """Create slim toolbar with add savings, refresh and sort options"""
         self.toolbar = QFrame()
         self.toolbar.setFrameStyle(QFrame.Shape.Box)
         self.toolbar.setFixedHeight(45)  # Slim height
-        
+
         colors = theme_manager.get_colors()
         self.toolbar.setStyleSheet(f"""
             QFrame {{
@@ -100,12 +100,20 @@ class SavingsView(QWidget):
                 padding: 2px;
             }}
         """)
-        
+
         toolbar_layout = QHBoxLayout(self.toolbar)
         toolbar_layout.setSpacing(8)
         toolbar_layout.setContentsMargins(8, 4, 8, 4)
 
-        # Refresh button - compact tool button with just emoji
+        # Add Savings button - secondary focus
+        self.add_savings_button = QPushButton("+ Savings")
+        self.add_savings_button.setFont(theme_manager.get_font("button"))
+        self.add_savings_button.setFixedHeight(30)
+        self.add_savings_button.clicked.connect(self.on_add_savings_clicked)
+        # Styling applied in apply_toolbar_theme method
+        toolbar_layout.addWidget(self.add_savings_button)
+
+        # Refresh button - compact tool button with just emoji (primary focus)
         self.refresh_button = QToolButton()
         self.refresh_button.setText("🔄")
         self.refresh_button.setToolTip("Refresh Savings")
@@ -113,24 +121,24 @@ class SavingsView(QWidget):
         self.refresh_button.clicked.connect(self.refresh)
         # Styling applied in on_theme_changed method
         toolbar_layout.addWidget(self.refresh_button)
-        
+
         # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setStyleSheet(f"color: {colors['border']};")
         toolbar_layout.addWidget(separator)
-        
+
         # Sort label
         sort_label = QLabel("Sort by:")
         sort_label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold; font-size: 12px;")
         toolbar_layout.addWidget(sort_label)
-        
+
         # Sort dropdown - slim design
         self.sort_combo = QComboBox()
         self.sort_combo.addItems([
             "Alphabetical",
-            "Highest Balance", 
+            "Highest Balance",
             "Goal Progress",
             "Goal Amount"
         ])
@@ -167,7 +175,7 @@ class SavingsView(QWidget):
             }}
         """)
         toolbar_layout.addWidget(self.sort_combo)
-        
+
         # Push everything to the left
         toolbar_layout.addStretch()
     
@@ -185,7 +193,27 @@ class SavingsView(QWidget):
         """Apply theme styling to toolbar elements"""
         colors = theme_manager.get_colors()
 
-        # Style refresh button (QToolButton)
+        # Style Add Savings button (QPushButton) - secondary focus
+        if hasattr(self, 'add_savings_button'):
+            self.add_savings_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['secondary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px 12px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['accent']};
+                    border-color: {colors['secondary']};
+                }}
+                QPushButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
+        # Style refresh button (QToolButton) - primary focus
         if hasattr(self, 'refresh_button'):
             self.refresh_button.setStyleSheet(f"""
                 QToolButton {{
@@ -351,9 +379,24 @@ class SavingsView(QWidget):
         try:
             # Refresh the entire savings view to reflect changes
             self.refresh()
-            
+
         except Exception as e:
             print(f"Error refreshing savings view: {e}")
+
+    def on_add_savings_clicked(self):
+        """Handle Add Savings button click - open add account dialog"""
+        try:
+            from views.dialogs.add_account_dialog import AddAccountDialog
+            from PyQt6.QtWidgets import QDialog
+
+            dialog = AddAccountDialog(self.transaction_manager, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.refresh()
+
+        except Exception as e:
+            print(f"Error opening add account dialog: {e}")
+            import traceback
+            traceback.print_exc()
     
     def on_theme_changed(self, theme_id):
         """Handle theme change for savings view - optimized for performance"""
@@ -384,7 +427,27 @@ class SavingsView(QWidget):
                 }}
             """)
         
-        # Update refresh button (QToolButton)
+        # Update Add Savings button (QPushButton) - secondary focus
+        if hasattr(self, 'add_savings_button'):
+            self.add_savings_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['secondary']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px 12px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['accent']};
+                    border-color: {colors['secondary']};
+                }}
+                QPushButton:pressed {{
+                    background-color: {colors['selected']};
+                }}
+            """)
+
+        # Update refresh button (QToolButton) - primary focus
         if hasattr(self, 'refresh_button'):
             self.refresh_button.setStyleSheet(f"""
                 QToolButton {{

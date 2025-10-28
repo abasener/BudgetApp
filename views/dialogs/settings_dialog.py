@@ -147,6 +147,12 @@ class SettingsDialog(QDialog):
         self.testing_mode_checkbox.setToolTip("Enable testing mode for development and debugging")
         features_layout.addRow("", self.testing_mode_checkbox)
 
+        # Transactions tab toggle
+        self.transactions_tab_checkbox = QCheckBox("Enable Transactions Tab")
+        self.transactions_tab_checkbox.setChecked(False)  # Default to false
+        self.transactions_tab_checkbox.setToolTip("Enable the Transactions tab for advanced data inspection and debugging")
+        features_layout.addRow("", self.transactions_tab_checkbox)
+
         features_group.setLayout(features_layout)
         right_column.addWidget(features_group)
 
@@ -253,7 +259,8 @@ class SettingsDialog(QDialog):
             "default_analytics_only": True,
             "time_frame_filter": "All Time",
             "enable_tax_features": False,
-            "testing_mode": False
+            "testing_mode": False,
+            "enable_transactions_tab": False
         }
     
     def load_settings(self):
@@ -325,6 +332,10 @@ class SettingsDialog(QDialog):
         # Set testing mode checkbox state
         testing_mode = self.current_settings.get("testing_mode", False)
         self.testing_mode_checkbox.setChecked(testing_mode)
+
+        # Set transactions tab checkbox state
+        enable_transactions = self.current_settings.get("enable_transactions_tab", False)
+        self.transactions_tab_checkbox.setChecked(enable_transactions)
     
     def get_ui_settings(self):
         """Get current settings from UI controls"""
@@ -338,7 +349,8 @@ class SettingsDialog(QDialog):
             "default_analytics_only": self.default_analytics_checkbox.isChecked(),
             "time_frame_filter": self.time_frame_combo.currentText(),
             "enable_tax_features": self.tax_feature_checkbox.isChecked(),
-            "testing_mode": self.testing_mode_checkbox.isChecked()
+            "testing_mode": self.testing_mode_checkbox.isChecked(),
+            "enable_transactions_tab": self.transactions_tab_checkbox.isChecked()
         }
     
     def apply_button_theme(self):

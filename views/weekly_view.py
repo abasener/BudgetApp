@@ -541,15 +541,33 @@ class WeekDetailWidget(QWidget):
         ]
         total_spent = sum(t.amount for t in spending_transactions)
 
+        # Calculate transfers TO the week (negative SAVING = money FROM account TO week)
+        # Example: Account→Week creates SAVING with amount=-500 (OUT of account, INTO week)
+        transfer_to_week = [t for t in self.transactions
+                           if t.is_saving
+                           and t.amount < 0
+                           and not (t.description and "allocation" in t.description.lower())]
+        transfer_to_week_total = abs(sum(t.amount for t in transfer_to_week))  # Make positive
+
+        # Calculate transfers FROM the week (positive SAVING = money FROM week TO account)
+        # Example: Week→Bill creates SAVING with amount=+100 (OUT of week, INTO bill)
+        transfer_from_week = [t for t in self.transactions
+                             if t.is_saving
+                             and t.amount > 0
+                             and not (t.description and "allocation" in t.description.lower())]
+        transfer_from_week_total = sum(t.amount for t in transfer_from_week)  # Already positive
+
         # Calculate starting amount correctly:
         # CRITICAL UNDERSTANDING: Week.running_total = BASE ALLOCATION ONLY (half of spendable income)
         # Week.running_total does NOT and NEVER includes rollovers!
         # Rollovers are separate transactions that we ADD to the base for display purposes
         #
-        # Formula: Starting = base_allocation + rollover_in - rollover_out
+        # Formula: Starting = base_allocation + rollover_in - rollover_out + transfers_in - transfers_out
         # - base_allocation: From Week.running_total (set when paycheck processed)
         # - rollover_in: Positive rollover transactions (Week 1→Week 2 rollover)
         # - rollover_out: Negative rollover transactions (deficit scenarios)
+        # - transfers_in: Negative SAVING transactions (Account→Week transfers)
+        # - transfers_out: Positive SAVING transactions (Week→Account transfers)
         #
         # Example: Pay period with $908.91 spendable
         #   Week 1 (57): base=$454.46, rollover_in=$0, starting=$454.46
@@ -568,8 +586,8 @@ class WeekDetailWidget(QWidget):
                                if t.is_rollover and t.amount < 0]
             rollover_deficit_total = abs(sum(t.amount for t in rollover_deficits))
 
-            # Calculate final starting amount (base + rollovers)
-            starting_amount = base_allocation + rollover_income_total - rollover_deficit_total
+            # Calculate final starting amount (base + rollovers + transfers_in - transfers_out)
+            starting_amount = base_allocation + rollover_income_total - rollover_deficit_total + transfer_to_week_total - transfer_from_week_total
         else:
             # Fallback to calculated amount if no week data
             if self.pay_period_data:
@@ -579,7 +597,7 @@ class WeekDetailWidget(QWidget):
                 starting_amount = (paycheck - bills - savings) / 2
             else:
                 starting_amount = 0.0
-            
+
         current_amount = starting_amount - total_spent  # Allow negative values
         
         # Calculate daily amount (current / days left in week)
@@ -720,7 +738,22 @@ class WeekDetailWidget(QWidget):
             and not (t.description and "allocation" in t.description.lower())
         ]
         total_spent = sum(t.amount for t in spending_transactions)
-        # Calculate effective starting amount: base allocation + rollover income - rollover deficits
+
+        # Calculate transfers TO the week (negative SAVING transactions)
+        transfer_to_week = [t for t in self.transactions
+                           if t.is_saving
+                           and t.amount < 0
+                           and not (t.description and "allocation" in t.description.lower())]
+        transfer_to_week_total = abs(sum(t.amount for t in transfer_to_week))
+
+        # Calculate transfers FROM the week (positive SAVING transactions)
+        transfer_from_week = [t for t in self.transactions
+                             if t.is_saving
+                             and t.amount > 0
+                             and not (t.description and "allocation" in t.description.lower())]
+        transfer_from_week_total = sum(t.amount for t in transfer_from_week)
+
+        # Calculate effective starting amount: base + rollover_in - rollover_out + transfers_in - transfers_out
         # Note: Bill/savings allocation transactions are already deducted from base_allocation
         if self.week_data:
             base_allocation = self.week_data.running_total
@@ -730,7 +763,7 @@ class WeekDetailWidget(QWidget):
             # Subtract rollover deficit transactions (negative rollover from previous week)
             rollover_deficits = [t for t in self.transactions if t.transaction_type == "spending" and "rollover" in t.description.lower()]
             rollover_deficit_total = sum(t.amount for t in rollover_deficits)
-            starting_amount = base_allocation + rollover_income_total - rollover_deficit_total
+            starting_amount = base_allocation + rollover_income_total - rollover_deficit_total + transfer_to_week_total - transfer_from_week_total
         else:
             starting_amount = 0.0
         
