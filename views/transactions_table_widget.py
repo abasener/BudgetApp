@@ -31,6 +31,8 @@ class TransactionTableWidget(QTableWidget):
         self.filtered_rows = []  # Currently visible rows after filtering
         self.deleted_rows = set()  # Set of row indices marked for deletion
         self.locked_rows = set()  # Set of row indices that are locked
+        self.edited_rows = set()  # Set of row indices that have been edited
+        self.transaction_ids = {}  # Map row index -> transaction ID
         self.current_sort_column = 0  # Column currently sorted by
         self.current_sort_order = Qt.SortOrder.AscendingOrder  # Current sort direction
 
@@ -103,7 +105,7 @@ class TransactionTableWidget(QTableWidget):
                 # All other columns: resize to content
                 self.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
 
-    def load_data(self, rows_data, locked_row_indices=None):
+    def load_data(self, rows_data, locked_row_indices=None, transaction_ids=None):
         """
         Load data into table
 
@@ -111,11 +113,14 @@ class TransactionTableWidget(QTableWidget):
             rows_data: List of dicts, each dict represents a row
                       Each dict should have keys matching column headers
             locked_row_indices: Set of row indices that should be locked (non-editable)
+            transaction_ids: Dict mapping row index -> transaction ID for saving changes
         """
         self.all_rows_data = rows_data
         self.filtered_rows = list(range(len(rows_data)))  # Initially show all rows
         self.deleted_rows = set()
+        self.edited_rows = set()
         self.locked_rows = locked_row_indices if locked_row_indices else set()
+        self.transaction_ids = transaction_ids if transaction_ids else {}
 
         self.refresh_display()
 
@@ -123,6 +128,9 @@ class TransactionTableWidget(QTableWidget):
         """Refresh table display based on current filtered rows"""
         # Block signals while populating to avoid triggering itemChanged
         self.blockSignals(True)
+
+        # Get theme colors for styling
+        colors = theme_manager.get_colors()
 
         # Clear table
         self.setRowCount(0)
@@ -146,13 +154,13 @@ class TransactionTableWidget(QTableWidget):
                     item.setData(Qt.ItemDataRole.UserRole, data_row_idx)
                     # Don't make it italic even if row is locked
                     if is_deleted:
-                        item.setForeground(QColor(255, 50, 50))
+                        item.setForeground(QColor(colors['error']))  # Use theme error color
                         font = item.font()
                         font.setStrikeOut(True)
                         item.setFont(font)
                     elif is_locked:
-                        # Still gray but not italic
-                        item.setForeground(QColor(128, 128, 128))
+                        # Still gray but not italic - use theme text_secondary color
+                        item.setForeground(QColor(colors['text_secondary']))
                     self.setItem(display_row_idx, col_idx, item)
 
                 elif col_idx == self.abnormal_column_index:
@@ -177,14 +185,14 @@ class TransactionTableWidget(QTableWidget):
                     if is_locked:
                         # Locked rows: grayed out and non-editable
                         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                        item.setForeground(QColor(128, 128, 128))  # Gray text
+                        item.setForeground(QColor(colors['text_secondary']))  # Use theme secondary text
                         font = item.font()
                         font.setItalic(True)
                         item.setFont(font)
 
                     if is_deleted:
                         # Deleted rows: red text
-                        item.setForeground(QColor(255, 50, 50))  # Red text
+                        item.setForeground(QColor(colors['error']))  # Use theme error color
                         font = item.font()
                         font.setStrikeOut(True)
                         item.setFont(font)
@@ -311,9 +319,49 @@ class TransactionTableWidget(QTableWidget):
         return list(self.deleted_rows)
 
     def get_edited_rows(self):
-        """Get list of rows that have been edited"""
-        # TODO: Track edits in Phase 4-7
-        return []
+        """Get list of row indices that have been edited"""
+        return list(self.edited_rows)
+
+    def clear_change_tracking(self):
+        """Clear all change tracking (called when switching tabs)"""
+        self.edited_rows = set()
+        self.deleted_rows = set()
+
+    def get_row_data(self, row_index):
+        """
+        Get current data for a row from the table
+
+        Args:
+            row_index: The data row index (not display row index)
+
+        Returns:
+            Dict with column names as keys and current cell values
+        """
+        # Find this data row in the displayed rows
+        try:
+            display_row = self.filtered_rows.index(row_index)
+        except ValueError:
+            # Row not currently visible (filtered out)
+            return None
+
+        row_data = {}
+        for col_idx in range(self.columnCount()):
+            header = self.horizontalHeaderItem(col_idx).text()
+            # Remove sort indicators from header
+            header = header.replace(" ▲", "").replace(" ▼", "")
+
+            # Get cell value
+            if col_idx == self.abnormal_column_index:
+                # Get checkbox state
+                widget = self.cellWidget(display_row, col_idx)
+                if widget:
+                    checkbox = widget.findChild(QCheckBox)
+                    row_data[header] = checkbox.isChecked() if checkbox else False
+            else:
+                item = self.item(display_row, col_idx)
+                row_data[header] = item.text() if item else ""
+
+        return row_data
 
     def on_item_changed(self, item):
         """Handle when an item is edited"""
@@ -323,6 +371,9 @@ class TransactionTableWidget(QTableWidget):
         # Don't allow editing locked or deleted rows
         if data_row_idx in self.locked_rows or data_row_idx in self.deleted_rows:
             return
+
+        # Mark row as edited
+        self.edited_rows.add(data_row_idx)
 
         # Emit signal
         self.row_edited.emit(data_row_idx)
@@ -337,14 +388,15 @@ class TransactionTableWidget(QTableWidget):
                 color: {colors['text_primary']};
                 border: 1px solid {colors['border']};
                 gridline-color: {colors['border']};
-                selection-background-color: {colors['selected']};
+                selection-background-color: {colors['primary']};
             }}
             QTableWidget::item {{
                 padding: 4px;
+                background-color: {colors['surface']};
             }}
             QTableWidget::item:selected {{
-                background-color: {colors['selected']};
-                color: {colors['text_primary']};
+                background-color: {colors['primary']};
+                color: {colors['background']};
             }}
             QHeaderView::section {{
                 background-color: {colors['surface_variant']};

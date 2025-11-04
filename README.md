@@ -36,6 +36,18 @@ A comprehensive desktop budget tracking application built with PyQt6 and matplot
 - **Weekly Budget Tracking**: Monitor spending against weekly allocations
 - **Transaction History**: Detailed transaction management and categorization
 
+### 🔍 Advanced Transactions Tab *(Optional - Power User Tool)*
+- **4 Sub-Tabs**: Bills, Savings, Paycheck, and Spending transaction views
+- **Comprehensive Data View**: See ALL transactions including auto-generated rollovers and allocations
+- **Smart Filtering**: Real-time search across all fields with sortable columns
+- **Contextual Auto-Notes**: Generated descriptions showing payweek, category, day of week, and transfer destinations
+- **Locked Transaction Protection**: Auto-generated transactions (rollovers, allocations) are non-editable
+- **Batch Operations**: Mark multiple transactions for deletion, edit cells inline, save changes with validation
+- **Change Tracking**: Edited and deleted rows tracked separately, cleared when switching sub-tabs
+- **Data Validation**: Automatic validation of dates and amounts before saving to database
+- **Bidirectional Transfer Visibility**: Manual transfers show on both sides (e.g., Week ↔ Savings)
+- **Disabled by Default**: Toggle in Settings → Enable Transactions Tab for debugging and data inspection
+
 ### 🎨 Theme System
 - **5 Built-in Themes**: Dark, Light, Coffee, Excel Blue, and Cyberpunk
 - **Theme Selector**: Easy switching between visual styles
@@ -90,8 +102,11 @@ BudgetApp/
 ## 🎯 Current Development Focus
 
 The application is actively being developed with focus on:
-- **Chart area enhancements**: Adding specialized financial visualizations
-- **Data insights**: More sophisticated spending analysis
+- **Transactions Tab (98% Complete)**: Advanced data inspection interface with save/delete functionality
+  - ✅ All 4 sub-tabs implemented with real data
+  - ✅ Save logic with transaction ID tracking and validation
+  - ✅ Theme integration and color consistency
+  - ⏳ Final polish and testing
 - **User experience**: Streamlined workflows for common tasks
 - **Performance optimization**: Efficient data handling for large transaction sets
 

@@ -223,7 +223,7 @@ class PayBillDialog(QDialog):
             # Create bill payment transaction (deduction from saved amount)
             transaction_data = {
                 "transaction_type": "bill_pay",  # bill_pay reduces the saved amount
-                "amount": payment_amount,
+                "amount": payment_amount,  # Negative = money OUT of account
                 "date": payment_date,
                 "description": f"Paid {self.selected_bill.name}",
                 "week_number": week_number,

@@ -213,17 +213,13 @@ class AccountHistoryManager:
         if not history_entry:
             raise ValueError(f"No history entry found for transaction {transaction_id}")
 
-        # Calculate the difference in change amount
-        old_change = history_entry.change_amount
-        change_difference = new_change_amount - old_change
-
-        # Update this entry and all subsequent entries in the same account
-        self._update_running_totals_from_entry(history_entry, change_difference)
-
-        # Update the entry details
+        # CRITICAL FIX: Update the entry's change_amount and date FIRST
+        # before recalculating running totals, so the recalculation uses the new values
         history_entry.change_amount = new_change_amount
         history_entry.transaction_date = new_date
-        history_entry.running_total = history_entry.running_total  # Already updated above
+
+        # Now recalculate running totals from this entry forward using the updated change_amount
+        self._update_running_totals_from_entry(history_entry, 0)  # change_difference unused
 
     def delete_transaction_change(self, transaction_id: int):
         """Remove a history entry when its transaction is deleted"""

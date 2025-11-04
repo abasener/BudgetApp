@@ -106,12 +106,8 @@ class TransactionsView(QWidget):
         setattr(self, f"{tab_name.lower()}_table", table)
 
         # Load initial data (will be replaced with real data in refresh)
-        # For now, use test data for non-bills tabs
-        if tab_name.lower() == "bills":
-            # Bills tab will load real data in refresh()
-            pass
-        else:
-            self.load_test_data(tab_name.lower(), table)
+        # All tabs now load real data in refresh()
+        pass
 
         layout.addWidget(table)
 
@@ -122,6 +118,12 @@ class TransactionsView(QWidget):
         """Handle sub-tab change"""
         tab_names = ["bills", "savings", "paycheck", "spending"]
         if 0 <= index < len(tab_names):
+            # Clear change tracking from ALL tabs when switching
+            for tab_name in tab_names:
+                table = getattr(self, f"{tab_name}_table", None)
+                if table:
+                    table.clear_change_tracking()
+
             self.current_subtab = tab_names[index]
 
     def load_test_data(self, tab_name, table):
@@ -182,46 +184,61 @@ class TransactionsView(QWidget):
         table.load_data(test_data, locked_rows)
 
     def load_bills_data(self):
-        """Load real bills transaction data from database"""
-        from models.transactions import TransactionType
-
-        # Get all transactions that affect bills
-        # 1. BILL_PAY transactions (payments from bill accounts)
-        # 2. SAVING transactions with bill_id (deposits to bill accounts)
-        transactions = self.transaction_manager.session.query(
-            self.transaction_manager.transaction_class
-        ).filter(
-            (self.transaction_manager.transaction_class.transaction_type == TransactionType.BILL_PAY.value) |
-            ((self.transaction_manager.transaction_class.transaction_type == TransactionType.SAVING.value) &
-             (self.transaction_manager.transaction_class.bill_id.isnot(None)))
-        ).order_by(self.transaction_manager.transaction_class.date.asc()).all()
+        """Load real bills transaction data from database using AccountHistory"""
+        from models.account_history import AccountHistory, AccountHistoryManager
+        from models.transactions import Transaction
 
         # Get bill names lookup
-        bills = self.transaction_manager.session.query(
-            self.transaction_manager.bill_class
-        ).all()
+        bills = self.transaction_manager.get_all_bills()
         bill_names = {bill.id: bill.name for bill in bills}
+
+        # Get AccountHistory entries for all bills (this has the correct signed amounts)
+        history_manager = AccountHistoryManager(self.transaction_manager.db)
+        all_history_entries = []
+
+        for bill in bills:
+            bill_history = history_manager.get_account_history(bill.id, "bill")
+            for entry in bill_history:
+                # Skip starting balance entries (they have no transaction_id)
+                if entry.transaction_id is not None:
+                    all_history_entries.append((entry, bill.id, bill.name))
+
+        # Sort by date (oldest first)
+        all_history_entries.sort(key=lambda x: x[0].transaction_date)
 
         # Convert to table format
         rows_data = []
         locked_rows = set()
+        transaction_ids = {}  # Map row index -> transaction ID
 
-        for idx, trans in enumerate(transactions):
-            # Get bill name
-            bill_name = bill_names.get(trans.bill_id, "Unknown")
+        for idx, (history_entry, bill_id, bill_name) in enumerate(all_history_entries):
+            # Get the associated transaction for description and locking logic
+            trans = self.transaction_manager.db.query(Transaction).filter_by(id=history_entry.transaction_id).first()
+            if not trans:
+                continue
+
+            # Store transaction ID for saving changes
+            transaction_ids[idx] = trans.id
 
             # Determine if locked (auto-generated transactions)
             is_locked = self.is_transaction_locked(trans)
             if is_locked:
                 locked_rows.add(idx)
 
-            # Generate auto-notes
-            auto_notes = self.generate_auto_notes(trans)
+            # Format amount with proper sign display (use change_amount from AccountHistory)
+            amount_value = history_entry.change_amount
+
+            # Generate auto-notes (pass amount for deposit/withdrawal detection)
+            auto_notes = self.generate_auto_notes(trans, amount_value)
+            if amount_value >= 0:
+                amount_display = f"${amount_value:,.2f}"
+            else:
+                amount_display = f"-${abs(amount_value):,.2f}"
 
             row = {
-                "Date": trans.date.strftime("%m/%d/%Y"),
+                "Date": history_entry.transaction_date.strftime("%m/%d/%Y"),
                 "Account": bill_name,
-                "Amount": f"${trans.amount:,.2f}",
+                "Amount": amount_display,
                 "🔒": "🔒" if is_locked else "",
                 "Manual Notes": trans.description or "",
                 "Auto Notes": auto_notes
@@ -233,7 +250,252 @@ class TransactionsView(QWidget):
         table = getattr(self, "bills_table", None)
         if table:
             table.set_columns(columns)
-            table.load_data(rows_data, locked_rows)
+            table.load_data(rows_data, locked_rows, transaction_ids)
+
+    def load_savings_data(self):
+        """Load real savings transaction data from database using AccountHistory"""
+        from models.account_history import AccountHistory, AccountHistoryManager
+        from models.transactions import Transaction
+
+        # Get account names lookup
+        accounts = self.transaction_manager.get_all_accounts()
+        account_names = {account.id: account.name for account in accounts}
+
+        # Get AccountHistory entries for all savings accounts (this has the correct signed amounts)
+        history_manager = AccountHistoryManager(self.transaction_manager.db)
+        all_history_entries = []
+
+        for account in accounts:
+            account_history = history_manager.get_account_history(account.id, "savings")
+            for entry in account_history:
+                # Skip starting balance entries (they have no transaction_id)
+                if entry.transaction_id is not None:
+                    all_history_entries.append((entry, account.id, account.name))
+
+        # Sort by date (oldest first)
+        all_history_entries.sort(key=lambda x: x[0].transaction_date)
+
+        # Convert to table format
+        rows_data = []
+        locked_rows = set()
+        transaction_ids = {}  # Map row index -> transaction ID
+
+        for idx, (history_entry, account_id, account_name) in enumerate(all_history_entries):
+            # Get the associated transaction for description and locking logic
+            trans = self.transaction_manager.db.query(Transaction).filter_by(id=history_entry.transaction_id).first()
+            if not trans:
+                continue
+
+            # Store transaction ID for saving changes
+            transaction_ids[idx] = trans.id
+
+            # Determine if locked (auto-generated transactions)
+            is_locked = self.is_transaction_locked(trans)
+            if is_locked:
+                locked_rows.add(idx)
+
+            # Format amount with proper sign display (use change_amount from AccountHistory)
+            amount_value = history_entry.change_amount
+
+            # Generate auto-notes (pass amount for deposit/withdrawal detection)
+            auto_notes = self.generate_auto_notes(trans, amount_value)
+            if amount_value >= 0:
+                amount_display = f"${amount_value:,.2f}"
+            else:
+                amount_display = f"-${abs(amount_value):,.2f}"
+
+            row = {
+                "Date": history_entry.transaction_date.strftime("%m/%d/%Y"),
+                "Account": account_name,
+                "Amount": amount_display,
+                "🔒": "🔒" if is_locked else "",
+                "Manual Notes": trans.description or "",
+                "Auto Notes": auto_notes
+            }
+            rows_data.append(row)
+
+        # Set columns and load data
+        columns = ["Date", "Account", "Amount", "🔒", "Manual Notes", "Auto Notes"]
+        table = getattr(self, "savings_table", None)
+        if table:
+            table.set_columns(columns)
+            table.load_data(rows_data, locked_rows, transaction_ids)
+
+    def load_paycheck_data(self):
+        """Load real paycheck transaction data from database"""
+        from models.transactions import Transaction, TransactionType
+
+        # Get all INCOME transactions (paychecks)
+        all_transactions = self.transaction_manager.get_all_transactions()
+        paychecks = [
+            t for t in all_transactions
+            if t.transaction_type == TransactionType.INCOME.value
+        ]
+
+        # Sort by date (oldest first)
+        paychecks.sort(key=lambda t: t.date)
+
+        # Get week information for start/end dates
+        all_weeks = self.transaction_manager.get_all_weeks()
+        weeks_by_number = {week.week_number: week for week in all_weeks}
+
+        # Convert to table format
+        rows_data = []
+        locked_rows = set()
+        transaction_ids = {}  # Map row index -> transaction ID
+
+        for idx, paycheck in enumerate(paychecks):
+            # Store transaction ID for saving changes
+            transaction_ids[idx] = paycheck.id
+
+            # All paychecks are locked (auto-generated)
+            locked_rows.add(idx)
+
+            # Get the week for start date and paycheck number
+            week = weeks_by_number.get(paycheck.week_number)
+            if week:
+                start_date = week.start_date
+                end_date = week.end_date
+                # Calculate paycheck number from week number
+                payweek = (paycheck.week_number + 1) // 2
+            else:
+                # Fallback if week not found
+                start_date = paycheck.date
+                end_date = paycheck.date
+                payweek = "?"
+
+            # Generate auto-notes with date range
+            # Note: Paychecks are user-entered, so they're "Manual" not "Generated"
+            auto_notes = f"Manual: Paycheck {payweek} for {start_date.strftime('%m/%d/%Y')} to {end_date.strftime('%m/%d/%Y')}"
+
+            # Format amount (paychecks are always positive)
+            amount_value = paycheck.amount
+            amount_display = f"${amount_value:,.2f}"
+
+            row = {
+                "Earned Date": paycheck.date.strftime("%m/%d/%Y"),
+                "Start Date": start_date.strftime("%m/%d/%Y"),
+                "Amount": amount_display,
+                "🔒": "🔒",  # Always locked
+                "Manual Notes": paycheck.description or "",
+                "Auto Notes": auto_notes
+            }
+            rows_data.append(row)
+
+        # Set columns and load data
+        columns = ["Earned Date", "Start Date", "Amount", "🔒", "Manual Notes", "Auto Notes"]
+        table = getattr(self, "paycheck_table", None)
+        if table:
+            table.set_columns(columns)
+            table.load_data(rows_data, locked_rows, transaction_ids)
+
+    def load_spending_data(self):
+        """Load real spending transaction data from database"""
+        from models.transactions import Transaction, TransactionType
+        import calendar
+
+        # Get all transactions
+        all_transactions = self.transaction_manager.get_all_transactions()
+
+        # Filter for spending-related transactions:
+        # 1. SPENDING transactions (regular spending)
+        # 2. ROLLOVER transactions (week 1 → week 2)
+        # 3. SAVING transactions with week_number (week ↔ account/bill transfers)
+        spending_transactions = [
+            t for t in all_transactions
+            if (t.transaction_type in [TransactionType.SPENDING.value, TransactionType.ROLLOVER.value] or
+                (t.transaction_type == TransactionType.SAVING.value and t.week_number is not None))
+        ]
+
+        # Sort by date (oldest first)
+        spending_transactions.sort(key=lambda t: t.date)
+
+        # Convert to table format
+        rows_data = []
+        locked_rows = set()
+        transaction_ids = {}  # Map row index -> transaction ID
+
+        for idx, trans in enumerate(spending_transactions):
+            # Store transaction ID for saving changes
+            transaction_ids[idx] = trans.id
+
+            # Check if locked (rollovers are locked, spending is editable)
+            is_locked = self.is_transaction_locked(trans)
+            if is_locked:
+                locked_rows.add(idx)
+
+            # Calculate paycheck number
+            payweek = (trans.week_number + 1) // 2 if trans.week_number else "?"
+
+            # Calculate week position (first/second)
+            if trans.week_number:
+                week_position = "first" if trans.week_number % 2 == 1 else "second"
+            else:
+                week_position = ""
+
+            # Get day of week (Monday, Tuesday, etc.)
+            day_name = calendar.day_name[trans.date.weekday()]
+
+            # Generate category display
+            if trans.transaction_type == TransactionType.ROLLOVER.value:
+                category = "Rollover"
+            elif trans.transaction_type == TransactionType.SAVING.value:
+                # Week ↔ Account/Bill transfer
+                category = "Transfer"
+            else:
+                category = trans.category or "Uncategorized"
+
+            # Generate auto-notes
+            if trans.transaction_type == TransactionType.ROLLOVER.value:
+                # Rollover transactions get their own special note
+                auto_notes = f"Generated: Rollover from week {trans.week_number}" if trans.week_number else "Generated: Rollover"
+            elif trans.transaction_type == TransactionType.SAVING.value:
+                # Week ↔ Account/Bill transfer
+                # Determine the other side of the transfer
+                if trans.account_id:
+                    account_name = trans.account.name if trans.account else "account"
+                    if trans.amount >= 0:
+                        auto_notes = f"Manual: Transfer to {account_name}"
+                    else:
+                        auto_notes = f"Manual: Transfer from {account_name}"
+                elif trans.bill_id:
+                    bill_name = trans.bill.name if trans.bill else "bill"
+                    if trans.amount >= 0:
+                        auto_notes = f"Manual: Transfer to {bill_name}"
+                    else:
+                        auto_notes = f"Manual: Transfer from {bill_name}"
+                else:
+                    auto_notes = "Manual: Transfer"
+            else:
+                # Regular spending: "Manual: Paycheck N bought Category on Day"
+                auto_notes = f"Manual: Paycheck {payweek} bought {category} on {day_name}"
+
+            # Format amount (spending is always shown as positive in this view)
+            amount_value = abs(trans.amount)
+            amount_display = f"${amount_value:,.2f}"
+
+            # Get abnormal flag
+            abnormal = "☑" if trans.include_in_analytics == False else ""
+
+            row = {
+                "Date": trans.date.strftime("%m/%d/%Y"),
+                "Category": category,
+                "Amount": amount_display,
+                "Paycheck #": str(payweek),
+                "Week": week_position,
+                "🔒": "🔒" if is_locked else "",
+                "Abnormal": abnormal,
+                "Manual Notes": trans.description or "",
+                "Auto Notes": auto_notes
+            }
+            rows_data.append(row)
+
+        # Set columns and load data
+        columns = ["Date", "Category", "Amount", "Paycheck #", "Week", "🔒", "Abnormal", "Manual Notes", "Auto Notes"]
+        table = getattr(self, "spending_table", None)
+        if table:
+            table.set_columns(columns)
+            table.load_data(rows_data, locked_rows, transaction_ids)
 
     def is_transaction_locked(self, transaction):
         """Determine if a transaction should be locked (non-editable)"""
@@ -243,34 +505,83 @@ class TransactionsView(QWidget):
         if transaction.transaction_type in [TransactionType.ROLLOVER.value, TransactionType.INCOME.value]:
             return True
 
-        # SAVING transactions are locked if auto-generated from paycheck
+        # SAVING transactions are locked if auto-generated from paycheck processor or rollover system
         if transaction.transaction_type == TransactionType.SAVING.value:
-            # Check if description indicates auto-generation
-            if transaction.description and "auto saved" in transaction.description.lower():
+            # Week ↔ Account/Bill transfers (shown in Spending tab) are locked
+            # (They're editable in Savings/Bills tabs, but locked in Spending tab to avoid double-editing)
+            if transaction.week_number and (transaction.account_id or transaction.bill_id):
                 return True
+
+            # Check if description indicates auto-generation
+            if transaction.description:
+                desc_lower = transaction.description.lower()
+                # Match various auto-generation patterns:
+                # - "Savings allocation for..." (bills/accounts from paycheck)
+                # - "Auto-savings allocation for..." (accounts from paycheck)
+                # - "End-of-period surplus/deficit from Week X" (week 2 → account rollover)
+                # - "auto saved from payweek..." (old format if any)
+                if (("allocation" in desc_lower and "savings" in desc_lower) or
+                    "auto saved" in desc_lower or
+                    "end-of-period" in desc_lower):
+                    return True
 
         return False
 
-    def generate_auto_notes(self, transaction):
-        """Generate auto-notes for a transaction"""
+    def generate_auto_notes(self, transaction, amount_value=None):
+        """
+        Generate auto-notes for a transaction
+
+        Args:
+            transaction: Transaction object
+            amount_value: Optional amount value (from AccountHistory.change_amount) for deposit/withdrawal detection
+        """
         from models.transactions import TransactionType
 
         # Determine if manual or generated
         is_manual = not self.is_transaction_locked(transaction)
         prefix = "Manual:" if is_manual else "Generated:"
 
+        # Calculate payweek number for context
+        payweek = (transaction.week_number + 1) // 2 if transaction.week_number else "?"
+
         # Generate description based on type
         if transaction.transaction_type == TransactionType.BILL_PAY.value:
             return f"{prefix} Bill payment"
 
-        elif transaction.transaction_type == TransactionType.SAVING.value:
-            # Check if it's an auto-save from paycheck
-            if transaction.description and "auto saved" in transaction.description.lower():
-                # Extract payweek number from week_number
-                payweek = (transaction.week_number + 1) // 2 if transaction.week_number else "?"
-                return f"{prefix} Auto saved from payweek {payweek}"
+        elif transaction.transaction_type == TransactionType.ROLLOVER.value:
+            # Rollover transaction - check if it's week-to-week or week-to-account
+            if transaction.account_id:
+                # Week 2 → Savings account rollover
+                account_name = transaction.account.name if transaction.account else "account"
+                return f"{prefix} Rollover into {account_name} from payweek {payweek}"
             else:
-                return f"{prefix} Manual deposit"
+                # Week 1 → Week 2 rollover
+                week_position = "first" if transaction.week_number % 2 == 1 else "second"
+                next_position = "second" if week_position == "first" else "first"
+                return f"{prefix} Rollover from {week_position} week to {next_position} week in payweek {payweek}"
+
+        elif transaction.transaction_type == TransactionType.SAVING.value:
+            # Check if it's auto-generated
+            if transaction.description:
+                desc_lower = transaction.description.lower()
+
+                # End-of-period rollover (week 2 → savings account)
+                if "end-of-period" in desc_lower:
+                    return f"{prefix} Rollover from payweek {payweek}"
+
+                # Paycheck allocation
+                if ("allocation" in desc_lower and "savings" in desc_lower) or "auto saved" in desc_lower:
+                    return f"{prefix} Savings allocation from payweek {payweek}"
+
+            # Manual transaction - use amount to determine deposit vs withdrawal
+            if is_manual and amount_value is not None:
+                if amount_value >= 0:
+                    return f"{prefix} Deposit"
+                else:
+                    return f"{prefix} Withdrawal"
+
+            # Fallback
+            return f"{prefix} Manual deposit"
 
         return f"{prefix} Transaction"
 
@@ -289,9 +600,170 @@ class TransactionsView(QWidget):
                 print(f"Marked {count} row(s) for deletion in {tab_name}")
 
     def on_save_clicked(self, tab_name):
-        """Handle save button click"""
-        # Will implement in Phase 8
-        print(f"Save clicked for {tab_name}")
+        """Handle save button click - save edited/deleted transactions to database"""
+        from PyQt6.QtWidgets import QMessageBox
+        from models.transactions import Transaction
+        from datetime import datetime
+
+        table = getattr(self, f"{tab_name}_table", None)
+        if not table:
+            return
+
+        # Get changes
+        edited_rows = table.get_edited_rows()
+        deleted_rows = table.get_deleted_rows()
+
+        if not edited_rows and not deleted_rows:
+            QMessageBox.information(self, "No Changes", "No changes to save.")
+            return
+
+        # Track results
+        successes = []
+        failures = []
+
+        # Process deletions
+        for row_idx in deleted_rows:
+            trans_id = table.transaction_ids.get(row_idx)
+            if trans_id is None:
+                failures.append((row_idx, "No transaction ID found"))
+                continue
+
+            try:
+                success = self.transaction_manager.delete_transaction(trans_id)
+                if success:
+                    successes.append((trans_id, "Deleted"))
+                else:
+                    failures.append((trans_id, "Delete failed"))
+            except Exception as e:
+                failures.append((trans_id, f"Delete error: {str(e)}"))
+
+        # Process edits
+        for row_idx in edited_rows:
+            if row_idx in deleted_rows:
+                continue  # Already deleted, skip
+
+            trans_id = table.transaction_ids.get(row_idx)
+            if trans_id is None:
+                failures.append((row_idx, "No transaction ID found"))
+                continue
+
+            # Get current row data from table
+            row_data = table.get_row_data(row_idx)
+            if not row_data:
+                failures.append((trans_id, "Could not read row data"))
+                continue
+
+            # Validate and convert data
+            updates, validation_error = self._validate_and_convert_row_data(row_data, tab_name)
+            if validation_error:
+                failures.append((trans_id, validation_error))
+                continue
+
+            # Update transaction in database
+            try:
+                updated_trans = self.transaction_manager.update_transaction(trans_id, updates)
+                if updated_trans:
+                    changes = self._format_changes(row_data, updates)
+                    successes.append((trans_id, changes))
+                else:
+                    failures.append((trans_id, "Update failed"))
+            except Exception as e:
+                failures.append((trans_id, f"Update error: {str(e)}"))
+
+        # Show results dialog
+        self._show_save_results_dialog(successes, failures)
+
+        # Reload table data from database
+        self.refresh()
+
+    def _validate_and_convert_row_data(self, row_data, tab_name):
+        """
+        Validate and convert row data to database format
+
+        Returns:
+            (updates_dict, error_message) - either updates dict or error message
+        """
+        from datetime import datetime
+
+        updates = {}
+
+        # Parse date
+        if "Date" in row_data:
+            try:
+                date_obj = datetime.strptime(row_data["Date"], "%m/%d/%Y").date()
+                updates["date"] = date_obj
+            except ValueError:
+                return None, f"Invalid date format: {row_data['Date']}"
+
+        # Parse amount (remove $ and commas)
+        # IMPORTANT: For Bills tab, user sees AccountHistory.change_amount (negative for payments)
+        # but we need to store it as Transaction.amount (positive)
+        if "Amount" in row_data:
+            try:
+                amount_str = row_data["Amount"].replace("$", "").replace(",", "").strip()
+                amount = float(amount_str)
+
+                # For Bills tab: convert change_amount → transaction.amount
+                # Bills show negative for payments, but transaction stores positive
+                if tab_name == "bills":
+                    updates["amount"] = abs(amount)  # Always store as positive in transaction
+                else:
+                    updates["amount"] = amount  # Savings/Spending/Paycheck: use as-is
+
+            except ValueError:
+                return None, f"Invalid amount: {row_data['Amount']}"
+
+        # Get description from Manual Notes
+        if "Manual Notes" in row_data:
+            updates["description"] = row_data["Manual Notes"]
+
+        # Get abnormal flag (for spending)
+        if "Abnormal" in row_data:
+            updates["include_in_analytics"] = not row_data["Abnormal"]  # Abnormal checked = exclude
+
+        return updates, None
+
+    def _format_changes(self, row_data, updates):
+        """Format changes for display in results dialog"""
+        changes = []
+        for key, value in updates.items():
+            if key == "date":
+                changes.append(f"Date: {value}")
+            elif key == "amount":
+                changes.append(f"Amount: ${value:,.2f}")
+            elif key == "description":
+                changes.append(f"Notes: {value}")
+        return ", ".join(changes) if changes else "Updated"
+
+    def _show_save_results_dialog(self, successes, failures):
+        """Show dialog with save results"""
+        from PyQt6.QtWidgets import QMessageBox
+
+        message = ""
+
+        if successes:
+            message += f"<b>{len(successes)} transaction(s) succeeded:</b><br>"
+            for trans_id, details in successes[:5]:  # Show first 5
+                message += f"&nbsp;&nbsp;ID {trans_id}: {details}<br>"
+            if len(successes) > 5:
+                message += f"&nbsp;&nbsp;...and {len(successes) - 5} more<br>"
+            message += "<br>"
+
+        if failures:
+            message += f"<b>{len(failures)} transaction(s) failed:</b><br>"
+            for trans_id, error in failures[:5]:  # Show first 5
+                message += f"&nbsp;&nbsp;ID {trans_id}: {error}<br>"
+            if len(failures) > 5:
+                message += f"&nbsp;&nbsp;...and {len(failures) - 5} more<br>"
+
+        if not message:
+            message = "No changes processed."
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Save Results")
+        msg_box.setText(message)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
 
     def refresh(self):
         """Refresh all sub-tabs with real data"""
@@ -299,10 +771,14 @@ class TransactionsView(QWidget):
             # Load bills data (Phase 4)
             self.load_bills_data()
 
-            # TODO: Phase 5-7 - Load other tabs
-            # self.load_savings_data()
-            # self.load_paycheck_data()
-            # self.load_spending_data()
+            # Load savings data (Phase 5)
+            self.load_savings_data()
+
+            # Load paycheck data (Phase 6)
+            self.load_paycheck_data()
+
+            # Load spending data (Phase 7)
+            self.load_spending_data()
 
         except Exception as e:
             print(f"Error refreshing transactions view: {e}")
@@ -312,6 +788,13 @@ class TransactionsView(QWidget):
     def on_theme_changed(self):
         """Handle theme changes"""
         self.apply_theme()
+
+        # Apply theme to all table widgets
+        for tab_name in ["bills", "savings", "paycheck", "spending"]:
+            table = getattr(self, f"{tab_name}_table", None)
+            if table:
+                table.apply_theme()
+                table.refresh_display()  # Re-render with new colors
 
     def apply_theme(self):
         """Apply current theme to all UI elements"""
@@ -395,17 +878,17 @@ class TransactionsView(QWidget):
             if save_btn:
                 save_btn.setStyleSheet(f"""
                     QPushButton {{
-                        background-color: {colors['primary']};
-                        color: {colors['text_primary']};
-                        border: 1px solid {colors['border']};
+                        background-color: {colors['secondary']};
+                        color: {colors['background']};
+                        border: 1px solid {colors['secondary']};
                         border-radius: 4px;
                         padding: 6px 12px;
                         font-weight: bold;
                     }}
                     QPushButton:hover {{
-                        background-color: {colors['primary_dark']};
+                        background-color: {colors['accent']};
                     }}
                     QPushButton:pressed {{
-                        background-color: {colors['selected']};
+                        background-color: {colors['primary_dark']};
                     }}
                 """)

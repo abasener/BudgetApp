@@ -1497,4 +1497,5 @@ class YearOverviewView(QWidget):
     def on_theme_changed(self, theme_id):
         """Handle theme changes"""
         self.apply_theme()
-        # TODO: Refresh charts with new theme colors
+        # Refresh all charts with new theme colors
+        self.refresh()

@@ -8,21 +8,21 @@ This document is formatted for AI consumption, not human readability. It should 
 
 ---
 
-## CURRENT WORK: Transactions Tab - Advanced Data Inspection Interface (2024-10-28)
+## CURRENT WORK: Transactions Tab - Advanced Data Inspection Interface (2024-11-01)
 
-### PROGRESS: 65% Complete (Phases 1-4 of 9) ✅
+### PROGRESS: 98% Complete (Phases 1-8 of 9) ✅
 
 **Completed:**
 - ✅ Phase 1: Settings Toggle (enable/disable tab)
 - ✅ Phase 2: Main Tab Structure (4 sub-tabs with search/delete/save UI)
 - ✅ Phase 3: Table Widget Base (sortable, searchable, multi-select, delete marking)
 - ✅ Phase 4: Bills Table (real data loaded from database)
+- ✅ Phase 5: Savings Table (real data with deposits/withdrawals)
+- ✅ Phase 6: Paycheck Table (all locked, with date ranges)
+- ✅ Phase 7: Spending Table (includes rollovers and transfers)
+- ✅ Phase 8: Save Logic (transaction ID tracking, validation, commit to database)
 
 **Next Up:**
-- 🔄 Phase 5: Savings Table (similar to Bills)
-- 📋 Phase 6: Paycheck Table (all locked, read-only)
-- 📋 Phase 7: Spending Table (most complex, includes rollovers)
-- 📋 Phase 8: Save Logic (commit deletes/edits to database)
 - 📋 Phase 9: Polish & Testing
 
 ### GOAL:
@@ -137,13 +137,13 @@ def matches_search(transaction, search_text):
 | Start Date | Date | 10/21/2024 | ❌ (read-only) |
 | Amount | Dollar | $4,237.50 | ❌ (read-only) |
 | Manual Notes | Text | "Bi-weekly paycheck" | ✅ |
-| Auto Notes | Text | "Generated: Paycheck 30" | ❌ (generated) |
+| Auto Notes | Text | "Manual: Paycheck 30 for 10/21/2024 to 11/03/2024" | ❌ (generated) |
 | 🔒 | Icon | 🔒 | ❌ (indicator) |
 
 **Shows:**
 - INCOME transactions (paychecks)
 
-**Note:** Paycheck transactions are always locked (auto-generated)
+**Note:** Paycheck transactions are user-entered but currently locked (editing would require auto-recalculation of allocations - see Feature 4.5 in PROJECT_PLAN.md)
 
 **Date Fields:**
 - **Earned Date:** Transaction.date (when paycheck was earned)
@@ -155,20 +155,19 @@ def matches_search(transaction, search_text):
 | Column | Type | Example | Editable? |
 |--------|------|---------|-----------|
 | Date | Date | 10/28/2024 | ✅ |
-| Category | String | "Groceries" | ✅ |
+| Category | String | "Groceries" or "Transfer" | ✅ |
 | Amount | Dollar | $45.67 | ✅ |
 | Paycheck # | Integer | 30 | ❌ (calculated) |
 | Week | String | "first" / "second" / "" | ❌ (calculated) |
 | Manual Notes | Text | "Walmart" | ✅ |
-| Auto Notes | Text | "Manual: Spending for payweek 30 week 2" or "Generated: Rollover into second week (Week 60) from first week (Week 59) in payweek 30" | ❌ (generated) |
+| Auto Notes | Text | "Manual: Paycheck 30 bought Groceries on Monday" or "Generated: Rollover from week 59" or "Manual: Transfer to Emergency Fund" | ❌ (generated) |
 | Abnormal | Checkbox | ☑ | ✅ |
 | 🔒 | Icon | 🔒 or blank | ❌ (indicator) |
 
 **Shows:**
 - SPENDING transactions (regular spending) ✅ EDITABLE
 - ROLLOVER transactions (Week 1 → Week 2) 🔒 LOCKED
-- SAVING transactions with week_number (Week → Account/Bill transfers) 🔒 LOCKED
-- Week allocations from paycheck 🔒 LOCKED
+- SAVING transactions with week_number (Week ↔ Account/Bill transfers) 🔒 LOCKED (editable in Savings/Bills tabs)
 
 **Paycheck # vs Calendar Week:**
 - Show paycheck number (1, 2, 3...) not calendar week (1-52)
@@ -197,37 +196,37 @@ def matches_search(transaction, search_text):
 
 **Paycheck:**
 ```
-"Generated: Paycheck 30"
+"Manual: Paycheck 30 for 10/21/2024 to 11/03/2024"
 ```
 
 **Week 1 → Week 2 Rollover:**
 ```
-"Generated: Rollover into second week (Week 60) from first week (Week 59) in payweek 30"
+"Generated: Rollover from week 59"
 ```
 
 **Week 2 → Savings Rollover:**
 ```
-"Generated: Rollover into Emergency Fund from payweek 30"
+"Generated: Rollover from payweek 30"
 ```
 
 **Bill/Savings Auto-Save (from paycheck):**
 ```
-"Generated: Auto saved from payweek 30"
+"Generated: Savings allocation from payweek 30"
 ```
 
 **Week → Account/Bill Transfer (manual):**
 ```
-"Manual: Transfer to Vacation Fund from week spending"
+"Manual: Transfer to Vacation Fund"
 ```
 
 **Account → Week Transfer (manual):**
 ```
-"Manual: Transfer to current week from Emergency Fund"
+"Manual: Transfer from Emergency Fund"
 ```
 
 **Spending:**
 ```
-"Manual: Spending for payweek 30 week 2"
+"Manual: Paycheck 30 bought Groceries on Monday"
 ```
 
 **Format Notes:**
@@ -432,48 +431,49 @@ elif (transaction.transaction_type == TransactionType.SAVING and
 - [x] Wire up to table widget
 - [x] Test sorting, searching, deleting
 
-#### Phase 5: Savings Table (1.5 hours)
-- [ ] Define columns: Date, Account, Amount, Manual Notes, Auto Notes, Lock
-- [ ] Load SAVING(account_id) and SPENDING_FROM_SAVINGS transactions
-- [ ] Generate auto-notes (including rollover notes)
-- [ ] Wire up to table widget
-- [ ] Test sorting, searching, deleting
+#### Phase 5: Savings Table (1.5 hours) ✅ COMPLETE
+- [x] Define columns: Date, Account, Amount, Editable, Manual Notes, Auto Notes
+- [x] Load SAVING(account_id) transactions via AccountHistory (includes deposits/withdrawals)
+- [x] Generate auto-notes (deposits, withdrawals, rollovers)
+- [x] Wire up to table widget
+- [x] Test sorting, searching, deleting
 
-#### Phase 6: Paycheck Table (1 hour)
-- [ ] Define columns: Earned Date, Start Date, Amount, Manual Notes, Auto Notes, Lock
-- [ ] Load INCOME transactions
-- [ ] Generate auto-notes ("Paycheck X")
-- [ ] All rows locked (read-only)
-- [ ] Wire up to table widget
-- [ ] Test sorting, searching (no deleting/editing)
+#### Phase 6: Paycheck Table (1 hour) ✅ COMPLETE
+- [x] Define columns: Earned Date, Start Date, Amount, Editable, Manual Notes, Auto Notes
+- [x] Load INCOME transactions
+- [x] Generate auto-notes with date ranges ("Paycheck X for date1 to date2")
+- [x] All rows locked (user-entered but locked until recalculation implemented)
+- [x] Wire up to table widget
+- [x] Test sorting, searching
 
-#### Phase 7: Spending Table (2 hours)
-- [ ] Define columns: Date, Category, Amount, Paycheck#, Week, Manual Notes, Auto Notes, Abnormal, Lock
-- [ ] Load SPENDING, ROLLOVER, and week-related SAVING transactions
-- [ ] Calculate paycheck# and week position
-- [ ] Generate auto-notes (most complex)
-- [ ] Determine locked vs editable rows
-- [ ] Wire up to table widget
-- [ ] Test all functionality
+#### Phase 7: Spending Table (2 hours) ✅ COMPLETE
+- [x] Define columns: Date, Category, Amount, Paycheck#, Week, Editable, Abnormal, Manual Notes, Auto Notes
+- [x] Load SPENDING, ROLLOVER, and SAVING(week_number) transactions
+- [x] Calculate paycheck# and week position
+- [x] Generate auto-notes (category + day of week, transfers with destination)
+- [x] Determine locked vs editable rows
+- [x] Wire up to table widget
+- [x] Test all functionality
 
-#### Phase 8: Save Logic (2 hours)
-- [ ] Collect all pending changes (deletes + edits)
-- [ ] Validate changes (don't delete locked rows)
-- [ ] Apply to database in transaction
-- [ ] Refresh tables after save
-- [ ] Show success/error message
-- [ ] Test rollback on errors
+#### Phase 8: Save Logic (2 hours) ✅ COMPLETE
+- [x] Track transaction IDs for each table row
+- [x] Track edited and deleted rows separately
+- [x] Clear tracking when switching sub-tabs
+- [x] Validate data types (dates, amounts) before saving
+- [x] Save deletes and edits to database transaction-by-transaction
+- [x] Show detailed success/failure dialog with change summary
+- [x] Refresh tables after save
 
 #### Phase 9: Polish & Testing (2 hours)
-- [ ] Theme integration (colors update on theme change)
+- [x] Theme integration (colors update on theme change)
 - [ ] Error handling for edge cases
-- [ ] Test with real data
+- [ ] Test with real data (user testing in progress)
 - [ ] Test enabling/disabling in settings
 - [ ] Document any quirks found
 
 **Total Estimated Time:** ~13-15 hours
-**Time Spent So Far:** ~6 hours (Phases 1-4 complete)
-**Remaining:** ~7-9 hours (Phases 5-9)
+**Time Spent So Far:** ~13 hours (Phases 1-8 complete)
+**Remaining:** ~2 hours (Phase 9 testing & polish)
 
 ---
 

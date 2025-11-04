@@ -417,7 +417,9 @@ class BillTransactionHistoryDialog(QDialog):
                     elif column == 1:  # Amount
                         try:
                             new_amount = float(new_value)
-                            update_data['amount'] = new_amount
+                            # Convert change_amount (what user sees) to transaction.amount
+                            # Bills show negative for payments, but transaction stores positive
+                            update_data['amount'] = abs(new_amount)
                         except Exception as e:
                             QMessageBox.warning(self, "Invalid Amount", f"Invalid amount in row {row+1}: {new_value}")
                             self.transaction_manager.db.rollback()

@@ -1,6 +1,6 @@
 # 🚀 BudgetApp V2 - Project Roadmap
 
-> **Last Updated:** October 28, 2024
+> **Last Updated:** November 1, 2024
 > **Current Phase:** Phase 2 - Transactions Tab Implementation 🔄
 
 ---
@@ -9,7 +9,7 @@
 
 ```
 Phase 1: Core UI & Transfer System    [████████████████████] 100% ✅
-Phase 2: Transactions Tab              [█████████████░░░░░░░]  65% 🔄
+Phase 2: Transactions Tab              [███████████████████▓]  98% 🔄
 Phase 3: Rules & Automation            [░░░░░░░░░░░░░░░░░░░░]   0% 📅
 Phase 4: Polish & Future Features      [░░░░░░░░░░░░░░░░░░░░]   0% 💡
 ```
@@ -59,7 +59,7 @@ Improve core UI organization and implement essential transfer functionality.
 ---
 
 <details open>
-<summary><h2>🔄 Phase 2: Transactions Tab (IN PROGRESS - 65% Complete)</h2></summary>
+<summary><h2>🔄 Phase 2: Transactions Tab (IN PROGRESS - 98% Complete)</h2></summary>
 
 ### 🎯 Goals
 Create advanced transaction inspection and debugging interface with 4 sub-tabs.
@@ -86,16 +86,33 @@ Create advanced transaction inspection and debugging interface with 4 sub-tabs.
 | ├─ Load SAVING(bill_id) transactions | ✅ | Oct 28, 2024 |
 | ├─ Auto-notes generation | ✅ | Oct 28, 2024 |
 | └─ Locked row detection | ✅ | Oct 28, 2024 |
+| **Phase 5** | Savings Table (Real Data) | ✅ Complete | Nov 1, 2024 |
+| ├─ Load SAVING(account_id) via AccountHistory | ✅ | Nov 1, 2024 |
+| ├─ Handle deposits & withdrawals | ✅ | Nov 1, 2024 |
+| ├─ Auto-notes with payweek info | ✅ | Nov 1, 2024 |
+| └─ Locked rollover transactions | ✅ | Nov 1, 2024 |
+| **Phase 6** | Paycheck Table (Real Data) | ✅ Complete | Nov 1, 2024 |
+| ├─ Load INCOME transactions | ✅ | Nov 1, 2024 |
+| ├─ Display earned & start dates | ✅ | Nov 1, 2024 |
+| ├─ Auto-notes with date ranges | ✅ | Nov 1, 2024 |
+| └─ All rows locked | ✅ | Nov 1, 2024 |
+| **Phase 7** | Spending Table (Real Data) | ✅ Complete | Nov 1, 2024 |
+| ├─ Load SPENDING & ROLLOVER | ✅ | Nov 1, 2024 |
+| ├─ Include week ↔ account transfers | ✅ | Nov 1, 2024 |
+| ├─ Auto-notes with category & day | ✅ | Nov 1, 2024 |
+| └─ Transfer notes with destinations | ✅ | Nov 1, 2024 |
+| **Phase 8** | Save Logic | ✅ Complete | Nov 2, 2024 |
+| ├─ Transaction ID tracking | ✅ | Nov 2, 2024 |
+| ├─ Edit & delete tracking | ✅ | Nov 2, 2024 |
+| ├─ Data validation (dates, amounts) | ✅ | Nov 2, 2024 |
+| ├─ Database commit logic | ✅ | Nov 2, 2024 |
+| └─ Success/failure dialog | ✅ | Nov 2, 2024 |
 
 ### 🔄 In Progress
 
 | Phase | Feature | Status | Progress |
 |-------|---------|--------|----------|
-| **Phase 5** | Savings Table | 📋 Next Up | 0% |
-| **Phase 6** | Paycheck Table | 📋 Pending | 0% |
-| **Phase 7** | Spending Table | 📋 Pending | 0% |
-| **Phase 8** | Save Logic | 📋 Pending | 0% |
-| **Phase 9** | Polish & Testing | 📋 Pending | 0% |
+| **Phase 9** | Polish & Testing | 🧪 Testing | 90% |
 
 ### 🎓 Key Implementation Details
 
@@ -105,23 +122,42 @@ Create advanced transaction inspection and debugging interface with 4 sub-tabs.
 - Theme-aware styling
 - Last 2 columns stretch (for long notes)
 - Editable column fixed at 70px width
+- Abnormal column as checkbox widget
 
 **Data Loading Pattern:**
 ```python
-# Query transactions from database
-transactions = session.query(Transaction).filter(...).all()
+# Use AccountHistory for Bills/Savings (correct signs)
+history_manager = AccountHistoryManager(db)
+history = history_manager.get_account_history(account_id, "savings")
+amount = history_entry.change_amount  # Preserves +/- sign
 
-# Determine locked rows (auto-generated)
-locked_rows = {idx for idx, t in enumerate(trans) if is_locked(t)}
-
-# Generate auto-notes
-auto_notes = generate_auto_notes(transaction)
+# Query transactions directly for Paycheck/Spending
+transactions = get_all_transactions()
+filtered = [t for t in transactions if condition]
 ```
 
 **Auto-Notes Format:**
-- Manual transactions: `"Manual: [description]"`
-- Generated transactions: `"Generated: [description]"`
-- Paycheck auto-saves: `"Generated: Auto saved from payweek X"`
+- Paychecks: `"Manual: Paycheck 30 for 10/21/2024 to 11/03/2024"`
+- Spending: `"Manual: Paycheck 30 bought Groceries on Monday"`
+- Transfers: `"Manual: Transfer to Emergency Fund"`
+- Rollovers: `"Generated: Rollover from payweek 30"`
+- Allocations: `"Generated: Savings allocation from payweek 30"`
+
+**Locking Logic:**
+- ROLLOVER & INCOME → Always locked
+- SAVING with "allocation" or "end-of-period" → Locked (auto-generated)
+- SAVING with week_number + account/bill_id → Locked in Spending tab only
+- Regular SPENDING → Editable
+- Manual BILL_PAY & SAVING → Editable
+
+**Save Functionality:**
+- Tracks transaction IDs for each row (all 4 tabs)
+- Tracks edited and deleted rows separately
+- Clears tracking when switching between sub-tabs
+- Validates dates (MM/DD/YYYY format) and amounts (numeric)
+- Saves changes transaction-by-transaction with rollback on error
+- Shows detailed success/failure dialog with change summary
+- Refreshes tables after successful save
 
 ---
 
@@ -634,6 +670,60 @@ What if I buy a $500 TV this week?
 
 ---
 
+#### ⚡ **Feature 4.4: Performance Optimizations for Tab Refreshing**
+**Priority:** 🟡 Medium | **Status:** 💭 Observation/Future Work
+
+**Context:**
+Currently, tabs refresh on every switch (implemented Nov 2024). This ensures data consistency across tabs, but can be slow for tabs with heavy data/charts.
+
+**Observed Bottlenecks:**
+1. **Database Queries**: Loading AccountHistory entries (can be 50-200+ per account/bill)
+2. **Chart Rendering**: matplotlib line plots recalculating and redrawing
+3. **Data Processing**: Sorting, filtering, calculating running totals
+
+**Optimization Ideas (Priority Order):**
+
+**🔥 High Impact:**
+1. **Query Limiting**: Show last N entries by default (e.g., 50 most recent)
+   - Add "Show All" button for full history
+   - Would reduce query size by 75-90%
+
+2. **Conditional Refresh**: Only refresh if data actually changed
+   - Add timestamp tracking to database writes
+   - Check timestamp before re-querying
+   - Skip refresh if no changes since last load
+
+3. **Lazy Loading**: Don't load tab data until first viewed
+   - Initial app load only loads Dashboard
+   - Other tabs load on-demand
+   - Reduces startup time significantly
+
+**🟡 Medium Impact:**
+4. **Background Threading**: Query data in background threads
+   - UI stays responsive during queries
+   - Show loading spinner while refreshing
+   - Requires thread-safe database session handling
+
+5. **Smart Caching**: Cache query results with invalidation
+   - Cache AccountHistory per account/bill
+   - Invalidate cache on relevant writes
+   - Memory vs. speed tradeoff
+
+**🟢 Low Impact:**
+6. **Data-Only Refresh**: Separate "refresh data" from "refresh UI"
+   - NOT recommended - data queries are the slow part, not UI
+   - Charts need redraw anyway to show new data
+   - Complexity not worth minimal gains
+
+**Recommended First Steps (When Ready):**
+1. Implement query limiting (last 50 entries) - easy win
+2. Add conditional refresh with timestamp checks - moderate complexity
+3. Consider lazy loading if startup time becomes issue
+
+**Estimated Effort:** 🕐 Medium (4-6 hours for items 1-2)
+
+---
+
 #### 📊 **Feature 4.4: Enhanced Year Overview**
 **Priority:** 🟢 Nice-to-Have | **Status:** 💭 Idea
 
@@ -642,6 +732,32 @@ What if I buy a $500 TV this week?
 - Category breakdown by year (not just totals)
 - Bill increase trends (are bills getting more expensive?)
 - Savings rate acceleration (is it improving?)
+
+---
+
+#### 🔄 **Feature 4.5: Editable Paycheck Amounts with Auto-Recalculation**
+**Priority:** 🟡 Medium | **Status:** 💭 Future Enhancement
+
+**Purpose:** Allow editing paycheck amounts in Transactions tab and automatically recalculate all dependent allocations.
+
+**Current State:**
+- Paychecks are locked (non-editable) in Transactions tab
+- Reason: Changing paycheck amount doesn't trigger recalculation of:
+  - Bill savings allocations (% or $ based)
+  - Account auto-savings (% or $ based)
+  - Week allocations
+  - Rollovers
+
+**Required Implementation:**
+1. Add INCOME transaction support to `trigger_rollover_recalculation()`
+2. Create `PaycheckProcessor.recalculate_paycheck_allocations(paycheck_id)`
+3. When paycheck amount changes:
+   - Recalculate all SAVING allocations for that paycheck's week
+   - Update bill/account savings transactions
+   - Trigger rollover recalculation for the entire pay period
+4. Make Paycheck table rows editable (remove locked status)
+
+**Estimated Effort:** 🕐 Medium (4-6 hours)
 
 </details>
 

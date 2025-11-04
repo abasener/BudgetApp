@@ -131,7 +131,10 @@ class BudgetApp(QMainWindow):
         layout = QVBoxLayout()
         layout.addWidget(self.tabs)
         central_widget.setLayout(layout)
-        
+
+        # Connect tab change to refresh handler
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+
         # Create menu bar and toolbar
         self.create_menu_bar()
         self.create_toolbar()
@@ -435,7 +438,30 @@ class BudgetApp(QMainWindow):
                 self.taxes_view.refresh()
         except Exception as e:
             show_error(self, "Refresh Error", e, "refreshing application views")
-        
+
+    def on_tab_changed(self, index):
+        """Handle tab change - refresh the newly selected tab"""
+        try:
+            # Map index to view and refresh it
+            if index == 0:  # Dashboard
+                self.dashboard.refresh()
+            elif index == 1:  # Bills
+                self.bills_view.refresh()
+            elif index == 2:  # Savings
+                self.savings_view.refresh()
+            elif index == 3:  # Weekly
+                self.weekly_view.refresh()
+            elif index == 4:  # Categories
+                self.categories_view.refresh()
+            elif index == 5:  # Yearly
+                self.year_overview_view.refresh()
+            elif index == self.transactions_tab_index and self.transactions_tab_index >= 0:
+                self.transactions_view.refresh()
+            elif index == self.taxes_tab_index and self.taxes_tab_index >= 0:
+                self.taxes_view.refresh()
+        except Exception as e:
+            print(f"Error refreshing tab {index}: {e}")
+
     def open_add_transaction_dialog(self):
         """Open dialog to add new transaction"""
         try:
