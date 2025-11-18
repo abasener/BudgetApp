@@ -440,7 +440,16 @@ class BudgetApp(QMainWindow):
             show_error(self, "Refresh Error", e, "refreshing application views")
 
     def on_tab_changed(self, index):
-        """Handle tab change - refresh the newly selected tab"""
+        """
+        Handle tab change - refresh the newly selected tab
+
+        ADDED: Nov 3, 2024
+        Purpose: Ensure tabs always show latest data after changes in other tabs
+        Example: Edit transaction in Transactions tab → switch to Bills tab → see updated line plot
+
+        Performance Note: This triggers a full refresh on every tab switch.
+        For optimization ideas, see Feature 4.4 in PROJECT_PLAN.md
+        """
         try:
             # Map index to view and refresh it
             if index == 0:  # Dashboard

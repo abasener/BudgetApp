@@ -204,7 +204,14 @@ class AccountHistoryManager:
         return history_entry
 
     def update_transaction_change(self, transaction_id: int, new_change_amount: float, new_date):
-        """Update a history entry when its transaction is modified"""
+        """
+        Update a history entry when its transaction is modified
+
+        CRITICAL BUG FIX (Nov 3, 2024):
+        Order of operations matters! Must update change_amount BEFORE recalculating running totals.
+        Previous bug: Was recalculating with OLD value, then updating to new value (too late!)
+        This caused running_total corruption across all Bills/Savings line plots.
+        """
         # Find the history entry for this transaction
         history_entry = self.db.query(AccountHistory).filter(
             AccountHistory.transaction_id == transaction_id
@@ -213,7 +220,7 @@ class AccountHistoryManager:
         if not history_entry:
             raise ValueError(f"No history entry found for transaction {transaction_id}")
 
-        # CRITICAL FIX: Update the entry's change_amount and date FIRST
+        # CRITICAL: Update the entry's change_amount and date FIRST
         # before recalculating running totals, so the recalculation uses the new values
         history_entry.change_amount = new_change_amount
         history_entry.transaction_date = new_date

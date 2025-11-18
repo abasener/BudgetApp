@@ -102,13 +102,14 @@ BudgetApp/
 ## 🎯 Current Development Focus
 
 The application is actively being developed with focus on:
-- **Transactions Tab (98% Complete)**: Advanced data inspection interface with save/delete functionality
-  - ✅ All 4 sub-tabs implemented with real data
-  - ✅ Save logic with transaction ID tracking and validation
-  - ✅ Theme integration and color consistency
-  - ⏳ Final polish and testing
-- **User experience**: Streamlined workflows for common tasks
-- **Performance optimization**: Efficient data handling for large transaction sets
+- **Phase 3: Rules & Automation (Next Up)**: Goal/Warning/Automation system
+  - 📅 Planning phase - awaiting flowchart design
+  - See RULES_PLANNING.md for full specification
+- **Transactions Tab (COMPLETE ✅)**: Advanced data inspection interface
+  - ✅ All 4 sub-tabs with real data, save/delete functionality
+  - ✅ Fixed AccountHistory running_total corruption bug
+  - ✅ Automatic tab refresh on switch
+- **Performance optimization**: Query limiting and conditional refresh (Phase 4)
 
 ## 🔧 Installation & Usage
 
