@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QSizePolicy, QTableWidget, QTableWidgetItem, QCheckBox,
                              QPushButton, QMessageBox, QToolButton)
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from themes import theme_manager
 from widgets import PieChartWidget
 from datetime import datetime, timedelta
@@ -793,7 +794,7 @@ class WeekDetailWidget(QWidget):
         self.week_time_progress_bar.setFormat(f"{time_percentage:.0f}% complete")
         
     def update_transaction_table(self):
-        """Update transaction table with week's spending transactions only"""
+        """Update transaction table with week's spending transactions + reimbursements"""
         # Filter to only spending transactions (exclude paychecks, income, savings allocations, bill pays)
         # Show ALL spending transactions regardless of analytics flag, exclude rollovers and allocations
         # Bill pays are excluded since they come from bill accounts, not weekly spending money
@@ -806,36 +807,110 @@ class WeekDetailWidget(QWidget):
 
         # Sort transactions by date (oldest to newest)
         sorted_transactions = sorted(spending_transactions, key=lambda t: t.date)
-        
+
+        # Get reimbursements for this week's date range
+        # These are displayed at the bottom of the table (grayed out, italic) for bank statement reconciliation
+        # Reimbursements are NOT included in spending calculations - they're for tracking only
+        reimbursements = []
+        if self.week_data:
+            from services.reimbursement_manager import ReimbursementManager
+            rm = ReimbursementManager()
+            try:
+                reimbursements = rm.get_reimbursements_by_date_range(
+                    self.week_data.start_date,
+                    self.week_data.end_date
+                )
+                # Sort by date (oldest to newest) to match spending transaction order
+                reimbursements = sorted(reimbursements, key=lambda r: r.date)
+            except Exception as e:
+                print(f"Error loading reimbursements for week {self.week_number}: {e}")
+            finally:
+                rm.close()
+
         # Store original transaction data for change comparison
         self.original_transactions = sorted_transactions.copy()
-        
-        self.transaction_table.setRowCount(len(sorted_transactions))
-        
+
+        # Total rows = spending transactions + reimbursements
+        total_rows = len(sorted_transactions) + len(reimbursements)
+        self.transaction_table.setRowCount(total_rows)
+
+        colors = theme_manager.get_colors()
+
+        # Add spending transactions (normal style)
         for row, transaction in enumerate(sorted_transactions):
             # Day (from date)
             day_name = transaction.date.strftime('%a')  # Mon, Tue, etc.
             day_item = QTableWidgetItem(day_name)
             day_item.setFlags(day_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # Read-only
             self.transaction_table.setItem(row, 0, day_item)
-            
+
             # Category (editable)
             category_item = QTableWidgetItem(transaction.category or "")
             self.transaction_table.setItem(row, 1, category_item)
-            
+
             # Amount (editable)
             amount_item = QTableWidgetItem(f"${transaction.amount:.2f}")
             self.transaction_table.setItem(row, 2, amount_item)
-            
+
             # Notes (editable)
             notes_item = QTableWidgetItem(transaction.description or "")
             self.transaction_table.setItem(row, 3, notes_item)
-            
+
             # Analytics checkbox (editable)
             analytics_checkbox = QCheckBox()
             analytics_checkbox.setChecked(transaction.include_in_analytics)
             self.transaction_table.setCellWidget(row, 4, analytics_checkbox)
-        
+
+        # Add reimbursements at bottom of table (grayed out, italic, non-editable)
+        # Purpose: Allow users to reconcile bank statements by seeing all charges
+        # Note: These are display-only and NOT included in week spending calculations
+        for i, reimbursement in enumerate(reimbursements):
+            row = len(sorted_transactions) + i
+
+            # Day column: Show day of week (e.g., "Mon", "Tue")
+            day_name = reimbursement.date.strftime('%a')
+            day_item = QTableWidgetItem(day_name)
+            day_item.setFlags(day_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # Read-only
+            day_item.setForeground(QColor(colors['text_secondary']))  # Gray text
+            font = day_item.font()
+            font.setItalic(True)
+            day_item.setFont(font)
+            self.transaction_table.setItem(row, 0, day_item)
+
+            # Category column: Show reimbursement status instead of category
+            # (e.g., "Pending Submission", "Awaiting Payment", "Reimbursed")
+            state_item = QTableWidgetItem(reimbursement.status_display)
+            state_item.setFlags(state_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            state_item.setForeground(QColor(colors['text_secondary']))
+            font = state_item.font()
+            font.setItalic(True)
+            state_item.setFont(font)
+            self.transaction_table.setItem(row, 1, state_item)
+
+            # Amount column: Show dollar amount
+            amount_item = QTableWidgetItem(f"${reimbursement.amount:.2f}")
+            amount_item.setFlags(amount_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            amount_item.setForeground(QColor(colors['text_secondary']))
+            font = amount_item.font()
+            font.setItalic(True)
+            amount_item.setFont(font)
+            self.transaction_table.setItem(row, 2, amount_item)
+
+            # Notes column: Show reimbursement description
+            notes_item = QTableWidgetItem(reimbursement.notes or "")
+            notes_item.setFlags(notes_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            notes_item.setForeground(QColor(colors['text_secondary']))
+            font = notes_item.font()
+            font.setItalic(True)
+            notes_item.setFont(font)
+            self.transaction_table.setItem(row, 3, notes_item)
+
+            # Abnormal checkbox: Disabled and unchecked (not applicable to reimbursements)
+            analytics_checkbox = QCheckBox()
+            analytics_checkbox.setChecked(False)
+            analytics_checkbox.setEnabled(False)
+            self.transaction_table.setCellWidget(row, 4, analytics_checkbox)
+
         # Resize table to fit all rows without scrolling
         self.transaction_table.resizeRowsToContents()
         total_height = self.transaction_table.horizontalHeader().height()

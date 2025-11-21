@@ -6,9 +6,11 @@ from .bills import Bill
 from .weeks import Week
 from .transactions import Transaction, TransactionType
 from .account_history import AccountHistory, AccountHistoryManager
+from .reimbursements import Reimbursement, ReimbursementState
 
 __all__ = [
     "Base", "engine", "SessionLocal", "get_db", "create_tables", "drop_tables",
     "Account", "Bill", "Week", "Transaction", "TransactionType",
-    "AccountHistory", "AccountHistoryManager"
+    "AccountHistory", "AccountHistoryManager",
+    "Reimbursement", "ReimbursementState"
 ]

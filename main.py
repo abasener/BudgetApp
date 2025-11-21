@@ -25,6 +25,7 @@ from views.savings_view import SavingsView
 from views.categories_view import CategoriesView
 from views.year_overview_view import YearOverviewView
 from views.transactions_view import TransactionsView
+from views.reimbursements_view import ReimbursementsView
 # Conditional import for optional tax features
 try:
     from views.taxes_view import TaxesView
@@ -107,6 +108,11 @@ class BudgetApp(QMainWindow):
             transaction_manager=self.transaction_manager
         )
 
+        # Initialize reimbursements view
+        self.reimbursements_view = ReimbursementsView(
+            transaction_manager=self.transaction_manager
+        )
+
         # Add tabs
         self.tabs.addTab(self.dashboard, "Dashboard")
         self.tabs.addTab(self.bills_view, "Bills")
@@ -114,6 +120,9 @@ class BudgetApp(QMainWindow):
         self.tabs.addTab(self.weekly_view, "Weekly")
         self.tabs.addTab(self.categories_view, "Categories")
         self.tabs.addTab(self.year_overview_view, "Yearly")
+
+        # Add Reimbursements tab (always visible for now)
+        self.reimbursements_tab_index = self.tabs.addTab(self.reimbursements_view, "Reimbursements")
 
         # Add Transactions tab if enabled in settings
         if self.app_settings.get("enable_transactions_tab", False):
@@ -464,6 +473,8 @@ class BudgetApp(QMainWindow):
                 self.categories_view.refresh()
             elif index == 5:  # Yearly
                 self.year_overview_view.refresh()
+            elif index == self.reimbursements_tab_index:  # Reimbursements
+                self.reimbursements_view.refresh()
             elif index == self.transactions_tab_index and self.transactions_tab_index >= 0:
                 self.transactions_view.refresh()
             elif index == self.taxes_tab_index and self.taxes_tab_index >= 0:

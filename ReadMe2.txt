@@ -1,7 +1,17 @@
 ================================================================================
 BudgetApp V2 - Dynamic Rollover System Documentation
 ================================================================================
-Last Updated: 2024-10-28
+Last Updated: 2025-11-19
+
+RECENT FIXES & ADDITIONS (2025-11-19):
+- Added: Reimbursements System - track work travel expenses & temporary out-of-pocket costs
+- Added: Reimbursements tab with tag-based filtering (trip/event organization)
+- Added: 5-state lifecycle tracking (Pending → Submitted → Reimbursed/Partial/Denied)
+- Added: Excel export with smart filenames (e.g., Reimbursements_Whispers25_111925.xlsx)
+- Added: Weekly view integration - reimbursements shown grayed/italic for bank reconciliation
+- Added: Dual categorization - location/trip tags + expense categories
+- Added: Batch edit/delete with visual highlighting (yellow=edited, red=deleted)
+- Note: Reimbursements are NOT included in budget calculations (separate tracking system)
 
 RECENT FIXES & ADDITIONS (2024-10-28):
 - Added: Transfer Money dialog - transfer funds between accounts, bills, and weeks
@@ -1291,5 +1301,210 @@ Fixed secondary_dark color reference that didn't exist in theme definitions.
 - Changed hover states from colors['secondary_dark'] to colors['accent']
 - Applies to: Bills tab + Bill button, Savings tab + Savings button
 - All theme colors properly support button styling hierarchy
+
+================================================================================
+================================================================================
+PART 12: REIMBURSEMENTS SYSTEM (November 2025)
+================================================================================
+
+PURPOSE:
+Track work travel expenses, friend loans, and temporary out-of-pocket costs 
+separately from main budget calculations. Money is expected to be reimbursed,
+so it should NOT affect weekly spending totals or budget projections.
+
+USE CASES:
+1. Work Travel: Conference registrations, hotels, meals, transport awaiting 
+   company reimbursement
+2. Friend Loans: Money lent to friends expecting repayment
+3. Temporary Expenses: Any out-of-pocket cost that will be reimbursed
+
+KEY PRINCIPLE:
+Reimbursements are SEPARATE from the budget system. They:
+- Do NOT reduce weekly spending money
+- Do NOT appear in spending calculations
+- Do NOT affect account balances
+- ONLY appear in weekly view for bank statement reconciliation (grayed out)
+
+REIMBURSEMENT LIFECYCLE:
+1. Pending Submission: Purchased but not yet submitted for reimbursement
+2. Awaiting Payment: Submitted to company/friend, waiting for payment
+3. Reimbursed: Money received back (complete)
+4. Partially Reimbursed: Some money received, more expected
+5. Denied: Not getting reimbursed (rare - add as backdated spending transaction)
+
+AUTO-DATE TRACKING:
+- submitted_date: Auto-set when state changes to "Awaiting Payment"
+- reimbursed_date: Auto-set when state changes to "Reimbursed" or "Partially Reimbursed"
+- Dates can be NULL if user skips states (e.g., goes straight from Pending to Reimbursed)
+
+DUAL CATEGORIZATION SYSTEM:
+1. Tag/Location: Trip or event identifier (e.g., "Whispers25", "NYC24", "Conference2025")
+   - Used for filtering and grouping expenses by trip
+   - Optional - can be NULL for misc expenses
+   - Appears in "Other" filter category when empty
+
+2. Category: Type of expense (e.g., "Transport", "Food", "Hotel", "Materials")
+   - Required field
+   - Similar to spending categories but specific to reimbursements
+   - Common categories: Transport, Food, Hotel, Conference Fees, Energy Drinks, Materials
+
+REIMBURSEMENTS TAB LAYOUT:
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Filter  │ Add    │ [$457.85]│ [Progress]│ [Dot Plot*]│ [Tag×Cat]            │
+│ by Tag: │ Save   │ [Total  ]│ [Bars    ]│ [Amount vs]│ [Heatmap]            │
+│ ┌─────┐ │ Delete │ [Pie:   ]│ [Submit% ]│ [Age by   ]│ [All tags]           │
+│ │All  │ │ Export │ [Status%]│ [Reimb % ]│ [Category ]│ [rows×cols]          │
+│ │Other│ └────────┘ └──────────┴───────────┴───────────┴──────────            │
+│ │Whsp │                      *Appears when window wide enough                │
+│ │NYC  │                                                                       │
+│ └─────┘                                                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Date       │ Status            │ Amount   │ Tag        │ Category  │ Notes  │
+│ 11/18/2025 │ Reimbursed        │ $85.00   │ Whispers25 │ Transport │ ...    │
+│ 11/16/2025 │ Awaiting Payment  │ $125.50  │ Whispers25 │ Conf. Fees│ ...    │
+│ 11/15/2025 │ Pending           │ $45.00   │ NYC24      │ Food      │ ...    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+VISUALIZATION WIDGETS (Top Row, 170px height):
+1. Stats Panel (200px wide, filtered data):
+   - Large text: Total $ spent for current tag filter
+   - Pie chart: Status breakdown by % (Pending/Submitted/Reimbursed/Partial/Denied)
+   - Semantic colors: warning(pending), info(submitted), success(reimbursed),
+     accent2(partial), error(denied)
+
+2. Progress Bars (180px wide, filtered data):
+   - Two vertical bars (weighted by $ amount, NOT transaction count)
+   - Left bar (secondary color): Submitted % = (submitted+reimbursed+partial+denied) / total
+   - Right bar (accent color): Reimbursed % = (reimbursed+partial) / total
+   - Background bars (surface_variant) show unfilled portion
+   - Example: $400 total, $320 submitted → 80% left bar filled
+
+3. Dot Plot (170×170px square, *adaptive visibility*, filtered data):
+   - ONLY shown when container width >= 840px (dynamically appears/disappears)
+   - X-axis: Age of expense (date) - older left (0), newer right (1), normalized
+   - Y-axis: Amount - lowest bottom (0), highest top (1), normalized
+   - Dots colored by category using theme chart_colors (cycles if more categories)
+   - Square cells (aspect='equal'), axis labels "Date" and "Amount", no tick labels
+   - Placement: Between stats and progress bars when shown
+
+4. Tag × Category Heatmap (250px wide, ALL data - ignores filter):
+   - Rows: All tags with data (e.g., "Whispers25", "NYC24", "Amber")
+   - Columns: All categories with data (e.g., "Food", "Hotel", "Transport")
+   - Cell color: Surface (lowest $) → Primary (highest $) gradient
+   - Square cells (aspect='equal')
+   - Shows complete spending overview across all tags
+
+Dynamic Layout Behavior:
+- Widgets pull actual width dynamically (adapts to different screen sizes/DPI)
+- Dot plot appears/disappears based on available space with 30px tolerance
+- State tracking prevents layout flashing (only rebuilds when dot plot state changes)
+- All visualizations update when tag filter changes (except heatmap shows all)
+
+BUTTON FUNCTIONALITY:
+- Add: Opens Add Transaction dialog with "Reimbursements" pre-selected
+- Save: Commits all edited cells and deletions to database (batch operation)
+- Delete: Marks selected rows red (actual deletion happens on Save)
+- Export: Exports selected (or all) reimbursements to Excel
+
+EDIT TRACKING:
+- Double-click cell to edit
+- Edited cells highlighted with subtle yellow background
+- Deleted rows marked with red text
+- Changes NOT saved until "Save" button clicked
+- Confirmation dialog shows all changes before applying
+
+WEEKLY VIEW INTEGRATION:
+Reimbursements appear at BOTTOM of weekly transaction tables:
+- Grayed out text (theme secondary color)
+- Italic font style
+- Non-editable (read-only)
+- Shows status instead of category
+- Disabled "Abnormal" checkbox
+- NOT included in week spending totals
+
+PURPOSE: Bank statement reconciliation
+- User sees all charges from bank statement (including reimbursables)
+- Prevents confusion: "Where did this $300 charge go?"
+- Clearly distinguished from real spending (gray + italic)
+
+EXPORT FUNCTIONALITY:
+Filename Format: Reimbursements_[Tag]_[MMDDYY].xlsx
+- With tag: Reimbursements_Whispers25_111925.xlsx
+- Without tag (All/Other): Reimbursements_111925.xlsx
+- Date format: MMDDYY (e.g., 111925 for Nov 19, 2025)
+
+Excel Structure:
+Row 1 (Headers): Amount | Tag | Category | Notes | Status
+Row 2+: Data values
+
+Features:
+- Auto-sized columns (capped at 50 chars wide)
+- Bold headers
+- Status column last (easy to delete if needed for expense reports)
+- Exports selected rows OR all rows if none selected
+- Default save location: Same directory as database
+
+COMMON WORKFLOW EXAMPLE:
+1. User at conference, buys $125 registration with personal card
+2. Opens Add Transaction → Reimbursements
+3. Enters: $125, "Conference registration fee", Category="Conference Fees", Tag="Whispers25"
+4. State defaults to "Pending Submission"
+5. Later: Edit status to "Awaiting Payment" → submitted_date auto-set to today
+6. Week view shows $125 charge (grayed out) matching bank statement
+7. Money received: Edit status to "Reimbursed" → reimbursed_date auto-set
+8. After conference: Filter by "Whispers25" tag
+9. Select all, click Export
+10. Send Reimbursements_Whispers25_111925.xlsx to boss
+
+DATABASE SCHEMA:
+models/reimbursements.py - Reimbursement model
+- id, amount, date, state, notes, category, location
+- submitted_date, reimbursed_date (auto-populated)
+- created_at, updated_at timestamps
+
+services/reimbursement_manager.py - ReimbursementManager class
+- add_reimbursement(), get_all_reimbursements()
+- update_reimbursement() - handles state changes and auto-dates
+- delete_reimbursement(), get_unique_locations(), get_unique_categories()
+- Filter methods: get_by_state(), get_by_location(), get_by_date_range()
+
+views/reimbursements_view.py - ReimbursementsView class
+- Tag filtering sidebar
+- Sortable/editable table with change tracking
+- Add/Save/Delete/Export button handlers
+- Excel export with openpyxl
+
+EDGE CASE HANDLING:
+- Partial reimbursement: User adjusts amount manually and adds uncovered portion 
+  as backdated spending transaction
+- Denied reimbursement: User adds as backdated spending transaction with original date
+- Mixed trips: User can split personal vs reimbursable expenses into separate entries
+- No tag: Reimbursements without tags appear in "Other" filter category
+- Skipped states: submitted_date/reimbursed_date can be NULL if user jumps states
+
+VALIDATION RULES:
+- Amount: Required, must be numeric, always stored as positive
+- Date: Required, MM/DD/YYYY format
+- Category: Required, cannot be empty
+- Tag/Location: Optional, NULL if empty
+- Notes: Optional, unlimited text
+- Status: Must be one of 5 valid states
+
+CODE LOCATIONS:
+- models/reimbursements.py: Database model with ReimbursementState enum
+- services/reimbursement_manager.py: CRUD operations and filtering
+- views/reimbursements_view.py: Main tab UI with all functionality
+- views/dialogs/add_transaction_dialog.py: "Reimbursements" mode added (lines 42-45, 272-290, 399-425)
+- views/weekly_view.py: Reimbursement display integration (lines 811-912)
+- main.py: Tab registration (lines 111-114, 476-477)
+
+TESTING NOTES:
+- Test reimbursement appears in correct week's transaction table
+- Test editing cells highlights yellow
+- Test delete marking shows red text
+- Test save button confirmation dialog
+- Test export generates correct filename
+- Test tag filtering updates table correctly
+- Test status changes auto-update dates
 
 ================================================================================

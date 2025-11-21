@@ -1,16 +1,16 @@
 # 🚀 BudgetApp V2 - Project Roadmap
 
-> **Last Updated:** November 1, 2024
-> **Current Phase:** Phase 2 - Transactions Tab Implementation 🔄
+**Last Updated:** November 19, 2025
+**Current Phase:** Phase 3 - Reimbursements & Automation
 
 ---
 
 ## 📊 Progress Overview
 
 ```
-Phase 1: Core UI & Transfer System    [████████████████████] 100% ✅
+Phase 1: Core UI & Transfer System     [████████████████████] 100% ✅
 Phase 2: Transactions Tab              [████████████████████] 100% ✅
-Phase 3: Rules & Automation            [░░░░░░░░░░░░░░░░░░░░]   0% 📅
+Phase 3: Reimbursements & Automation   [██████████░░░░░░░░░░]  50%
 Phase 4: Polish & Future Features      [░░░░░░░░░░░░░░░░░░░░]   0% 💡
 ```
 
@@ -161,72 +161,16 @@ filtered = [t for t in transactions if condition]
 
 ---
 
-#### 🔍 **Original Feature 2.1: Transaction Search/Filter Tab**
-**Priority:** 🔥 High | **Status:** ✅ **IMPLEMENTED AS TRANSACTIONS TAB**
+#### 🔍 **Feature 2.1: Transaction Search/Filter Tab**
+**Status:** ✅ **IMPLEMENTED AS TRANSACTIONS TAB**
 
-<details>
-<summary>Click to expand details</summary>
+The Transactions tab provides advanced transaction inspection with 4 sub-tabs (Bills, Savings, Paycheck, Spending) featuring:
+- Search bars and sortable columns
+- Delete/Save buttons with validation
+- Editable and locked rows
+- Real-time filtering
 
-**Purpose:** Dedicated tab for viewing ALL transactions with advanced filtering and search.
-
-**Layout:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 🔍 Search: [_____________]  📅 Date: [From] [To]  💰 Amount │
-│ 🏷️ Category: [All ▼]  🚫 Include Abnormal: [☐]              │
-│ [Clear Filters] [Export CSV]                    [Add New +] │
-├─────────────────────────────────────────────────────────────┤
-│ ID  │ Date       │ Category    │ Amount    │ Week │ Notes  │
-│ 234 │ 10/28/2024 │ Groceries   │ $   45.67 │  60  │ ...    │
-│ 233 │ 10/27/2024 │ Gas         │ $   35.00 │  60  │ ...    │
-│ 232 │ 10/26/2024 │ Coffee      │ $    5.50 │  60  │ ...    │
-│     │            │             │           │      │        │
-├─────────────────────────────────────────────────────────────┤
-│ 📊 Filtered: 145 transactions | Total: $3,456.78            │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Filter Options:**
-- [x] **Text Search:** Search in description/notes field
-- [x] **Category Filter:** Dropdown with all categories + "All"
-- [x] **Date Range:** From/To date pickers
-- [x] **Amount Range:** Min/Max dollar amounts
-- [x] **Transaction Type:** Spending/Bill Pay/Saving/Income/Rollover
-- [x] **Abnormal Flag:** Include/exclude abnormal transactions
-- [x] **Account Filter:** Filter by specific account/bill
-
-**Features:**
-- [x] Sortable columns (click header to sort)
-- [x] Click row to edit transaction
-- [x] Export filtered results to CSV/Excel
-- [x] Summary stats at bottom (count, total, average)
-- [x] Right-click menu: Edit, Delete, Mark as Abnormal
-
-**Technical Decisions Needed:**
-> **Question 1:** Should this show rollover transactions?
-> - Option A: Show all (including rollovers) ✅ Recommended
-> - Option B: Hide rollovers (like Weekly tab does)
->
-> **Question 2:** Should this show paycheck transactions?
-> - Option A: Show all (including income) ✅ Recommended
-> - Option B: Only spending/bills
->
-> **Question 3:** Default filter state?
-> - Option A: Show all transactions (no filters)
-> - Option B: Default to current month only
-> - Option C: Default to last 100 transactions
-
-**Implementation Steps:**
-- [ ] Create `views/transactions_view.py`
-- [ ] Design filter UI with QComboBox, QDateEdit, QLineEdit
-- [ ] Implement transaction table with sorting
-- [ ] Add export to CSV functionality
-- [ ] Wire up to main tab system
-- [ ] Add to View menu navigation
-
-**Estimated Effort:** 🕐 Medium (4-6 hours)
-
-</details>
+See Phase 2 completed sub-phases above for full implementation details.
 
 ---
 
@@ -414,10 +358,59 @@ def example():
 ---
 
 <details>
-<summary><h2>📅 Phase 3: Rules & Automation (FUTURE)</h2></summary>
+<summary><h2>🔄 Phase 3: Reimbursements & Automation (IN PROGRESS - 50%)</h2></summary>
 
 ### 🎯 Goals
-Implement intelligent automation and recurring transaction management.
+Track work travel expenses and temporary out-of-pocket costs separate from main budget, with future automation features.
+
+### ✅ Completed Features
+
+| Feature | Status | Completion Date |
+|---------|--------|-----------------|
+| **Reimbursements System** | ✅ Complete | Nov 20, 2025 |
+| ├─ Database model (amount, date, state, notes, category, tag) | ✅ | Nov 19, 2025 |
+| ├─ ReimbursementManager CRUD service | ✅ | Nov 19, 2025 |
+| ├─ Add Transaction dialog integration | ✅ | Nov 19, 2025 |
+| ├─ Reimbursements tab with tag filtering | ✅ | Nov 19, 2025 |
+| ├─ Weekly view integration (grayed out rows) | ✅ | Nov 19, 2025 |
+| ├─ Add button (opens dialog) | ✅ | Nov 19, 2025 |
+| ├─ Save button (batch edits with validation) | ✅ | Nov 19, 2025 |
+| ├─ Delete button (red text marking) | ✅ | Nov 19, 2025 |
+| ├─ Export button (Excel with smart filename) | ✅ | Nov 19, 2025 |
+| └─ **Interactive Visualizations** | ✅ | Nov 20, 2025 |
+|   ├─ Stats panel (total $ + status pie chart) | ✅ | Nov 20, 2025 |
+|   ├─ Progress bars (submitted % & reimbursed %) | ✅ | Nov 20, 2025 |
+|   ├─ Dot plot (amount vs age by category, adaptive) | ✅ | Nov 20, 2025 |
+|   └─ Tag × Category heatmap (complete overview) | ✅ | Nov 20, 2025 |
+
+### 🎓 Key Implementation Details
+
+**Reimbursements Architecture:**
+- **Separate from budget**: NOT included in week spending calculations
+- **Bank reconciliation**: Show in weekly view tables (grayed out, italic)
+- **5 States**: Pending → Submitted → Reimbursed/Partial/Denied
+- **Auto-date updates**: `submitted_date` and `reimbursed_date` set when state changes
+- **Dual tagging**: Location/trip tags (e.g., "Whispers25") + category (e.g., "Hotel")
+
+**Table Features:**
+- Editable cells with yellow highlight (blended warning color)
+- Delete marking with red text
+- Sortable columns (click header)
+- Multi-row selection (Ctrl+click)
+- Tag filtering sidebar ("All", "Other", individual tags)
+
+**Export Format:**
+```
+Filename: Reimbursements_Whispers25_111925.xlsx
+Columns: Amount | Tag | Category | Notes | Status
+```
+
+**Use Cases:**
+1. Work travel expenses awaiting company reimbursement
+2. Friend loans/IOUs (money lent expecting repayment)
+3. Temporary out-of-pocket costs
+
+---
 
 ### 💡 Planned Features
 
@@ -776,141 +769,16 @@ Currently, tabs refresh on every switch (implemented Nov 2024). This ensures dat
 
 ---
 
-## 🗺️ Recommended Implementation Order
+## 🗺️ Implementation Priority
 
-### 🥇 **Next Up: Transaction Search Tab**
-**Why first?**
-- High user value (you said "I like it")
-- Independent feature (won't conflict with other work)
-- Helps with testing other features
-- Moderate complexity
+**Current Focus:** Phase 3 - Reimbursements & Automation (50% complete)
 
-**Start Date:** TBD
-**Est. Completion:** 1-2 days
+**Next Steps:**
+1. Begin automation features (Recurring Transaction Templates)
+2. Consider Account Archiving System (requires architecture decisions)
+3. Evaluate Rules/Templates system scope
 
----
-
-### 🥈 **After That: Account Archiving**
-**Why second?**
-- Need to finalize architecture first (array vs JSON)
-- Moderate complexity
-- Affects paycheck processor (need to test carefully)
-
-**Prerequisites:**
-- [ ] Decide on data structure (Option A vs B)
-- [ ] Answer the 3 architecture questions above
-- [ ] Design UI mockups
-
----
-
-### 🥉 **Later: Rules/Templates**
-**Why last?**
-- Can start simple (templates only)
-- Can expand later (full rules engine)
-- Least urgent
-
----
-
-## 📚 Learning Resources
-
-<details>
-<summary><b>Advanced Markdown Tricks Used in This Doc</b></summary>
-
-1. **Progress Bars:**
-   ```markdown
-   [████████░░] 80%
-   ```
-
-2. **Collapsible Sections:**
-   ```markdown
-   <details>
-   <summary>Title</summary>
-   Content
-   </details>
-   ```
-
-3. **Tables with Complex Content:**
-   ```markdown
-   <table><tr><td>
-   Multi-line content
-   </td></tr></table>
-   ```
-
-4. **Blockquotes with Style:**
-   ```markdown
-   > **Note:** Important info
-   ```
-
-5. **Task Lists:**
-   ```markdown
-   - [x] Done
-   - [ ] Todo
-   ```
-
-6. **Emojis:**
-   - 🎯 Goal
-   - ✅ Done
-   - 📋 Planning
-   - 🔥 Priority
-   - 💡 Idea
-
-7. **Code Blocks with Language:**
-   ````markdown
-   ```python
-   code here
-   ```
-   ````
-
-8. **Nested Lists:**
-   ```markdown
-   - Item
-     - Sub-item
-       - Sub-sub-item
-   ```
-
-</details>
-
----
-
-## 🤔 Decision Points Needed
-
-### High Priority Decisions
-1. **Transaction Search Tab:**
-   - [ ] Should it show rollover transactions?
-   - [ ] Should it show paycheck transactions?
-   - [ ] What's the default filter state?
-
-2. **Account Archiving:**
-   - [ ] Array-based or JSON-based history?
-   - [ ] When to update history (paycheck vs manual)?
-   - [ ] UI for activation/deactivation?
-
-### Medium Priority Decisions
-3. **Rules System:**
-   - [ ] Start with simple templates or build full engine?
-   - [ ] Scope for Phase 3?
-
----
-
-## 📞 How to Use This Document
-
-1. **Review regularly** - Check what's next before starting work
-2. **Check boxes** as you complete tasks - Visual progress tracking
-3. **Expand sections** you're working on - Use `<details>` for focus
-4. **Update status** - Change 📋 → 🔄 → ✅ as you progress
-5. **Add notes** - Document decisions and learnings
-6. **Cross off completed phases** - Celebrate wins!
-
----
-
-## 🎉 Recent Wins
-
-- [x] Transfer Money system working smoothly
-- [x] Menubar reorganization complete
-- [x] Category colors consistent across all charts
-- [x] Tab-local toolbars for Bills and Savings
-- [x] Documentation fully updated
-
----
-
-**Ready to start Phase 2?** Let's make decisions on the architecture questions! 🚀
+**Deferred to Phase 4:**
+- Performance optimizations for tab refreshing
+- Enhanced keyboard shortcuts
+- Year overview enhancements

@@ -48,6 +48,21 @@ A comprehensive desktop budget tracking application built with PyQt6 and matplot
 - **Bidirectional Transfer Visibility**: Manual transfers show on both sides (e.g., Week ↔ Savings)
 - **Disabled by Default**: Toggle in Settings → Enable Transactions Tab for debugging and data inspection
 
+### 💼 Reimbursements Tracking
+- **Separate Tracking System**: Work travel expenses and temporary out-of-pocket costs tracked independently from main budget
+- **5-State Lifecycle**: Pending → Submitted → Reimbursed/Partial/Denied with auto-date tracking
+- **Tag-Based Filtering**: Organize by trip/event (e.g., "Whispers25", "NYC24") for easy expense report generation
+- **Bank Reconciliation**: View in Weekly tab (grayed out, italic) to match bank statements without affecting budget calculations
+- **Full CRUD Operations**: Add, edit (with yellow highlighting), delete (red text marking), and export to Excel
+- **Smart Export**: Auto-generates filenames like `Reimbursements_Whispers25_111925.xlsx` with export date
+- **Dual Categorization**: Location/trip tags + expense categories (Hotel, Food, Transport, etc.)
+- **Excel Export**: One-click export of selected reimbursements with headers (Amount, Tag, Category, Notes, Status)
+- **Interactive Visualizations**:
+  - **Stats Panel**: Total amount spent and status breakdown pie chart (semantic colors)
+  - **Progress Bars**: Visual tracking of submitted % and reimbursed % (weighted by dollar amount)
+  - **Dot Plot** *(adaptive)*: Amount vs Age scatter plot, color-coded by category (appears when window is wide enough)
+  - **Tag × Category Heatmap**: Overview of spending patterns across all tags (always shows complete dataset)
+
 ### 🎨 Theme System
 - **5 Built-in Themes**: Dark, Light, Coffee, Excel Blue, and Cyberpunk
 - **Theme Selector**: Easy switching between visual styles

@@ -41,7 +41,8 @@ class AddTransactionDialog(QDialog):
         self.mode_combo.addItems([
             "Spending",
             "Bills",
-            "Savings"
+            "Savings",
+            "Reimbursements"
         ])
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
         form_layout.addRow("Transaction Type:", self.mode_combo)
@@ -80,6 +81,26 @@ class AddTransactionDialog(QDialog):
 
         # Savings mode fields
         self.account_combo = QComboBox()
+
+        # Reimbursements mode fields
+        self.reimbursement_state_combo = QComboBox()
+        self.reimbursement_state_combo.addItems([
+            "Pending Submission",
+            "Awaiting Payment",
+            "Reimbursed",
+            "Partially Reimbursed",
+            "Denied"
+        ])
+
+        self.reimbursement_tag_combo = QComboBox()
+        self.reimbursement_tag_combo.setEditable(True)  # Allow typing new tags
+        self.reimbursement_tag_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.reimbursement_tag_combo.setPlaceholderText("e.g., Whispers25, NYC24")
+
+        self.reimbursement_category_combo = QComboBox()
+        self.reimbursement_category_combo.setEditable(True)  # Allow typing new categories
+        self.reimbursement_category_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.reimbursement_category_combo.setPlaceholderText("e.g., Transport, Food, Hotel")
 
         layout.addLayout(form_layout)
         layout.addLayout(self.dynamic_layout)
@@ -123,7 +144,7 @@ class AddTransactionDialog(QDialog):
         self.on_mode_changed("Spending")
     
     def load_data(self):
-        """Load accounts, bills, and categories from database"""
+        """Load accounts, bills, categories, and reimbursement data from database"""
         try:
             # Load existing categories from spending transactions
             categories = self.get_existing_categories()
@@ -132,16 +153,16 @@ class AddTransactionDialog(QDialog):
                 self.category_combo.addItems(sorted(categories))
             else:
                 # Default categories if none exist
-                default_categories = ["Food", "Transportation", "Entertainment", "Shopping", 
+                default_categories = ["Food", "Transportation", "Entertainment", "Shopping",
                                     "Utilities", "Healthcare", "Personal Care", "Miscellaneous"]
                 self.category_combo.addItems(default_categories)
-            
+
             # Load accounts
             accounts = self.transaction_manager.get_all_accounts()
             self.account_combo.clear()
             for account in accounts:
                 self.account_combo.addItem(account.name, account.id)
-            
+
             # Load bills
             bills = self.transaction_manager.get_all_bills()
             self.bill_combo.clear()
@@ -152,7 +173,28 @@ class AddTransactionDialog(QDialog):
                     self.bill_combo.addItem(f"{bill.name} (${display_amount:.2f})", bill.id)
                 else:
                     self.bill_combo.addItem(f"{bill.name} ({display_amount})", bill.id)
-                
+
+            # Load existing reimbursement tags and categories
+            from services.reimbursement_manager import ReimbursementManager
+            rm = ReimbursementManager()
+            try:
+                tags = rm.get_unique_locations()
+                self.reimbursement_tag_combo.clear()
+                if tags:
+                    self.reimbursement_tag_combo.addItems(sorted(tags))
+
+                reimbursement_categories = rm.get_unique_categories()
+                self.reimbursement_category_combo.clear()
+                if reimbursement_categories:
+                    self.reimbursement_category_combo.addItems(sorted(reimbursement_categories))
+                else:
+                    # Default reimbursement categories
+                    default_reimbursement_categories = ["Transport", "Food", "Hotel", "Materials",
+                                                       "Energy Drinks", "Conference Fees", "Parking"]
+                    self.reimbursement_category_combo.addItems(default_reimbursement_categories)
+            finally:
+                rm.close()
+
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error loading data: {str(e)}")
     
@@ -189,6 +231,9 @@ class AddTransactionDialog(QDialog):
             self.category_combo.setVisible(True)
             self.bill_combo.setVisible(False)
             self.account_combo.setVisible(False)
+            self.reimbursement_state_combo.setVisible(False)
+            self.reimbursement_tag_combo.setVisible(False)
+            self.reimbursement_category_combo.setVisible(False)
 
             # Enable analytics checkbox for Spending mode
             self.analytics_checkbox.setEnabled(True)
@@ -204,6 +249,9 @@ class AddTransactionDialog(QDialog):
             self.category_combo.setVisible(False)
             self.bill_combo.setVisible(True)
             self.account_combo.setVisible(False)
+            self.reimbursement_state_combo.setVisible(False)
+            self.reimbursement_tag_combo.setVisible(False)
+            self.reimbursement_category_combo.setVisible(False)
 
             # Disable analytics checkbox for Bills mode (greyed out)
             self.analytics_checkbox.setEnabled(False)
@@ -219,8 +267,31 @@ class AddTransactionDialog(QDialog):
             self.category_combo.setVisible(False)
             self.bill_combo.setVisible(False)
             self.account_combo.setVisible(True)
+            self.reimbursement_state_combo.setVisible(False)
+            self.reimbursement_tag_combo.setVisible(False)
+            self.reimbursement_category_combo.setVisible(False)
 
             # Disable analytics checkbox for Savings mode (greyed out)
+            self.analytics_checkbox.setEnabled(False)
+            self.analytics_checkbox.setChecked(False)
+
+        elif mode == "Reimbursements":
+            # Update amount note
+            self.amount_note.setText("(amount spent awaiting reimbursement)")
+
+            # Show reimbursement fields
+            self.dynamic_layout.addRow("Status:", self.reimbursement_state_combo)
+            self.dynamic_layout.addRow("Tag (Trip/Event):", self.reimbursement_tag_combo)
+            self.dynamic_layout.addRow("Category:*", self.reimbursement_category_combo)
+
+            self.category_combo.setVisible(False)
+            self.bill_combo.setVisible(False)
+            self.account_combo.setVisible(False)
+            self.reimbursement_state_combo.setVisible(True)
+            self.reimbursement_tag_combo.setVisible(True)
+            self.reimbursement_category_combo.setVisible(True)
+
+            # Disable analytics checkbox for Reimbursements mode (not applicable)
             self.analytics_checkbox.setEnabled(False)
             self.analytics_checkbox.setChecked(False)
     
@@ -243,6 +314,11 @@ class AddTransactionDialog(QDialog):
         if mode == "Savings" and self.account_combo.currentData() is None:
             QMessageBox.warning(self, "Validation Error", "Please select a savings account")
             return False
+
+        if mode == "Reimbursements":
+            if not self.reimbursement_category_combo.currentText().strip():
+                QMessageBox.warning(self, "Validation Error", "Category is required for reimbursements")
+                return False
 
         return True
     
@@ -320,7 +396,35 @@ class AddTransactionDialog(QDialog):
                     "include_in_analytics": False  # Auto-set to false
                 })
 
-            # Save to database
+            elif mode == "Reimbursements":
+                # Map display names to state enum values
+                state_map = {
+                    "Pending Submission": "pending",
+                    "Awaiting Payment": "submitted",
+                    "Reimbursed": "reimbursed",
+                    "Partially Reimbursed": "partial",
+                    "Denied": "denied"
+                }
+
+                # Save as reimbursement (not a transaction)
+                from services.reimbursement_manager import ReimbursementManager
+                rm = ReimbursementManager()
+                try:
+                    reimbursement = rm.add_reimbursement(
+                        amount=abs(amount),  # Always positive
+                        date=transaction_date,
+                        notes=self.notes_edit.toPlainText().strip(),
+                        category=self.reimbursement_category_combo.currentText().strip(),
+                        location=self.reimbursement_tag_combo.currentText().strip() if self.reimbursement_tag_combo.currentText().strip() else None,
+                        state=state_map.get(self.reimbursement_state_combo.currentText(), "pending")
+                    )
+                    QMessageBox.information(self, "Success", f"Reimbursement added successfully!\nID: {reimbursement.id}")
+                    self.accept()
+                    return
+                finally:
+                    rm.close()
+
+            # Save to database (only for non-reimbursement transactions)
             transaction = self.transaction_manager.add_transaction(self.transaction_data)
 
             # Check testing mode

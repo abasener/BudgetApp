@@ -8,6 +8,12 @@ Dependencies: PyQt6 only (pip install PyQt6)
 """
 
 import sys
+import numpy as np
+import matplotlib
+matplotlib.use('QtAgg')  # Use QtAgg for PyQt6 compatibility
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QFormLayout, QScrollArea, QLabel, QPushButton, QLineEdit, QTextEdit,
@@ -47,11 +53,40 @@ class WidgetShowcase(QMainWindow):
         self.setWindowTitle("PyQt6 Widget Showcase - Side by Side Comparison")
         self.setGeometry(50, 50, 1800, 900)
 
-        # DON'T apply theme to main window - we'll apply it only to left side
-        # self.apply_dark_theme()
+        # Track current mode: False = populated (default), True = blank
+        self.blank_mode = False
+
+        # Create central widget with vertical layout
+        central_widget = QWidget()
+        central_layout = QVBoxLayout(central_widget)
+        central_layout.setSpacing(0)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Add toggle button at the top
+        toggle_button = QPushButton("Switch to Plots View")
+        toggle_button.setFixedHeight(35)
+        toggle_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface_variant']};
+                color: {COLORS['text_primary']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 8px 20px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['hover']};
+                border: 1px solid {COLORS['primary']};
+            }}
+        """)
+        toggle_button.clicked.connect(self.toggle_view)
+        central_layout.addWidget(toggle_button)
+        self.toggle_button = toggle_button
 
         # Create main splitter for side-by-side comparison
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = main_splitter
         main_splitter.setStyleSheet("")  # Ensure splitter has no styling
 
         # LEFT SIDE - THEMED/STYLED
@@ -201,7 +236,335 @@ class WidgetShowcase(QMainWindow):
         main_splitter.addWidget(right_scroll)
         main_splitter.setSizes([900, 900])  # Equal split
 
-        self.setCentralWidget(main_splitter)
+        # Store references to scroll areas for toggling
+        self.left_scroll = left_scroll
+        self.right_scroll = right_scroll
+
+        # Add splitter to central layout
+        central_layout.addWidget(main_splitter)
+
+        self.setCentralWidget(central_widget)
+
+    def toggle_view(self):
+        """Toggle between widgets and plots views"""
+        self.blank_mode = not self.blank_mode
+
+        if self.blank_mode:
+            # Switch to plots view
+            self.toggle_button.setText("Switch to Widgets View")
+            self.show_plots_view()
+        else:
+            # Switch back to widgets view
+            self.toggle_button.setText("Switch to Plots View")
+            self.show_widgets_view()
+
+    def show_plots_view(self):
+        """Show plots/charts reference view"""
+        # Create left side (themed plots)
+        plots_left = QScrollArea()
+        plots_left.setWidgetResizable(True)
+        plots_left.setFrameShape(QFrame.Shape.NoFrame)
+        plots_left.setStyleSheet(self.get_theme_stylesheet())
+
+        plots_left_content = QWidget()
+        plots_left_layout = QVBoxLayout(plots_left_content)
+        plots_left_layout.setSpacing(20)
+        plots_left_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Add title
+        left_title = QLabel("🎨 STYLED PLOTS")
+        left_title.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        left_title.setStyleSheet(f"color: {COLORS['primary']}; padding: 10px;")
+        left_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        plots_left_layout.addWidget(left_title)
+
+        left_subtitle = QLabel("Matplotlib plots with custom dark theme styling")
+        left_subtitle.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px; padding-bottom: 10px;")
+        left_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        plots_left_layout.addWidget(left_subtitle)
+
+        plots_left_layout.addWidget(self.create_separator())
+
+        # Add plot sections to LEFT SIDE (STYLED)
+        plots_left_layout.addWidget(self.create_section_header("Basic Line & Scatter", "Fundamental plots for showing trends, relationships, and data points"))
+        plots_left_layout.addWidget(self.create_line_scatter_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Bar Charts & Histograms", "Comparing categories and showing distributions"))
+        plots_left_layout.addWidget(self.create_bar_hist_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Area & Fill Plots", "Showing cumulative data and filled regions"))
+        plots_left_layout.addWidget(self.create_area_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Pie & Donut Charts", "Showing proportions and percentages"))
+        plots_left_layout.addWidget(self.create_pie_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Statistical Plots", "Box plots, violin plots, and distributions"))
+        plots_left_layout.addWidget(self.create_statistical_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Heatmaps & Confusion Matrix", "2D data visualization and ML metrics"))
+        plots_left_layout.addWidget(self.create_heatmap_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Specialty Plots", "Waterfall, step, stem, and other specialized visualizations"))
+        plots_left_layout.addWidget(self.create_specialty_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("3D Plots", "Three-dimensional visualizations"))
+        plots_left_layout.addWidget(self.create_3d_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Advanced Charts", "Bubble, radar, candlestick, and stream plots"))
+        plots_left_layout.addWidget(self.create_advanced_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Hierarchical & Set Plots", "Treemap, dendrogram, venn diagrams"))
+        plots_left_layout.addWidget(self.create_hierarchical_section(styled=True))
+        plots_left_layout.addWidget(self.create_separator())
+
+        plots_left_layout.addWidget(self.create_section_header("Distribution & Comparison", "Ridgeline, parallel coordinates, word cloud"))
+        plots_left_layout.addWidget(self.create_distribution_section(styled=True))
+
+        plots_left_layout.addStretch()
+        plots_left.setWidget(plots_left_content)
+
+        # Create right side (default plots)
+        plots_right = QScrollArea()
+        plots_right.setWidgetResizable(True)
+        plots_right.setFrameShape(QFrame.Shape.NoFrame)
+        plots_right.setStyleSheet("")
+
+        plots_right_content = QWidget()
+        plots_right_content.setStyleSheet("")
+        plots_right_layout = QVBoxLayout(plots_right_content)
+        plots_right_layout.setSpacing(20)
+        plots_right_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Add title
+        right_title = QLabel("⚙ DEFAULT PLOTS")
+        right_title.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        right_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        plots_right_layout.addWidget(right_title)
+
+        right_subtitle = QLabel("Matplotlib plots with default styling")
+        right_subtitle.setStyleSheet("font-size: 13px; padding-bottom: 10px;")
+        right_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        plots_right_layout.addWidget(right_subtitle)
+
+        # Separator line
+        sep_right = QFrame()
+        sep_right.setFrameShape(QFrame.Shape.HLine)
+        sep_right.setFrameShadow(QFrame.Shadow.Sunken)
+        plots_right_layout.addWidget(sep_right)
+
+        # Add plot sections to RIGHT SIDE (DEFAULT)
+        plots_right_layout.addWidget(self.create_section_header("Basic Line & Scatter", "Fundamental plots for showing trends, relationships, and data points"))
+        plots_right_layout.addWidget(self.create_line_scatter_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Bar Charts & Histograms", "Comparing categories and showing distributions"))
+        plots_right_layout.addWidget(self.create_bar_hist_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Area & Fill Plots", "Showing cumulative data and filled regions"))
+        plots_right_layout.addWidget(self.create_area_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Pie & Donut Charts", "Showing proportions and percentages"))
+        plots_right_layout.addWidget(self.create_pie_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Statistical Plots", "Box plots, violin plots, and distributions"))
+        plots_right_layout.addWidget(self.create_statistical_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Heatmaps & Confusion Matrix", "2D data visualization and ML metrics"))
+        plots_right_layout.addWidget(self.create_heatmap_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Specialty Plots", "Waterfall, step, stem, and other specialized visualizations"))
+        plots_right_layout.addWidget(self.create_specialty_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("3D Plots", "Three-dimensional visualizations"))
+        plots_right_layout.addWidget(self.create_3d_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Advanced Charts", "Bubble, radar, candlestick, and stream plots"))
+        plots_right_layout.addWidget(self.create_advanced_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Hierarchical & Set Plots", "Treemap, dendrogram, venn diagrams"))
+        plots_right_layout.addWidget(self.create_hierarchical_section(styled=False))
+        plots_right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        plots_right_layout.addWidget(self.create_section_header("Distribution & Comparison", "Ridgeline, parallel coordinates, word cloud"))
+        plots_right_layout.addWidget(self.create_distribution_section(styled=False))
+
+        plots_right_layout.addStretch()
+        plots_right.setWidget(plots_right_content)
+
+        # Replace widgets in splitter
+        self.main_splitter.replaceWidget(0, plots_left)
+        self.main_splitter.replaceWidget(1, plots_right)
+
+        # Store references
+        self.left_scroll = plots_left
+        self.right_scroll = plots_right
+
+    def show_widgets_view(self):
+        """Show populated view with all widgets"""
+        # LEFT SIDE - THEMED/STYLED
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setStyleSheet(self.get_theme_stylesheet())
+
+        left_content = QWidget()
+        left_layout = QVBoxLayout(left_content)
+        left_layout.setSpacing(20)
+        left_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Left title
+        left_title = QLabel("🎨 THEMED (Styled)")
+        left_title.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        left_title.setStyleSheet(f"color: {COLORS['primary']}; padding: 10px;")
+        left_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left_layout.addWidget(left_title)
+
+        left_subtitle = QLabel("All widgets with custom dark theme styling")
+        left_subtitle.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px; padding-bottom: 10px;")
+        left_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left_layout.addWidget(left_subtitle)
+
+        left_layout.addWidget(self.create_separator())
+
+        # Add all sections to LEFT SIDE (THEMED)
+        left_layout.addWidget(self.create_section_header("Buttons", "Clickable elements for user actions. Variants include push buttons, tool buttons, radio buttons, and checkboxes."))
+        left_layout.addWidget(self.create_button_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Text Inputs", "Single-line and multi-line text entry fields. Variants include plain text, passwords, numbers, dates, and autocomplete."))
+        left_layout.addWidget(self.create_text_input_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Number Inputs", "Specialized inputs for numeric values with increment/decrement buttons and validation."))
+        left_layout.addWidget(self.create_number_input_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Selection Widgets", "Widgets for choosing from predefined options: dropdowns, radio buttons, checkboxes."))
+        left_layout.addWidget(self.create_selection_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Date & Time Pickers", "Widgets for selecting dates, times, and date-time combinations with built-in calendars."))
+        left_layout.addWidget(self.create_datetime_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Sliders & Dials", "Interactive continuous value selectors. Less common but great for volume, brightness, or progress."))
+        left_layout.addWidget(self.create_slider_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Display Widgets", "Read-only widgets for showing information: progress bars, LCD numbers, labels."))
+        left_layout.addWidget(self.create_display_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Containers & Layouts", "Organizational elements: group boxes, frames, tabs, splitters. Essential for structuring UIs."))
+        left_layout.addWidget(self.create_container_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Lists, Tables & Trees", "Data display widgets for showing collections: lists, tables with rows/columns, hierarchical trees."))
+        left_layout.addWidget(self.create_data_section())
+        left_layout.addWidget(self.create_separator())
+
+        left_layout.addWidget(self.create_section_header("Dialogs & Popups", "Modal windows for user interaction: message boxes, file pickers, input dialogs, color pickers."))
+        left_layout.addWidget(self.create_dialog_section())
+        left_layout.addStretch()
+
+        left_scroll.setWidget(left_content)
+
+        # RIGHT SIDE - NATIVE/UNSTYLED
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        right_scroll.setStyleSheet("")
+
+        right_content = QWidget()
+        right_content.setStyleSheet("")
+        right_layout = QVBoxLayout(right_content)
+        right_layout.setSpacing(20)
+        right_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Right title
+        right_title = QLabel("⚙ NATIVE (Unstyled)")
+        right_title.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        right_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_layout.addWidget(right_title)
+
+        right_subtitle = QLabel("All widgets with default Qt/Windows appearance")
+        right_subtitle.setStyleSheet("font-size: 13px; padding-bottom: 10px;")
+        right_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_layout.addWidget(right_subtitle)
+
+        # Separator line
+        sep_right = QFrame()
+        sep_right.setFrameShape(QFrame.Shape.HLine)
+        sep_right.setFrameShadow(QFrame.Shadow.Sunken)
+        right_layout.addWidget(sep_right)
+
+        # Add all sections to RIGHT SIDE (NATIVE)
+        right_layout.addWidget(self.create_section_header("Buttons", "Clickable elements for user actions. Variants include push buttons, tool buttons, radio buttons, and checkboxes."))
+        right_layout.addWidget(self.create_button_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Text Inputs", "Single-line and multi-line text entry fields. Variants include plain text, passwords, numbers, dates, and autocomplete."))
+        right_layout.addWidget(self.create_text_input_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Number Inputs", "Specialized inputs for numeric values with increment/decrement buttons and validation."))
+        right_layout.addWidget(self.create_number_input_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Selection Widgets", "Widgets for choosing from predefined options: dropdowns, radio buttons, checkboxes."))
+        right_layout.addWidget(self.create_selection_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Date & Time Pickers", "Widgets for selecting dates, times, and date-time combinations with built-in calendars."))
+        right_layout.addWidget(self.create_datetime_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Sliders & Dials", "Interactive continuous value selectors. Less common but great for volume, brightness, or progress."))
+        right_layout.addWidget(self.create_slider_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Display Widgets", "Read-only widgets for showing information: progress bars, LCD numbers, labels."))
+        right_layout.addWidget(self.create_display_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Containers & Layouts", "Organizational elements: group boxes, frames, tabs, splitters. Essential for structuring UIs."))
+        right_layout.addWidget(self.create_container_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Lists, Tables & Trees", "Data display widgets for showing collections: lists, tables with rows/columns, hierarchical trees."))
+        right_layout.addWidget(self.create_data_section())
+        right_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        right_layout.addWidget(self.create_section_header("Dialogs & Popups", "Modal windows for user interaction: message boxes, file pickers, input dialogs, color pickers."))
+        right_layout.addWidget(self.create_dialog_section())
+        right_layout.addStretch()
+
+        right_scroll.setWidget(right_content)
+
+        # Replace widgets in splitter
+        self.main_splitter.replaceWidget(0, left_scroll)
+        self.main_splitter.replaceWidget(1, right_scroll)
+
+        # Store references
+        self.left_scroll = left_scroll
+        self.right_scroll = right_scroll
 
     def get_theme_stylesheet(self) -> str:
         """Get the dark theme stylesheet"""
@@ -1028,9 +1391,1134 @@ class WidgetShowcase(QMainWindow):
         group.setLayout(layout)
         return group
 
+    # ============= PLOT CREATION METHODS =============
+
+    def create_plot_widget(self, plot_func, title: str, styled: bool, width=600, height=400) -> QWidget:
+        """Helper to create a matplotlib plot widget"""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # Add title label
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        if styled:
+            title_label.setStyleSheet(f"color: {COLORS['accent']}; padding: 3px;")
+        layout.addWidget(title_label)
+
+        # Create matplotlib figure
+        fig = Figure(figsize=(width/100, height/100), dpi=100)
+        canvas = FigureCanvas(fig)
+        canvas.setFixedSize(width, height)
+
+        # Apply styling if needed
+        if styled:
+            fig.patch.set_facecolor(COLORS['surface'])
+
+        # Call the plot function to populate the figure
+        plot_func(fig, styled)
+
+        layout.addWidget(canvas)
+        return container
+
+    def create_line_scatter_section(self, styled: bool) -> QWidget:
+        """Line plots and scatter plots"""
+        group = QGroupBox("Line & Scatter Plots")
+        layout = QVBoxLayout()
+
+        # Row 1: Plot and Scatter
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_line, "Plot", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_scatter, "Scatter", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        # Row 2: Plot with markers and Error bars
+        row2 = QHBoxLayout()
+        row2.addWidget(self.create_plot_widget(self.plot_with_markers, "Plot (with markers)", styled, 320, 240))
+        row2.addWidget(self.create_plot_widget(self.plot_errorbar, "Errorbar", styled, 320, 240))
+        row2.addStretch()
+        layout.addLayout(row2)
+
+        group.setLayout(layout)
+        return group
+
+    def create_bar_hist_section(self, styled: bool) -> QWidget:
+        """Bar charts and histograms"""
+        group = QGroupBox("Bar Charts & Histograms")
+        layout = QVBoxLayout()
+
+        # Row 1: Vertical and Horizontal Bar (side by side since they're rotations)
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_bar_vertical, "Bar (vertical)", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_bar_horizontal, "Barh (horizontal)", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        # Row 2: Histogram and Grouped Bar
+        row2 = QHBoxLayout()
+        row2.addWidget(self.create_plot_widget(self.plot_histogram, "Hist", styled, 320, 240))
+        row2.addWidget(self.create_plot_widget(self.plot_bar_grouped, "Bar (grouped)", styled, 320, 240))
+        row2.addStretch()
+        layout.addLayout(row2)
+
+        # Row 3: Stacked Bar
+        row3 = QHBoxLayout()
+        row3.addWidget(self.create_plot_widget(self.plot_bar_stacked, "Bar (stacked)", styled, 320, 240))
+        row3.addStretch()
+        layout.addLayout(row3)
+
+        group.setLayout(layout)
+        return group
+
+    def create_area_section(self, styled: bool) -> QWidget:
+        """Area and fill plots"""
+        group = QGroupBox("Area & Fill Plots")
+        layout = QVBoxLayout()
+
+        # Row 1: Fill and Stackplot
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_fill_between, "Fill_between", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_stackplot, "Stackplot", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        group.setLayout(layout)
+        return group
+
+    def create_pie_section(self, styled: bool) -> QWidget:
+        """Pie and donut charts"""
+        group = QGroupBox("Pie & Donut Charts")
+        layout = QVBoxLayout()
+
+        # Row 1: Pie and Donut
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_pie, "Pie", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_donut, "Pie (donut style)", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        group.setLayout(layout)
+        return group
+
+    def create_statistical_section(self, styled: bool) -> QWidget:
+        """Statistical plots"""
+        group = QGroupBox("Statistical Plots")
+        layout = QVBoxLayout()
+
+        # Row 1: Box and Violin
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_boxplot, "Boxplot", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_violinplot, "Violinplot", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        group.setLayout(layout)
+        return group
+
+    def create_heatmap_section(self, styled: bool) -> QWidget:
+        """Heatmaps and confusion matrices"""
+        group = QGroupBox("Heatmaps & Matrices")
+        layout = QVBoxLayout()
+
+        # Row 1: Heatmap (imshow) and Confusion Matrix
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_imshow, "Imshow (heatmap)", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_confusion_matrix, "Confusion Matrix (sklearn)", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        group.setLayout(layout)
+        return group
+
+    def create_specialty_section(self, styled: bool) -> QWidget:
+        """Specialty and less common plots"""
+        group = QGroupBox("Specialty Plots")
+        layout = QVBoxLayout()
+
+        # Row 1: Step and Stem
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_step, "Step", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_stem, "Stem", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        # Row 2: Contour and Contourf
+        row2 = QHBoxLayout()
+        row2.addWidget(self.create_plot_widget(self.plot_contour, "Contour", styled, 320, 240))
+        row2.addWidget(self.create_plot_widget(self.plot_contourf, "Contourf (filled)", styled, 320, 240))
+        row2.addStretch()
+        layout.addLayout(row2)
+
+        # Row 3: Polar and Hexbin
+        row3 = QHBoxLayout()
+        row3.addWidget(self.create_plot_widget(self.plot_polar, "Polar", styled, 320, 240))
+        row3.addWidget(self.create_plot_widget(self.plot_hexbin, "Hexbin", styled, 320, 240))
+        row3.addStretch()
+        layout.addLayout(row3)
+
+        # Row 4: Quiver
+        row4 = QHBoxLayout()
+        row4.addWidget(self.create_plot_widget(self.plot_quiver, "Quiver (vector field)", styled, 320, 240))
+        row4.addStretch()
+        layout.addLayout(row4)
+
+        group.setLayout(layout)
+        return group
+
+    def create_3d_section(self, styled: bool) -> QWidget:
+        """3D plots"""
+        group = QGroupBox("3D Plots")
+        layout = QVBoxLayout()
+
+        # Row 1: 3D Scatter and 3D Surface
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_3d_scatter, "Scatter (3D)", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_3d_surface, "Surface (3D)", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        # Row 2: 3D Line and 3D Wireframe
+        row2 = QHBoxLayout()
+        row2.addWidget(self.create_plot_widget(self.plot_3d_line, "Plot (3D)", styled, 320, 240))
+        row2.addWidget(self.create_plot_widget(self.plot_3d_wireframe, "Wireframe (3D)", styled, 320, 240))
+        row2.addStretch()
+        layout.addLayout(row2)
+
+        group.setLayout(layout)
+        return group
+
+    def create_advanced_section(self, styled: bool) -> QWidget:
+        """Advanced chart types"""
+        group = QGroupBox("Advanced Charts")
+        layout = QVBoxLayout()
+
+        # Row 1: Bubble and Radar
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_bubble, "Scatter (bubble)", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_radar, "Radar / Spider", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        # Row 2: Candlestick and Stream
+        row2 = QHBoxLayout()
+        row2.addWidget(self.create_plot_widget(self.plot_candlestick, "Candlestick (mplfinance)", styled, 320, 240))
+        row2.addWidget(self.create_plot_widget(self.plot_stream, "Streamgraph", styled, 320, 240))
+        row2.addStretch()
+        layout.addLayout(row2)
+
+        group.setLayout(layout)
+        return group
+
+    def create_hierarchical_section(self, styled: bool) -> QWidget:
+        """Hierarchical and set visualization plots"""
+        group = QGroupBox("Hierarchical & Set Plots")
+        layout = QVBoxLayout()
+
+        # Row 1: Treemap and Dendrogram
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_treemap, "Treemap (squarify)", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_dendrogram, "Dendrogram (scipy)", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        # Row 2: Venn diagram and Sankey
+        row2 = QHBoxLayout()
+        row2.addWidget(self.create_plot_widget(self.plot_venn, "Venn (matplotlib_venn)", styled, 320, 240))
+        row2.addWidget(self.create_plot_widget(self.plot_sankey, "Sankey", styled, 320, 240))
+        row2.addStretch()
+        layout.addLayout(row2)
+
+        group.setLayout(layout)
+        return group
+
+    def create_distribution_section(self, styled: bool) -> QWidget:
+        """Distribution and comparison plots"""
+        group = QGroupBox("Distribution & Comparison")
+        layout = QVBoxLayout()
+
+        # Row 1: Ridgeline and Parallel Coordinates
+        row1 = QHBoxLayout()
+        row1.addWidget(self.create_plot_widget(self.plot_ridgeline, "Ridgeline (joypy)", styled, 320, 240))
+        row1.addWidget(self.create_plot_widget(self.plot_parallel, "Parallel Coordinates (pandas)", styled, 320, 240))
+        row1.addStretch()
+        layout.addLayout(row1)
+
+        # Row 2: Word Cloud
+        row2 = QHBoxLayout()
+        row2.addWidget(self.create_plot_widget(self.plot_wordcloud, "Word Cloud (wordcloud)", styled, 320, 240))
+        row2.addStretch()
+        layout.addLayout(row2)
+
+        group.setLayout(layout)
+        return group
+
+    # ============= INDIVIDUAL PLOT FUNCTIONS =============
+
+    def plot_line(self, fig, styled):
+        """Basic line plot"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(0, 10, 100)
+        y = np.sin(x)
+        ax.plot(x, y, color=COLORS['primary'] if styled else None, linewidth=2)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_scatter(self, fig, styled):
+        """Scatter plot"""
+        ax = fig.add_subplot(111)
+        x = np.random.randn(50)
+        y = np.random.randn(50)
+        ax.scatter(x, y, c=COLORS['accent'] if styled else None, alpha=0.6, s=50)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_with_markers(self, fig, styled):
+        """Line plot with markers"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(0, 10, 20)
+        y = x ** 0.5
+        ax.plot(x, y, marker='o', color=COLORS['secondary'] if styled else None, linewidth=2, markersize=6)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_errorbar(self, fig, styled):
+        """Error bar plot"""
+        ax = fig.add_subplot(111)
+        x = np.arange(0, 10, 1)
+        y = x ** 2
+        yerr = x * 2
+        ax.errorbar(x, y, yerr=yerr, fmt='o-', color=COLORS['primary'] if styled else None,
+                    ecolor=COLORS['error'] if styled else None, capsize=5)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_bar_vertical(self, fig, styled):
+        """Vertical bar chart"""
+        ax = fig.add_subplot(111)
+        categories = ['A', 'B', 'C', 'D', 'E']
+        values = [23, 45, 56, 78, 32]
+        ax.bar(categories, values, color=COLORS['primary'] if styled else None)
+        ax.set_xlabel('Category', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3, axis='y')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_bar_horizontal(self, fig, styled):
+        """Horizontal bar chart"""
+        ax = fig.add_subplot(111)
+        categories = ['A', 'B', 'C', 'D', 'E']
+        values = [23, 45, 56, 78, 32]
+        ax.barh(categories, values, color=COLORS['accent'] if styled else None)
+        ax.set_ylabel('Category', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_xlabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3, axis='x')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_histogram(self, fig, styled):
+        """Histogram"""
+        ax = fig.add_subplot(111)
+        data = np.random.randn(1000)
+        ax.hist(data, bins=30, color=COLORS['secondary'] if styled else None, alpha=0.7, edgecolor='black')
+        ax.set_xlabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Frequency', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3, axis='y')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_bar_grouped(self, fig, styled):
+        """Grouped bar chart"""
+        ax = fig.add_subplot(111)
+        categories = ['A', 'B', 'C', 'D']
+        group1 = [20, 35, 30, 25]
+        group2 = [25, 32, 34, 20]
+        x = np.arange(len(categories))
+        width = 0.35
+        ax.bar(x - width/2, group1, width, label='Group 1', color=COLORS['primary'] if styled else None)
+        ax.bar(x + width/2, group2, width, label='Group 2', color=COLORS['accent'] if styled else None)
+        ax.set_xlabel('Category', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_xticks(x)
+        ax.set_xticklabels(categories)
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis='y')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+            legend = ax.get_legend()
+            legend.get_frame().set_facecolor(COLORS['surface_variant'])
+            legend.get_frame().set_edgecolor(COLORS['border'])
+            for text in legend.get_texts():
+                text.set_color(COLORS['text_primary'])
+        fig.tight_layout()
+
+    def plot_bar_stacked(self, fig, styled):
+        """Stacked bar chart"""
+        ax = fig.add_subplot(111)
+        categories = ['A', 'B', 'C', 'D']
+        group1 = [20, 35, 30, 25]
+        group2 = [25, 32, 34, 20]
+        group3 = [15, 18, 22, 28]
+        ax.bar(categories, group1, label='Group 1', color=COLORS['primary'] if styled else None)
+        ax.bar(categories, group2, bottom=group1, label='Group 2', color=COLORS['secondary'] if styled else None)
+        bottom_for_g3 = [g1 + g2 for g1, g2 in zip(group1, group2)]
+        ax.bar(categories, group3, bottom=bottom_for_g3, label='Group 3', color=COLORS['accent'] if styled else None)
+        ax.set_xlabel('Category', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis='y')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+            legend = ax.get_legend()
+            legend.get_frame().set_facecolor(COLORS['surface_variant'])
+            legend.get_frame().set_edgecolor(COLORS['border'])
+            for text in legend.get_texts():
+                text.set_color(COLORS['text_primary'])
+        fig.tight_layout()
+
+    def plot_fill_between(self, fig, styled):
+        """Fill between plot"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(0, 10, 100)
+        y1 = np.sin(x)
+        y2 = np.sin(x) + 0.5
+        ax.plot(x, y1, color=COLORS['primary'] if styled else 'blue')
+        ax.plot(x, y2, color=COLORS['accent'] if styled else 'orange')
+        ax.fill_between(x, y1, y2, alpha=0.3, color=COLORS['secondary'] if styled else 'green')
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_stackplot(self, fig, styled):
+        """Stacked area plot"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(0, 10, 50)
+        y1 = np.sin(x) + 5
+        y2 = np.cos(x) + 5
+        y3 = np.sin(x + 1) + 5
+        colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent']] if styled else None
+        ax.stackplot(x, y1, y2, y3, labels=['A', 'B', 'C'], colors=colors, alpha=0.7)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.legend(loc='upper left')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+            legend = ax.get_legend()
+            legend.get_frame().set_facecolor(COLORS['surface_variant'])
+            legend.get_frame().set_edgecolor(COLORS['border'])
+            for text in legend.get_texts():
+                text.set_color(COLORS['text_primary'])
+        fig.tight_layout()
+
+    def plot_pie(self, fig, styled):
+        """Pie chart"""
+        ax = fig.add_subplot(111)
+        sizes = [25, 30, 20, 25]
+        labels = ['A', 'B', 'C', 'D']
+        colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent'], COLORS['error']] if styled else None
+        ax.pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
+        if styled:
+            for text in ax.texts:
+                text.set_color(COLORS['text_primary'])
+        fig.tight_layout()
+
+    def plot_donut(self, fig, styled):
+        """Donut chart (pie with hole)"""
+        ax = fig.add_subplot(111)
+        sizes = [25, 30, 20, 25]
+        labels = ['A', 'B', 'C', 'D']
+        colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent'], COLORS['error']] if styled else None
+        wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors,
+                                           startangle=90, wedgeprops=dict(width=0.5))
+        if styled:
+            for text in ax.texts:
+                text.set_color(COLORS['text_primary'])
+        fig.tight_layout()
+
+    def plot_boxplot(self, fig, styled):
+        """Box plot"""
+        ax = fig.add_subplot(111)
+        data = [np.random.normal(0, std, 100) for std in range(1, 5)]
+        bp = ax.boxplot(data, patch_artist=True)
+        if styled:
+            for patch in bp['boxes']:
+                patch.set_facecolor(COLORS['primary'])
+            for element in ['whiskers', 'fliers', 'means', 'medians', 'caps']:
+                if element in bp:
+                    for item in bp[element]:
+                        item.set_color(COLORS['text_secondary'])
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        ax.set_xticklabels(['A', 'B', 'C', 'D'])
+        ax.set_ylabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3, axis='y')
+        fig.tight_layout()
+
+    def plot_violinplot(self, fig, styled):
+        """Violin plot"""
+        ax = fig.add_subplot(111)
+        data = [np.random.normal(0, std, 100) for std in range(1, 5)]
+        vp = ax.violinplot(data, showmeans=True, showmedians=True)
+        if styled:
+            for pc in vp['bodies']:
+                pc.set_facecolor(COLORS['primary'])
+                pc.set_alpha(0.7)
+            for partname in ('cbars', 'cmins', 'cmaxes', 'cmedians', 'cmeans'):
+                if partname in vp:
+                    vp[partname].set_edgecolor(COLORS['text_secondary'])
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        ax.set_xticks([1, 2, 3, 4])
+        ax.set_xticklabels(['A', 'B', 'C', 'D'])
+        ax.set_ylabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3, axis='y')
+        fig.tight_layout()
+
+    def plot_imshow(self, fig, styled):
+        """Heatmap using imshow"""
+        ax = fig.add_subplot(111)
+        data = np.random.rand(10, 10)
+        cmap = 'viridis' if not styled else 'plasma'
+        im = ax.imshow(data, cmap=cmap, aspect='auto')
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        fig.colorbar(im, ax=ax)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_confusion_matrix(self, fig, styled):
+        """Confusion matrix (sklearn style)"""
+        ax = fig.add_subplot(111)
+        # Sample confusion matrix data
+        cm = np.array([[50, 2], [5, 43]])
+        cmap = 'Blues' if not styled else 'RdPu'
+        im = ax.imshow(cm, cmap=cmap, aspect='auto')
+
+        # Add text annotations
+        for i in range(2):
+            for j in range(2):
+                text_color = COLORS['text_primary'] if styled else 'white' if cm[i, j] > cm.max() / 2 else 'black'
+                ax.text(j, i, str(cm[i, j]), ha='center', va='center', color=text_color, fontsize=14, fontweight='bold')
+
+        ax.set_xlabel('Predicted', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Actual', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+        ax.set_xticklabels(['Class 0', 'Class 1'])
+        ax.set_yticklabels(['Class 0', 'Class 1'])
+        if styled:
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_step(self, fig, styled):
+        """Step plot"""
+        ax = fig.add_subplot(111)
+        x = np.arange(0, 10, 1)
+        y = np.random.randint(0, 10, 10)
+        ax.step(x, y, where='mid', color=COLORS['primary'] if styled else None, linewidth=2)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_stem(self, fig, styled):
+        """Stem plot"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(0, 10, 20)
+        y = np.sin(x)
+        markerline, stemlines, baseline = ax.stem(x, y)
+        if styled:
+            markerline.set_color(COLORS['accent'])
+            stemlines.set_color(COLORS['primary'])
+            baseline.set_color(COLORS['border'])
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+
+    def plot_contour(self, fig, styled):
+        """Contour plot"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(-3, 3, 100)
+        y = np.linspace(-3, 3, 100)
+        X, Y = np.meshgrid(x, y)
+        Z = np.sin(X) * np.cos(Y)
+        cmap = 'viridis' if not styled else 'plasma'
+        cs = ax.contour(X, Y, Z, cmap=cmap)
+        ax.clabel(cs, inline=True, fontsize=8)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_contourf(self, fig, styled):
+        """Filled contour plot"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(-3, 3, 100)
+        y = np.linspace(-3, 3, 100)
+        X, Y = np.meshgrid(x, y)
+        Z = np.sin(X) * np.cos(Y)
+        cmap = 'viridis' if not styled else 'plasma'
+        cf = ax.contourf(X, Y, Z, cmap=cmap)
+        fig.colorbar(cf, ax=ax)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_polar(self, fig, styled):
+        """Polar plot"""
+        ax = fig.add_subplot(111, projection='polar')
+        theta = np.linspace(0, 2 * np.pi, 100)
+        r = np.abs(np.sin(3 * theta))
+        ax.plot(theta, r, color=COLORS['primary'] if styled else None, linewidth=2)
+        ax.fill(theta, r, alpha=0.3, color=COLORS['secondary'] if styled else None)
+        ax.set_title('Polar Plot', pad=20, color=COLORS['text_primary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            ax.spines['polar'].set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_hexbin(self, fig, styled):
+        """Hexbin plot"""
+        ax = fig.add_subplot(111)
+        x = np.random.randn(1000)
+        y = np.random.randn(1000)
+        cmap = 'viridis' if not styled else 'plasma'
+        hb = ax.hexbin(x, y, gridsize=20, cmap=cmap)
+        fig.colorbar(hb, ax=ax)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_quiver(self, fig, styled):
+        """Quiver plot (vector field)"""
+        ax = fig.add_subplot(111)
+        x = np.arange(0, 2.2, 0.2)
+        y = np.arange(0, 2.2, 0.2)
+        X, Y = np.meshgrid(x, y)
+        U = np.cos(X) * Y
+        V = np.sin(Y) * X
+        color = COLORS['primary'] if styled else 'blue'
+        ax.quiver(X, Y, U, V, color=color, alpha=0.8)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    # ============= 3D PLOT FUNCTIONS =============
+
+    def plot_3d_scatter(self, fig, styled):
+        """3D Scatter plot"""
+        from mpl_toolkits.mplot3d import Axes3D
+        ax = fig.add_subplot(111, projection='3d')
+        x = np.random.randn(50)
+        y = np.random.randn(50)
+        z = np.random.randn(50)
+        ax.scatter(x, y, z, c=COLORS['primary'] if styled else None, marker='o', s=50, alpha=0.6)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_zlabel('Z', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            ax.xaxis.pane.fill = False
+            ax.yaxis.pane.fill = False
+            ax.zaxis.pane.fill = False
+        fig.tight_layout()
+
+    def plot_3d_surface(self, fig, styled):
+        """3D Surface plot"""
+        from mpl_toolkits.mplot3d import Axes3D
+        ax = fig.add_subplot(111, projection='3d')
+        x = np.linspace(-5, 5, 50)
+        y = np.linspace(-5, 5, 50)
+        X, Y = np.meshgrid(x, y)
+        Z = np.sin(np.sqrt(X**2 + Y**2))
+        cmap = 'plasma' if styled else 'viridis'
+        surf = ax.plot_surface(X, Y, Z, cmap=cmap, alpha=0.8)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_zlabel('Z', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+        fig.tight_layout()
+
+    def plot_3d_line(self, fig, styled):
+        """3D Line plot"""
+        from mpl_toolkits.mplot3d import Axes3D
+        ax = fig.add_subplot(111, projection='3d')
+        t = np.linspace(0, 10, 100)
+        x = np.sin(t)
+        y = np.cos(t)
+        z = t
+        ax.plot(x, y, z, color=COLORS['primary'] if styled else None, linewidth=2)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_zlabel('Z', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+        fig.tight_layout()
+
+    def plot_3d_wireframe(self, fig, styled):
+        """3D Wireframe plot"""
+        from mpl_toolkits.mplot3d import Axes3D
+        ax = fig.add_subplot(111, projection='3d')
+        x = np.linspace(-5, 5, 30)
+        y = np.linspace(-5, 5, 30)
+        X, Y = np.meshgrid(x, y)
+        Z = np.sin(np.sqrt(X**2 + Y**2))
+        ax.plot_wireframe(X, Y, Z, color=COLORS['primary'] if styled else None, alpha=0.7)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_zlabel('Z', color=COLORS['text_secondary'] if styled else 'black')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+        fig.tight_layout()
+
+    # ============= ADVANCED PLOT FUNCTIONS =============
+
+    def plot_bubble(self, fig, styled):
+        """Bubble plot (scatter with size variation)"""
+        ax = fig.add_subplot(111)
+        x = np.random.randn(30)
+        y = np.random.randn(30)
+        sizes = np.random.randint(50, 500, 30)  # Varying bubble sizes
+        ax.scatter(x, y, s=sizes, c=COLORS['accent'] if styled else None, alpha=0.5, edgecolors='black', linewidth=1)
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.grid(True, alpha=0.3)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_radar(self, fig, styled):
+        """Radar/Spider chart"""
+        categories = ['A', 'B', 'C', 'D', 'E']
+        values = [4, 3, 5, 4, 4]
+
+        # Number of variables
+        N = len(categories)
+        # Compute angle for each axis
+        angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+        # Complete the loop
+        values += values[:1]
+        angles += angles[:1]
+
+        ax = fig.add_subplot(111, projection='polar')
+        ax.plot(angles, values, color=COLORS['primary'] if styled else 'blue', linewidth=2)
+        ax.fill(angles, values, color=COLORS['primary'] if styled else 'blue', alpha=0.25)
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(categories)
+        ax.set_ylim(0, 6)
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            ax.spines['polar'].set_color(COLORS['border'])
+        fig.tight_layout()
+
+    def plot_candlestick(self, fig, styled):
+        """Candlestick chart (finance)"""
+        try:
+            import pandas as pd
+            import mplfinance as mpf
+
+            # Create sample data
+            dates = pd.date_range('2024-01-01', periods=20, freq='D')
+            data = pd.DataFrame({
+                'Open': np.random.uniform(90, 110, 20),
+                'High': np.random.uniform(110, 120, 20),
+                'Low': np.random.uniform(80, 90, 20),
+                'Close': np.random.uniform(90, 110, 20)
+            }, index=dates)
+
+            # Use matplotlib directly for compatibility
+            ax = fig.add_subplot(111)
+            for i in range(len(data)):
+                color = COLORS['success'] if data['Close'].iloc[i] > data['Open'].iloc[i] else COLORS['error'] if styled else ('green' if data['Close'].iloc[i] > data['Open'].iloc[i] else 'red')
+                ax.plot([i, i], [data['Low'].iloc[i], data['High'].iloc[i]], color=color, linewidth=1)
+                ax.plot([i, i], [data['Open'].iloc[i], data['Close'].iloc[i]], color=color, linewidth=4)
+
+            ax.set_xlabel('Days', color=COLORS['text_secondary'] if styled else 'black')
+            ax.set_ylabel('Price', color=COLORS['text_secondary'] if styled else 'black')
+            ax.grid(True, alpha=0.3)
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+                ax.tick_params(colors=COLORS['text_secondary'])
+                for spine in ax.spines.values():
+                    spine.set_color(COLORS['border'])
+        except ImportError:
+            # Fallback if mplfinance not available
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'mplfinance not installed\npip install mplfinance',
+                   ha='center', va='center', fontsize=12,
+                   color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+    def plot_stream(self, fig, styled):
+        """Streamgraph (stacked area with baseline offset)"""
+        ax = fig.add_subplot(111)
+        x = np.linspace(0, 10, 50)
+        y1 = np.sin(x) + 2
+        y2 = np.cos(x) + 2
+        y3 = np.sin(x + 1) + 2
+        colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent']] if styled else None
+        ax.stackplot(x, y1, y2, y3, labels=['A', 'B', 'C'], colors=colors, alpha=0.7, baseline='wiggle')
+        ax.set_xlabel('X', color=COLORS['text_secondary'] if styled else 'black')
+        ax.set_ylabel('Y', color=COLORS['text_secondary'] if styled else 'black')
+        ax.legend(loc='upper left')
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+            ax.tick_params(colors=COLORS['text_secondary'])
+            for spine in ax.spines.values():
+                spine.set_color(COLORS['border'])
+            legend = ax.get_legend()
+            legend.get_frame().set_facecolor(COLORS['surface_variant'])
+            legend.get_frame().set_edgecolor(COLORS['border'])
+            for text in legend.get_texts():
+                text.set_color(COLORS['text_primary'])
+        fig.tight_layout()
+
+    # ============= HIERARCHICAL PLOT FUNCTIONS =============
+
+    def plot_treemap(self, fig, styled):
+        """Treemap"""
+        try:
+            import squarify
+            ax = fig.add_subplot(111)
+            sizes = [40, 30, 20, 10]
+            labels = ['A\n40', 'B\n30', 'C\n20', 'D\n10']
+            colors_list = [COLORS['primary'], COLORS['secondary'], COLORS['accent'], COLORS['error']] if styled else None
+            squarify.plot(sizes=sizes, label=labels, color=colors_list, alpha=0.7, ax=ax, text_kwargs={'fontsize':10, 'color': COLORS['text_primary'] if styled else 'black'})
+            ax.axis('off')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        except ImportError:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'squarify not installed\npip install squarify',
+                   ha='center', va='center', fontsize=12,
+                   color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+    def plot_dendrogram(self, fig, styled):
+        """Dendrogram (hierarchical clustering)"""
+        try:
+            from scipy.cluster.hierarchy import dendrogram, linkage
+            ax = fig.add_subplot(111)
+            # Generate sample data
+            X = np.random.randn(10, 2)
+            Z = linkage(X, 'ward')
+            if styled:
+                dendrogram(Z, ax=ax, color_threshold=0, above_threshold_color=COLORS['primary'])
+            else:
+                dendrogram(Z, ax=ax)
+            ax.set_xlabel('Sample', color=COLORS['text_secondary'] if styled else 'black')
+            ax.set_ylabel('Distance', color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+                ax.tick_params(colors=COLORS['text_secondary'])
+                for spine in ax.spines.values():
+                    spine.set_color(COLORS['border'])
+        except ImportError:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'scipy not installed\npip install scipy',
+                   ha='center', va='center', fontsize=12,
+                   color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+    def plot_venn(self, fig, styled):
+        """Venn diagram"""
+        try:
+            from matplotlib_venn import venn2
+            ax = fig.add_subplot(111)
+            v = venn2(subsets=(30, 20, 10), set_labels=('A', 'B'), ax=ax)
+            if styled:
+                if v.get_patch_by_id('10'):
+                    v.get_patch_by_id('10').set_color(COLORS['primary'])
+                    v.get_patch_by_id('10').set_alpha(0.7)
+                if v.get_patch_by_id('01'):
+                    v.get_patch_by_id('01').set_color(COLORS['secondary'])
+                    v.get_patch_by_id('01').set_alpha(0.7)
+                if v.get_patch_by_id('11'):
+                    v.get_patch_by_id('11').set_color(COLORS['accent'])
+                    v.get_patch_by_id('11').set_alpha(0.7)
+                for text in v.set_labels:
+                    if text:
+                        text.set_color(COLORS['text_primary'])
+                for text in v.subset_labels:
+                    if text:
+                        text.set_color(COLORS['text_primary'])
+                ax.set_facecolor(COLORS['background'])
+        except ImportError:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'matplotlib-venn not installed\npip install matplotlib-venn',
+                   ha='center', va='center', fontsize=10,
+                   color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+    def plot_sankey(self, fig, styled):
+        """Sankey diagram"""
+        from matplotlib.sankey import Sankey
+        ax = fig.add_subplot(111)
+        sankey = Sankey(ax=ax, scale=0.01, offset=0.2)
+        sankey.add(flows=[0.25, 0.15, 0.60, -0.20, -0.15, -0.05, -0.50, -0.10],
+                  labels=['', '', '', 'First', 'Second', 'Third', 'Fourth', 'Fifth'],
+                  orientations=[-1, 1, 0, 1, 1, 1, 0, -1],
+                  facecolor=COLORS['primary'] if styled else 'lightskyblue')
+        diagrams = sankey.finish()
+        if styled:
+            ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+    # ============= DISTRIBUTION PLOT FUNCTIONS =============
+
+    def plot_ridgeline(self, fig, styled):
+        """Ridgeline plot (joyplot)"""
+        try:
+            import joypy
+            import pandas as pd
+            # Create sample data
+            data = pd.DataFrame({
+                'Category': np.repeat(['A', 'B', 'C', 'D'], 100),
+                'Value': np.concatenate([
+                    np.random.normal(0, 1, 100),
+                    np.random.normal(2, 1, 100),
+                    np.random.normal(4, 1, 100),
+                    np.random.normal(6, 1, 100)
+                ])
+            })
+            fig.clf()  # Clear figure for joypy
+            joypy.joyplot(data, by='Category', column='Value', figsize=(3.2, 2.4),
+                         color=COLORS['primary'] if styled else None, alpha=0.7, legend=False, fig=fig)
+            if styled:
+                for ax in fig.get_axes():
+                    ax.set_facecolor(COLORS['background'])
+                    ax.tick_params(colors=COLORS['text_secondary'])
+                    for spine in ax.spines.values():
+                        spine.set_color(COLORS['border'])
+        except ImportError:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'joypy not installed\npip install joypy',
+                   ha='center', va='center', fontsize=12,
+                   color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+    def plot_parallel(self, fig, styled):
+        """Parallel coordinates plot"""
+        try:
+            import pandas as pd
+            from pandas.plotting import parallel_coordinates
+            # Create sample data
+            data = pd.DataFrame({
+                'A': np.random.randn(20),
+                'B': np.random.randn(20),
+                'C': np.random.randn(20),
+                'D': np.random.randn(20),
+                'Category': np.random.choice(['X', 'Y', 'Z'], 20)
+            })
+            ax = fig.add_subplot(111)
+            parallel_coordinates(data, 'Category', ax=ax,
+                               color=[COLORS['primary'], COLORS['secondary'], COLORS['accent']] if styled else None)
+            ax.set_xlabel('Variables', color=COLORS['text_secondary'] if styled else 'black')
+            ax.set_ylabel('Value', color=COLORS['text_secondary'] if styled else 'black')
+            ax.grid(True, alpha=0.3)
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+                ax.tick_params(colors=COLORS['text_secondary'])
+                for spine in ax.spines.values():
+                    spine.set_color(COLORS['border'])
+                legend = ax.get_legend()
+                if legend:
+                    legend.get_frame().set_facecolor(COLORS['surface_variant'])
+                    legend.get_frame().set_edgecolor(COLORS['border'])
+                    for text in legend.get_texts():
+                        text.set_color(COLORS['text_primary'])
+        except ImportError:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'pandas not installed\npip install pandas',
+                   ha='center', va='center', fontsize=12,
+                   color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+    def plot_wordcloud(self, fig, styled):
+        """Word cloud"""
+        try:
+            from wordcloud import WordCloud
+            ax = fig.add_subplot(111)
+            # Sample text
+            text = "Python data visualization matplotlib plot chart graph scatter bar line pie histogram"
+            text = text * 10  # Repeat to make it more interesting
+
+            wordcloud = WordCloud(width=400, height=300, background_color=COLORS['background'] if styled else 'white',
+                                 colormap='plasma' if styled else 'viridis').generate(text)
+            ax.imshow(wordcloud, interpolation='bilinear')
+            ax.axis('off')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        except ImportError:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'wordcloud not installed\npip install wordcloud',
+                   ha='center', va='center', fontsize=12,
+                   color=COLORS['text_secondary'] if styled else 'black')
+            if styled:
+                ax.set_facecolor(COLORS['background'])
+        fig.tight_layout()
+
+
+def check_optional_packages():
+    """Check for optional packages and print installation instructions"""
+    optional_packages = {
+        'squarify': 'Treemap plots',
+        'scipy': 'Dendrogram plots',
+        'matplotlib_venn': 'Venn diagrams',
+        'joypy': 'Ridgeline plots',
+        'wordcloud': 'Word cloud plots',
+        'mplfinance': 'Candlestick charts',
+        'pandas': 'Parallel coordinates plots'
+    }
+
+    missing = []
+    for package, description in optional_packages.items():
+        try:
+            __import__(package)
+        except ImportError:
+            missing.append((package, description))
+
+    if missing:
+        print("\n" + "="*60)
+        print("OPTIONAL PACKAGES NOT INSTALLED")
+        print("="*60)
+        print("\nThe following packages are not installed.")
+        print("Some plot types will show a 'not installed' message:\n")
+        for package, description in missing:
+            print(f"  • {package:20} - {description}")
+
+        print("\nTo install all missing packages, run:")
+        packages_str = ' '.join([pkg for pkg, _ in missing])
+        print(f"\n  pip install {packages_str}")
+        print("\n" + "="*60 + "\n")
+    else:
+        print("\n✓ All optional packages are installed!\n")
+
 
 def main():
     """Run the widget showcase application"""
+    # Check for optional packages and print installation instructions
+    check_optional_packages()
+
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # Use Fusion style for consistent look across platforms
 

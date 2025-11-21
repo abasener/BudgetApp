@@ -960,6 +960,442 @@ class BoxPlotWidget(BaseChartWidget):
                 ax.grid(True, alpha=0.3, axis='x')
                 ax.set_xticks([])
                 ax.set_yticks([])
-        
+
+        self.apply_theme()
+        self.canvas.draw()
+
+
+class ReimbursementStatsWidget(BaseChartWidget):
+    """Stats widget showing total amount and status breakdown pie chart
+
+    This widget displays two vertically stacked elements:
+    1. Top (15% height): Total dollar amount across all statuses
+    2. Bottom (85% height): Pie chart showing breakdown by status
+       - Each status gets a semantic color (pending=warning, submitted=info, etc.)
+       - Pie slices are sized by dollar amount (not count)
+
+    Uses filtered data (respects tag selection in Reimbursements tab).
+    Fixed width: 200px, Fixed height: 170px to match button column.
+    """
+
+    def __init__(self, title: str = "", parent=None):
+        super().__init__(title, parent)
+        # Add small padding for axis labels
+        self.figure.subplots_adjust(left=0.05, right=0.95, top=0.85, bottom=0.05)
+
+    def update_data(self, reimbursements: list):
+        """Update with filtered reimbursement data
+
+        Args:
+            reimbursements: list of Reimbursement objects (filtered by tag)
+        """
+        self.figure.clear()
+
+        if not reimbursements:
+            # Show "No data" message
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No reimbursement data',
+                   ha='center', va='center', transform=ax.transAxes,
+                   fontsize=14, color=theme_manager.get_color('text_secondary'))
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis('off')
+        else:
+            colors = theme_manager.get_colors()
+
+            # Calculate total amount (all statuses)
+            total_amount = sum(r.amount for r in reimbursements)
+
+            # Count amounts by status (for pie chart)
+            from collections import defaultdict
+            status_amounts = defaultdict(float)
+            for r in reimbursements:
+                status_amounts[r.state] += r.amount
+
+            # Create two subplots: top for total, bottom for pie
+            # Total amount at top (15% height)
+            ax_total = self.figure.add_subplot(211)
+            ax_total.text(0.5, 0.5, f'${total_amount:,.2f}',
+                         ha='center', va='center',
+                         fontsize=24, fontweight='bold',
+                         color=colors['text_primary'])
+            ax_total.text(0.5, 0.05, 'Total Spent',
+                         ha='center', va='bottom',
+                         fontsize=10,
+                         color=colors['text_secondary'])
+            ax_total.set_xlim(0, 1)
+            ax_total.set_ylim(0, 1)
+            ax_total.axis('off')
+
+            # Pie chart at bottom (85% height)
+            ax_pie = self.figure.add_subplot(212)
+
+            # Map states to display names and semantic colors
+            state_display = {
+                'pending': 'Pending',
+                'submitted': 'Submitted',
+                'reimbursed': 'Reimbursed',
+                'partial': 'Partial',
+                'denied': 'Denied'
+            }
+
+            state_colors = {
+                'pending': colors.get('warning', '#FFA500'),
+                'submitted': colors.get('info', '#3B82F6'),
+                'reimbursed': colors.get('success', '#10B981'),
+                'partial': colors.get('accent2', '#F59E0B'),
+                'denied': colors.get('error', '#EF4444')
+            }
+
+            # Prepare pie data
+            labels = [state_display.get(state, state.title()) for state in status_amounts.keys()]
+            sizes = list(status_amounts.values())
+            pie_colors = [state_colors.get(state, colors['primary']) for state in status_amounts.keys()]
+
+            # Create pie chart
+            wedges, texts, autotexts = ax_pie.pie(sizes, labels=labels, colors=pie_colors,
+                                                    autopct='%1.0f%%', startangle=90)
+
+            # Style text
+            for text in texts:
+                text.set_color(colors['text_primary'])
+                text.set_fontsize(9)
+            for autotext in autotexts:
+                autotext.set_color(colors['background'])
+                autotext.set_fontsize(8)
+                autotext.set_fontweight('bold')
+
+            ax_pie.axis('equal')  # Equal aspect ratio for circle
+
+        self.apply_theme()
+        self.canvas.draw()
+
+
+class ReimbursementProgressWidget(BaseChartWidget):
+    """Vertical progress bars for submitted and reimbursed tracking
+
+    This widget displays two vertical progress bars that grow from the bottom:
+
+    Left bar (Secondary color):
+        - Shows percentage of expenses that have been SUBMITTED
+        - 100% = All expenses have reached submitted status or beyond
+        - Includes: submitted, reimbursed, partial, denied states
+        - 0% = Nothing has been submitted yet
+
+    Right bar (Accent color):
+        - Shows percentage of expenses that have been REIMBURSED
+        - 100% = All expenses have been reimbursed (fully or partially)
+        - Includes: reimbursed, partial states only (NOT denied)
+        - 0% = Nothing has been reimbursed yet
+
+    Percentages are weighted by dollar amount (not count of transactions).
+    Background bars (surface_variant) show unfilled portion.
+    Uses filtered data (respects tag selection in Reimbursements tab).
+    Fixed width: 180px, Fixed height: 170px to match button column.
+    """
+
+    def __init__(self, title: str = "", parent=None):
+        super().__init__(title, parent)
+        # Add padding for labels below/above bars
+        self.figure.subplots_adjust(left=0.15, right=0.85, top=0.95, bottom=0.05)
+
+    def update_data(self, reimbursements: list):
+        """Update with filtered reimbursement data
+
+        Args:
+            reimbursements: list of Reimbursement objects (filtered by tag)
+        """
+        self.figure.clear()
+
+        if not reimbursements:
+            # Show "No data" message
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No reimbursement data',
+                   ha='center', va='center', transform=ax.transAxes,
+                   fontsize=14, color=theme_manager.get_color('text_secondary'))
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis('off')
+        else:
+            colors = theme_manager.get_colors()
+
+            # Calculate totals by $ amount (not count)
+            total_amount = sum(r.amount for r in reimbursements)
+
+            # Submitted: submitted, reimbursed, partial, denied (everything except pending)
+            submitted_amount = sum(r.amount for r in reimbursements
+                                  if r.state in ['submitted', 'reimbursed', 'partial', 'denied'])
+
+            # Reimbursed: reimbursed, partial (NOT denied)
+            reimbursed_amount = sum(r.amount for r in reimbursements
+                                   if r.state in ['reimbursed', 'partial'])
+
+            # Calculate percentages
+            submitted_pct = (submitted_amount / total_amount * 100) if total_amount > 0 else 0
+            reimbursed_pct = (reimbursed_amount / total_amount * 100) if total_amount > 0 else 0
+
+            ax = self.figure.add_subplot(111)
+
+            # Bar positions - more spacing between bars to prevent label overlap
+            bar_positions = [0.27, 0.73]  # Even more spacing for long labels
+            bar_width = 0.16
+
+            # Draw background bars (unfilled area) using surface or surface_variant
+            bg_color = colors.get('surface_variant', colors.get('surface', '#2A2A2A'))
+            ax.bar(bar_positions[0], 100, bar_width, color=bg_color, bottom=0, zorder=1)
+            ax.bar(bar_positions[1], 100, bar_width, color=bg_color, bottom=0, zorder=1)
+
+            # Draw vertical bars (bottom to top) on top of background
+            # Submitted bar (secondary color)
+            ax.bar(bar_positions[0], submitted_pct, bar_width,
+                  color=colors.get('secondary', '#8CBEFB'),
+                  bottom=0, zorder=2)
+
+            # Reimbursed bar (accent color)
+            ax.bar(bar_positions[1], reimbursed_pct, bar_width,
+                  color=colors.get('accent', '#9871F4'),
+                  bottom=0, zorder=2)
+
+            # Add percentage labels at top of each bar
+            ax.text(bar_positions[0], submitted_pct + 3, f'{submitted_pct:.0f}%',
+                   ha='center', va='bottom', fontsize=9, fontweight='bold',
+                   color=colors['text_primary'])
+            ax.text(bar_positions[1], reimbursed_pct + 3, f'{reimbursed_pct:.0f}%',
+                   ha='center', va='bottom', fontsize=9, fontweight='bold',
+                   color=colors['text_primary'])
+
+            # Add labels below bars - smaller font for long words
+            ax.text(bar_positions[0], -8, 'Submitted',
+                   ha='center', va='top', fontsize=8,
+                   color=colors['text_secondary'])
+            ax.text(bar_positions[1], -8, 'Reimbursed',
+                   ha='center', va='top', fontsize=8,
+                   color=colors['text_secondary'])
+
+            # Set axis limits
+            ax.set_xlim(0, 1)
+            ax.set_ylim(-10, 110)
+
+            # Remove axes
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+
+            # Add horizontal grid lines for reference
+            for y in [0, 25, 50, 75, 100]:
+                ax.axhline(y=y, color=colors.get('border', '#CCCCCC'),
+                          linestyle='--', linewidth=0.5, alpha=0.3)
+
+        self.apply_theme()
+        self.canvas.draw()
+
+
+class ReimbursementDotPlotWidget(BaseChartWidget):
+    """Dot plot showing Amount vs Age colored by Category
+
+    This widget displays a scatter plot with:
+    - X-axis: Age of expense (left=older, right=newer)
+      - Normalized 0-1 scale with -0.1 to 1.1 display range for padding
+      - No tick labels, just axis label "Date"
+    - Y-axis: Dollar amount (bottom=min, top=max)
+      - Normalized 0-1 scale with -0.1 to 1.1 display range for padding
+      - No tick labels, just axis label "Amount"
+    - Dot color: Corresponds to category using chart_colors
+      - First category = first color, second = second color, etc. (loops if more categories than colors)
+
+    This is an ADAPTIVE widget:
+    - Only appears when window is wide enough (dead space >= dot plot width - 30px tolerance)
+    - Square aspect ratio (170×170px) to match button column height
+    - Uses filtered data (respects tag selection in Reimbursements tab)
+    - Provides visual insight into expense patterns over time
+    """
+
+    def __init__(self, title: str = "", parent=None):
+        super().__init__(title, parent)
+        # Add small padding for axis labels
+        self.figure.subplots_adjust(left=0.12, right=0.98, top=0.98, bottom=0.12)
+
+    def update_data(self, reimbursements: list):
+        """Update with filtered reimbursement data
+
+        Args:
+            reimbursements: list of Reimbursement objects (filtered by tag)
+        """
+        self.figure.clear()
+
+        if not reimbursements or len(reimbursements) == 0:
+            # Show "No data" message
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No data',
+                   ha='center', va='center', transform=ax.transAxes,
+                   fontsize=10, color=theme_manager.get_color('text_secondary'))
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis('off')
+        else:
+            from datetime import date
+            colors = theme_manager.get_colors()
+            chart_colors = colors.get('chart_colors', ['#44C01E', '#3F0979', '#D6CA18'])
+
+            ax = self.figure.add_subplot(111)
+
+            # Get unique categories and assign colors
+            categories = sorted(set(r.category for r in reimbursements if r.category))
+            category_colors = {cat: chart_colors[i % len(chart_colors)]
+                             for i, cat in enumerate(categories)}
+
+            # Calculate age (days since expense) for each reimbursement
+            today = date.today()
+            ages = [(today - r.date).days for r in reimbursements]
+            amounts = [r.amount for r in reimbursements]
+
+            # Normalize amounts (0-1)
+            if len(amounts) == 1:
+                normalized_amounts = [0.5]
+            else:
+                min_amount = min(amounts)
+                max_amount = max(amounts)
+                amount_range = max_amount - min_amount
+                if amount_range == 0:
+                    normalized_amounts = [0.5] * len(amounts)
+                else:
+                    normalized_amounts = [(a - min_amount) / amount_range for a in amounts]
+
+            # Normalize ages (0-1, older=0/left, newer=1/right)
+            if len(ages) == 1:
+                normalized_ages = [0.5]
+            else:
+                min_age = min(ages)
+                max_age = max(ages)
+                age_range = max_age - min_age
+                if age_range == 0:
+                    normalized_ages = [0.5] * len(ages)
+                else:
+                    # Older (larger age) -> 0 (left), Newer (smaller age) -> 1 (right)
+                    normalized_ages = [1 - ((age - min_age) / age_range) for age in ages]
+
+            # Plot each point colored by category
+            for i, r in enumerate(reimbursements):
+                color = category_colors.get(r.category, colors['primary'])
+                ax.scatter(normalized_ages[i], normalized_amounts[i],
+                          color=color, s=50, alpha=0.8, edgecolors='none')
+
+            # Set axis limits with padding
+            ax.set_xlim(-0.1, 1.1)
+            ax.set_ylim(-0.1, 1.1)
+
+            # Add axis labels
+            ax.set_xlabel('Date', fontsize=9, color=colors['text_secondary'])
+            ax.set_ylabel('Amount', fontsize=9, color=colors['text_secondary'])
+
+            # Remove tick labels (keep no ticks)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            # Keep square aspect ratio
+            ax.set_aspect('equal', adjustable='box')
+
+            # Style spines
+            for spine in ax.spines.values():
+                spine.set_color(colors.get('border', '#CCCCCC'))
+                spine.set_linewidth(0.5)
+
+        self.apply_theme()
+        self.canvas.draw()
+
+
+class ReimbursementHeatmapWidget(BaseChartWidget):
+    """Heatmap showing Tag × Category breakdown (always shows ALL data)
+
+    This widget displays a heatmap matrix with:
+    - Rows: Unique tags (locations/trips)
+    - Columns: Unique categories (Hotel, Food, etc.)
+    - Cell color: Sum of reimbursement amounts for that tag×category intersection
+    - Color scale: Surface (min) → Primary (max) gradient
+    - Always shows ALL reimbursement data (ignores tag filter)
+    """
+
+    def __init__(self, title: str = "", parent=None):
+        super().__init__(title, parent)
+        # Remove all padding to maximize chart area within widget bounds
+        self.figure.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
+
+    def update_data(self, reimbursements: list):
+        """Update with ALL reimbursement data (ignores current tag filter)
+
+        Args:
+            reimbursements: list of ALL Reimbursement objects
+        """
+        self.figure.clear()
+
+        if not reimbursements:
+            # Show "No data" message
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No reimbursement data',
+                   ha='center', va='center', transform=ax.transAxes,
+                   fontsize=14, color=theme_manager.get_color('text_secondary'))
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis('off')
+        else:
+            ax = self.figure.add_subplot(111)
+
+            # Get all unique tags and categories (only those with data)
+            tags = set()
+            categories = set()
+            for r in reimbursements:
+                # Only include if tag is not None/empty
+                if r.location:
+                    tags.add(r.location)
+                if r.category:
+                    categories.add(r.category)
+
+            if not tags or not categories:
+                # No tags or categories - show message
+                ax.text(0.5, 0.5, 'No tagged reimbursements',
+                       ha='center', va='center', transform=ax.transAxes,
+                       fontsize=12, color=theme_manager.get_color('text_secondary'))
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.axis('off')
+            else:
+                # Sort for consistent ordering
+                tags = sorted(tags)
+                categories = sorted(categories)
+
+                # Create matrix: tags (rows) × categories (columns)
+                import numpy as np
+                matrix = np.zeros((len(tags), len(categories)))
+
+                # Fill matrix with sums
+                for r in reimbursements:
+                    if r.location in tags and r.category in categories:
+                        tag_idx = tags.index(r.location)
+                        cat_idx = categories.index(r.category)
+                        matrix[tag_idx, cat_idx] += r.amount
+
+                # Create custom colormap from surface to primary (like dashboard heatmap)
+                from matplotlib.colors import LinearSegmentedColormap
+                colors = theme_manager.get_colors()
+                surface_color = colors['surface']
+                primary_color = colors['primary']
+                custom_colors = [surface_color, primary_color]
+                custom_cmap = LinearSegmentedColormap.from_list('custom', custom_colors)
+
+                # Create heatmap with square cells (aspect='equal')
+                im = ax.imshow(matrix, cmap=custom_cmap, aspect='equal')
+
+                # Set ticks and labels
+                ax.set_xticks(range(len(categories)))
+                ax.set_xticklabels(categories, fontsize=9, rotation=45, ha='right')
+                ax.set_yticks(range(len(tags)))
+                ax.set_yticklabels(tags, fontsize=9)
+
+                # Style tick labels
+                ax.tick_params(colors=colors['text_primary'])
+
         self.apply_theme()
         self.canvas.draw()
