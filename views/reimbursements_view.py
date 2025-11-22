@@ -395,6 +395,74 @@ class ReimbursementsView(QWidget):
         self.delete_button.setStyleSheet(button_style)
         self.export_button.setStyleSheet(button_style)
 
+    def apply_table_theme(self):
+        """Apply theme styling to table"""
+        colors = theme_manager.get_colors()
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                gridline-color: {colors['border']};
+            }}
+            QTableWidget::item {{
+                color: {colors['text_primary']};
+                padding: 5px;
+            }}
+            QTableWidget::item:selected {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            QHeaderView::section {{
+                background-color: {colors['surface_variant']};
+                color: {colors['text_primary']};
+                padding: 5px;
+                border: 1px solid {colors['border']};
+                font-weight: bold;
+            }}
+        """)
+
+    def apply_sidebar_theme(self):
+        """Apply theme styling to tag sidebar"""
+        colors = theme_manager.get_colors()
+
+        # Update sidebar frame
+        if hasattr(self, 'tag_list'):
+            parent_frame = self.tag_list.parent()
+            if parent_frame:
+                parent_frame.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {colors['surface_variant']};
+                        border: 1px solid {colors['border']};
+                        border-radius: 4px;
+                    }}
+                """)
+
+            # Update tag list styling
+            self.tag_list.setStyleSheet(f"""
+                QListWidget {{
+                    background-color: {colors['background']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                }}
+                QListWidget::item {{
+                    color: {colors['text_primary']};
+                    padding: 5px;
+                }}
+                QListWidget::item:hover {{
+                    background-color: {colors['surface_variant']};
+                }}
+                QListWidget::item:selected {{
+                    background-color: {colors['primary']};
+                    color: {colors['background']};
+                }}
+            """)
+
+        # Update title label if it exists
+        for child in self.findChildren(QLabel):
+            if child.text() == "Filter by Tag:":
+                child.setStyleSheet(f"color: {colors['primary']}; font-weight: bold;")
+                break
+
     def populate_tag_list(self):
         """Populate the tag filter list from database"""
         self.tag_list.clear()
@@ -877,5 +945,8 @@ class ReimbursementsView(QWidget):
     def on_theme_changed(self):
         """Handle theme changes"""
         self.apply_button_theme()
-        # Recreate UI elements with new theme
-        # (Table and sidebar styles are already dynamic)
+        self.apply_table_theme()
+        self.apply_sidebar_theme()
+        # Refresh charts with new theme colors
+        if hasattr(self, 'charts_layout'):
+            self.update_charts_layout()

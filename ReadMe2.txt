@@ -1,7 +1,17 @@
 ================================================================================
 BudgetApp V2 - Dynamic Rollover System Documentation
 ================================================================================
-Last Updated: 2025-11-19
+Last Updated: 2025-11-21
+
+RECENT FIXES & ADDITIONS (2025-11-21):
+- Fixed: Tax tab scroll area now properly displays scrollbar on initial load (added showEvent handler)
+- Fixed: Categories tab correlation plots layout - 4 per row (from 5) at 180x180px (from 150x150px)
+- Fixed: Categories tab correlation plots padding - 20% data range padding on all axes
+- Fixed: Theme color updates now properly refresh Categories and Reimbursements tabs
+- Fixed: Categories tab - stats_label background color consistency (surface vs background)
+- Fixed: Categories tab - frame and list widget theme updates (Selected/Overview boxes)
+- Fixed: Reimbursements tab - added apply_table_theme() and apply_sidebar_theme() methods
+- Fixed: Reimbursements tab - tag filter sidebar and table now update colors on theme change
 
 RECENT FIXES & ADDITIONS (2025-11-19):
 - Added: Reimbursements System - track work travel expenses & temporary out-of-pocket costs
@@ -382,6 +392,17 @@ CATEGORIES TAB ENHANCEMENTS:
 - Color key highlighting: Bold text + larger font for selected category
 - Smooth integration with existing category filtering and analysis
 
+CATEGORIES CORRELATION PLOTS (2025-11-21):
+- Grid layout: 4 plots per row (changed from 5 for better visibility)
+- Plot size: 180x180px each (increased from 150x150px)
+- Smart padding system: (1/padding_factor) * (max - min) added to all sides
+  * Default padding_factor = 5, giving 20% range padding on each axis
+  * Prevents data points from sitting on plot edges
+  * Formula: xlim = [min - padding, max + padding] for both x and y axes
+  * Example: Data range 0-100 gets axis limits of -20 to 120
+- Each plot shows correlation coefficient in title (e.g., "Gas: 0.73")
+- Color-coded by category using theme chart_colors
+
 DASHBOARD COLOR KEY REDESIGN:
 - Removed borders and frames for clean text-only appearance (matches Categories tab style)
 - Single HTML label with bullet points (●) instead of multiple widget approach
@@ -402,6 +423,32 @@ THEME COMPATIBILITY FIXES:
 - Removed problematic alpha channels from Dark, Light, and Excel Blue themes
 - Alpha removal automatic in category color lookup for Qt CSS compatibility
 - Theme colors now properly display in category headers and UI elements
+
+THEME UPDATE MECHANISM (2025-11-21):
+All views must implement proper theme change handlers to ensure UI colors update correctly.
+Required pattern:
+1. Connect to theme_changed signal: theme_manager.theme_changed.connect(self.on_theme_changed)
+2. Implement on_theme_changed() or apply_theme() method
+3. Update ALL styled widgets (frames, labels, lists, tables, etc.)
+4. Common mistake: Setting colors in init_ui() but not updating them in theme handler
+
+Categories Tab Theme Updates:
+- update_view_styling(): Updates main background, scroll areas, frames, list widgets
+- Includes QFrame styling for column backgrounds (surface color + border)
+- Includes QListWidget styling for category selection (background, hover, selected states)
+- stats_label uses colors['surface'] (not colors['background']) for consistency
+
+Reimbursements Tab Theme Updates:
+- apply_button_theme(): Updates all action buttons
+- apply_table_theme(): Updates table background, gridlines, headers, selected items
+- apply_sidebar_theme(): Updates tag filter frame, list widget, title label
+- on_theme_changed() calls all three methods + refreshes charts
+
+Tax Tab Scroll Area Fix:
+- Added showEvent() handler to force scroll area geometry update
+- Calls updateGeometry() on scroll area and content widget
+- Ensures scrollbar appears immediately when tab is first shown
+- Prevents issue where scrollbar only appeared after window resize
 
 TECHNICAL IMPLEMENTATION:
 - widgets/chart_widget.py: Added custom_colors/color_map support to all chart widgets

@@ -4,7 +4,13 @@ PyQt6 Widget Showcase - A comprehensive demonstration of all available UI elemen
 This is a standalone testing tool to explore PyQt6 widgets and their variants.
 Shows inputs, buttons, layouts, and styling options with dark theme colors.
 
-Dependencies: PyQt6 only (pip install PyQt6)
+Dependencies:
+  Required: PyQt6, numpy, matplotlib
+  Recommended: psutil (for memory monitoring to prevent crashes)
+  Optional: squarify, scipy, matplotlib_venn, joypy, wordcloud, mplfinance, pandas
+
+Install all dependencies:
+  pip install PyQt6 numpy matplotlib psutil
 """
 
 import sys
@@ -14,6 +20,7 @@ matplotlib.use('QtAgg')  # Use QtAgg for PyQt6 compatibility
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+import psutil  # For memory monitoring
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QFormLayout, QScrollArea, QLabel, QPushButton, QLineEdit, QTextEdit,
@@ -37,12 +44,17 @@ COLORS = {
     'secondary': '#90ee90',
     'accent': '#ffaa00',
     'error': '#ff4444',
+    'success': '#90ee90',  # Green for positive values
     'text_primary': '#ffffff',
     'text_secondary': '#b0b0b0',
     'border': '#555555',
     'hover': '#4a4a4a',
     'selected': '#5a5a5a'
 }
+
+# Memory safety settings
+MEMORY_THRESHOLD_PERCENT = 70  # Stop rendering plots when memory usage exceeds this percentage
+MEMORY_CHECK_ENABLED = True  # Set to False to disable memory checking
 
 
 class WidgetShowcase(QMainWindow):
@@ -55,6 +67,10 @@ class WidgetShowcase(QMainWindow):
 
         # Track current mode: False = populated (default), True = blank
         self.blank_mode = False
+
+        # Memory tracking
+        self.plots_skipped_due_to_memory = 0
+        self.initial_memory_usage = psutil.virtual_memory().percent
 
         # Create central widget with vertical layout
         central_widget = QWidget()
@@ -283,6 +299,12 @@ class WidgetShowcase(QMainWindow):
         left_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         plots_left_layout.addWidget(left_subtitle)
 
+        # Memory status indicator
+        memory_info = QLabel(f"💾 Memory: {psutil.virtual_memory().percent:.1f}% | Threshold: {MEMORY_THRESHOLD_PERCENT}% | Monitoring: {'ON' if MEMORY_CHECK_ENABLED else 'OFF'}")
+        memory_info.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 11px; padding: 5px; background-color: {COLORS['surface_variant']}; border-radius: 3px;")
+        memory_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        plots_left_layout.addWidget(memory_info)
+
         plots_left_layout.addWidget(self.create_separator())
 
         # Add plot sections to LEFT SIDE (STYLED)
@@ -328,6 +350,21 @@ class WidgetShowcase(QMainWindow):
 
         plots_left_layout.addWidget(self.create_section_header("Distribution & Comparison", "Ridgeline, parallel coordinates, word cloud"))
         plots_left_layout.addWidget(self.create_distribution_section(styled=True))
+
+        # Show summary if any plots were skipped
+        if self.plots_skipped_due_to_memory > 0:
+            skip_summary = QLabel(f"⚠️ {self.plots_skipped_due_to_memory} plot(s) skipped due to memory constraints")
+            skip_summary.setStyleSheet(f"""
+                color: {COLORS['accent']};
+                background-color: {COLORS['surface_variant']};
+                border: 2px solid {COLORS['accent']};
+                border-radius: 5px;
+                padding: 10px;
+                font-size: 12px;
+                font-weight: bold;
+            """)
+            skip_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            plots_left_layout.addWidget(skip_summary)
 
         plots_left_layout.addStretch()
         plots_left.setWidget(plots_left_content)
@@ -404,6 +441,21 @@ class WidgetShowcase(QMainWindow):
 
         plots_right_layout.addWidget(self.create_section_header("Distribution & Comparison", "Ridgeline, parallel coordinates, word cloud"))
         plots_right_layout.addWidget(self.create_distribution_section(styled=False))
+
+        # Show summary if any plots were skipped
+        if self.plots_skipped_due_to_memory > 0:
+            skip_summary = QLabel(f"⚠️ {self.plots_skipped_due_to_memory} plot(s) skipped due to memory constraints")
+            skip_summary.setStyleSheet("""
+                color: orange;
+                background-color: #fff3cd;
+                border: 2px solid orange;
+                border-radius: 5px;
+                padding: 10px;
+                font-size: 12px;
+                font-weight: bold;
+            """)
+            skip_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            plots_right_layout.addWidget(skip_summary)
 
         plots_right_layout.addStretch()
         plots_right.setWidget(plots_right_content)
@@ -1393,33 +1445,79 @@ class WidgetShowcase(QMainWindow):
 
     # ============= PLOT CREATION METHODS =============
 
+    def check_memory_usage(self) -> bool:
+        """Check if memory usage is below threshold. Returns True if safe to continue."""
+        if not MEMORY_CHECK_ENABLED:
+            return True
+
+        current_memory = psutil.virtual_memory().percent
+        if current_memory >= MEMORY_THRESHOLD_PERCENT:
+            return False
+        return True
+
     def create_plot_widget(self, plot_func, title: str, styled: bool, width=600, height=400) -> QWidget:
-        """Helper to create a matplotlib plot widget"""
+        """Helper to create a matplotlib plot widget with memory monitoring"""
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setSpacing(5)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Add title label
+        # Add title label (make it selectable for copying)
         title_label = QLabel(title)
         title_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        title_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         if styled:
             title_label.setStyleSheet(f"color: {COLORS['accent']}; padding: 3px;")
         layout.addWidget(title_label)
 
-        # Create matplotlib figure
-        fig = Figure(figsize=(width/100, height/100), dpi=100)
-        canvas = FigureCanvas(fig)
-        canvas.setFixedSize(width, height)
+        # Check memory before creating plot
+        if not self.check_memory_usage():
+            # Memory threshold exceeded - show warning instead of plot
+            self.plots_skipped_due_to_memory += 1
+            warning_label = QLabel(f"⚠️ Plot skipped\n(Memory usage: {psutil.virtual_memory().percent:.1f}%)")
+            warning_label.setFont(QFont("Arial", 10))
+            warning_label.setStyleSheet(f"""
+                color: {COLORS['accent'] if styled else 'orange'};
+                background-color: {COLORS['surface_variant'] if styled else '#fff3cd'};
+                border: 2px dashed {COLORS['error'] if styled else 'orange'};
+                border-radius: 4px;
+                padding: 20px;
+            """)
+            warning_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            warning_label.setFixedSize(width, height)
+            layout.addWidget(warning_label)
+            return container
 
-        # Apply styling if needed
-        if styled:
-            fig.patch.set_facecolor(COLORS['surface'])
+        try:
+            # Create matplotlib figure
+            fig = Figure(figsize=(width/100, height/100), dpi=100)
+            canvas = FigureCanvas(fig)
+            canvas.setFixedSize(width, height)
 
-        # Call the plot function to populate the figure
-        plot_func(fig, styled)
+            # Apply styling if needed
+            if styled:
+                fig.patch.set_facecolor(COLORS['surface'])
 
-        layout.addWidget(canvas)
+            # Call the plot function to populate the figure
+            plot_func(fig, styled)
+
+            layout.addWidget(canvas)
+        except MemoryError:
+            # Handle out of memory errors gracefully
+            self.plots_skipped_due_to_memory += 1
+            error_label = QLabel(f"❌ Out of Memory\n(Plot could not be rendered)")
+            error_label.setFont(QFont("Arial", 10))
+            error_label.setStyleSheet(f"""
+                color: {COLORS['error'] if styled else 'red'};
+                background-color: {COLORS['surface_variant'] if styled else '#f8d7da'};
+                border: 2px solid {COLORS['error'] if styled else 'red'};
+                border-radius: 4px;
+                padding: 20px;
+            """)
+            error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            error_label.setFixedSize(width, height)
+            layout.addWidget(error_label)
+
         return container
 
     def create_line_scatter_section(self, styled: bool) -> QWidget:
@@ -2386,6 +2484,7 @@ class WidgetShowcase(QMainWindow):
         try:
             import joypy
             import pandas as pd
+            import matplotlib.pyplot as plt
             # Create sample data
             data = pd.DataFrame({
                 'Category': np.repeat(['A', 'B', 'C', 'D'], 100),
@@ -2396,15 +2495,33 @@ class WidgetShowcase(QMainWindow):
                     np.random.normal(6, 1, 100)
                 ])
             })
-            fig.clf()  # Clear figure for joypy
-            joypy.joyplot(data, by='Category', column='Value', figsize=(3.2, 2.4),
-                         color=COLORS['primary'] if styled else None, alpha=0.7, legend=False, fig=fig)
-            if styled:
-                for ax in fig.get_axes():
+            # joypy creates its own figure, so we create a temporary one
+            temp_fig, axes = joypy.joyplot(data, by='Category', column='Value', figsize=(3.2, 2.4),
+                         color=COLORS['primary'] if styled else None, alpha=0.7, legend=False)
+
+            # Copy the content to our figure
+            fig.clf()
+            for i, temp_ax in enumerate(temp_fig.get_axes()):
+                ax = fig.add_subplot(len(temp_fig.get_axes()), 1, i+1)
+                # Copy the plot elements
+                for line in temp_ax.get_lines():
+                    ax.plot(line.get_xdata(), line.get_ydata(), color=line.get_color(), linewidth=line.get_linewidth())
+                for collection in temp_ax.collections:
+                    # Copy fill_between collections
+                    if hasattr(collection, 'get_paths') and len(collection.get_paths()) > 0:
+                        path = collection.get_paths()[0]
+                        vertices = path.vertices
+                        ax.fill(vertices[:, 0], vertices[:, 1], color=collection.get_facecolor()[0], alpha=collection.get_alpha())
+                ax.set_xlim(temp_ax.get_xlim())
+                ax.set_ylim(temp_ax.get_ylim())
+                ax.set_ylabel(temp_ax.get_ylabel())
+                if styled:
                     ax.set_facecolor(COLORS['background'])
                     ax.tick_params(colors=COLORS['text_secondary'])
                     for spine in ax.spines.values():
                         spine.set_color(COLORS['border'])
+            plt.close(temp_fig)  # Close temporary figure
+            fig.tight_layout()
         except ImportError:
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, 'joypy not installed\npip install joypy',
@@ -2516,6 +2633,17 @@ def check_optional_packages():
 
 def main():
     """Run the widget showcase application"""
+    # Check for psutil (required for memory monitoring)
+    try:
+        import psutil
+        print(f"\n💾 Memory monitoring ENABLED (Threshold: {MEMORY_THRESHOLD_PERCENT}%)")
+        print(f"   Current memory usage: {psutil.virtual_memory().percent:.1f}%")
+        print(f"   Available memory: {psutil.virtual_memory().available / (1024**3):.2f} GB\n")
+    except ImportError:
+        print("\n⚠️  WARNING: psutil not installed - memory monitoring DISABLED")
+        print("   Install with: pip install psutil")
+        print("   The app will work but won't limit memory usage.\n")
+
     # Check for optional packages and print installation instructions
     check_optional_packages()
 

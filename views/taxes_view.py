@@ -100,6 +100,19 @@ class TaxesView(QWidget):
         theme_manager.theme_changed.connect(self.apply_theme)
         theme_manager.theme_changed.connect(self.refresh_plots)
 
+    def showEvent(self, event):
+        """Handle show event - force scroll area to update scrollbars"""
+        super().showEvent(event)
+        # Force scroll area to recalculate and show scrollbar if needed
+        if hasattr(self, 'init_ui'):
+            # Find the scroll area and force it to update
+            for child in self.findChildren(QScrollArea):
+                # Update geometry to ensure scrollbar appears
+                child.updateGeometry()
+                # Force layout recalculation
+                if child.widget():
+                    child.widget().updateGeometry()
+
     def get_year_color(self, year):
         """Get consistent color for a year based on chart_colors"""
         if self.first_year is None:
@@ -140,9 +153,23 @@ class TaxesView(QWidget):
         self.history_widget.setLayout(self.history_layout)
         self.history_scroll.setWidget(self.history_widget)
 
-        # Right side - Main content (75% width)
-        right_layout = QVBoxLayout()
-        right_layout.setSpacing(20)
+        # Right side - Main content (75% width) with scroll area
+        right_panel = QWidget()
+        right_outer_layout = QVBoxLayout()
+        right_outer_layout.setSpacing(10)
+
+        # Tax summary header row (stays at top, outside scroll area)
+        self.create_tax_summary_row(right_outer_layout)
+
+        # Create scroll area for remaining content (like year overview tab)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Container for scrollable content
+        content_container = QWidget()
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(20)
 
         # Create content group box for tax features (invisible, just for compatibility)
         self.content_group = QGroupBox()
@@ -153,28 +180,30 @@ class TaxesView(QWidget):
         self.info_label.setWordWrap(True)
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.info_label.setVisible(False)  # Hide since we're not using it
-        right_layout.addWidget(self.info_label)
+        content_layout.addWidget(self.info_label)
 
-        # Tax summary header row (moved to top)
-        self.create_tax_summary_row(right_layout)
-
-        # Progress bars section (moved below summary)
-        self.create_progress_bars(right_layout)
+        # Progress bars section (scrollable)
+        self.create_progress_bars(content_layout)
 
         # Income plot area
-        self.create_income_plot(right_layout)
+        self.create_income_plot(content_layout)
 
         # Tax payments bar chart area
-        self.create_tax_payments_chart(right_layout)
+        self.create_tax_payments_chart(content_layout)
 
         # Table and pie chart section
-        self.create_summary_section(right_layout)
+        self.create_summary_section(content_layout)
 
-        right_layout.addStretch()
+        content_layout.addStretch()
+
+        content_container.setLayout(content_layout)
+        scroll.setWidget(content_container)
+        right_outer_layout.addWidget(scroll)
+        right_panel.setLayout(right_outer_layout)
 
         # Add to main layout with size ratios
         main_layout.addWidget(self.history_scroll, 1)  # 25%
-        main_layout.addLayout(right_layout, 3)  # 75%
+        main_layout.addWidget(right_panel, 3)  # 75%
 
         self.setLayout(main_layout)
 
@@ -299,12 +328,14 @@ class TaxesView(QWidget):
             "Year", "Income", "Saved", "Federal", "State", "Service", "Other", "Remaining"
         ])
         self.summary_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.summary_table.setMinimumHeight(220)  # Match bar chart minimum height
         self.summary_table.setMaximumHeight(300)
         summary_layout.addWidget(self.summary_table, 2)  # 2/3 width
 
         # Pie chart
         self.pie_figure = Figure(figsize=(4, 4))
         self.pie_canvas = FigureCanvas(self.pie_figure)
+        self.pie_canvas.setMinimumHeight(220)  # Match bar chart minimum height
         self.pie_canvas.setMaximumHeight(300)
         summary_layout.addWidget(self.pie_canvas, 1)  # 1/3 width
 

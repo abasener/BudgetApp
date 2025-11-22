@@ -169,7 +169,13 @@ Choose from 5 carefully crafted themes:
 
 **Current Version**: V2.0 Active Development
 **Status**: Feature-complete core with ongoing enhancements
-**Latest Updates** (2024-10-22):
+**Latest Updates** (2025-11-21):
+- ✅ **UI Polish & Bug Fixes**:
+  * Tax tab scroll area now properly displays scrollbar on initial load
+  * Categories tab correlation plots increased from 5 to 4 per row (180x180px each)
+  * Categories tab correlation plots now have proper padding around data points (20% range padding)
+  * Theme color updates now properly refresh Categories and Reimbursements tabs
+  * Fixed background colors for category selection, overview boxes, and reimbursement table/sidebar
 - ✅ **Year Overview Tab - COMPLETE**: 10 comprehensive visualizations for year-over-year analysis
   * Monthly line plot showing average financial activity
   * Pie chart with analytics-aware percentage calculation

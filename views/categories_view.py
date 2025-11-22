@@ -263,7 +263,7 @@ class CategoriesView(QWidget):
         self.stats_label.setFont(theme_manager.get_font("small"))
         self.stats_label.setStyleSheet(f"""
             color: {colors['text_primary']};
-            background-color: {colors['background']};
+            background-color: {colors['surface']};
             padding: 8px;
             border-radius: 4px;
             border: 1px solid {colors['border']};
@@ -828,15 +828,15 @@ class CategoriesView(QWidget):
             # Clear existing plots
             self.clear_correlation_plots()
             
-            # Calculate grid layout: 5 plots per row
-            plots_per_row = 5
+            # Calculate grid layout: 4 plots per row (more room per plot)
+            plots_per_row = 4
             num_plots = len(other_categories)
             num_rows = (num_plots + plots_per_row - 1) // plots_per_row  # Ceiling division
-            
+
             # Get chart colors for different categories
             chart_colors = theme_manager.get_chart_colors()
-            
-            # Create a grid layout for correlation plots (5 per row, evenly spaced like a table)
+
+            # Create a grid layout for correlation plots (4 per row, evenly spaced like a table)
             from PyQt6.QtWidgets import QGridLayout
             
             # Create a single grid widget to hold all plots
@@ -885,16 +885,27 @@ class CategoriesView(QWidget):
                 if selected_values and other_values:
                     # Get color for this category
                     color = chart_colors[plot_idx % len(chart_colors)]
-                    
+
                     # Create scatter plot
-                    ax.scatter(other_values, selected_values, 
+                    ax.scatter(other_values, selected_values,
                              alpha=0.7, s=30, c=color, edgecolors='white', linewidth=0.5)
-                    
-                    # Set axis limits with some padding
-                    if max(other_values) > 0:
-                        ax.set_xlim(0, max(other_values) * 1.05)
-                    if max(selected_values) > 0:
-                        ax.set_ylim(0, max(selected_values) * 1.05)
+
+                    # Set axis limits with padding: (1/x) * (max - min) where x=5
+                    padding_factor = 5  # Adjust this to increase/decrease padding
+
+                    # X-axis padding
+                    x_min = min(other_values)
+                    x_max = max(other_values)
+                    x_range = x_max - x_min
+                    x_padding = (1 / padding_factor) * x_range if x_range > 0 else 0
+                    ax.set_xlim(x_min - x_padding, x_max + x_padding)
+
+                    # Y-axis padding
+                    y_min = min(selected_values)
+                    y_max = max(selected_values)
+                    y_range = y_max - y_min
+                    y_padding = (1 / padding_factor) * y_range if y_range > 0 else 0
+                    ax.set_ylim(y_min - y_padding, y_max + y_padding)
                 
                 # Style the plot with ticks and grid
                 if selected_values and other_values and max(other_values) > 0 and max(selected_values) > 0:
@@ -939,7 +950,7 @@ class CategoriesView(QWidget):
                 
                 # Create canvas and add to grid
                 canvas = FigureCanvas(fig)
-                canvas.setFixedSize(150, 150)  # Small square plots
+                canvas.setFixedSize(180, 180)  # Larger square plots (4 per row instead of 5)
                 grid_layout.addWidget(canvas, row, col)
             
             # Set uniform column stretching so all columns take equal space
@@ -1317,14 +1328,14 @@ class CategoriesView(QWidget):
     def update_view_styling(self):
         """Update only the visual styling of the categories view"""
         colors = theme_manager.get_colors()
-        
+
         # Update main widget background
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {colors['background']};
             }}
         """)
-        
+
         # Update scroll area background
         for child in self.findChildren(QScrollArea):
             child.setStyleSheet(f"""
@@ -1333,12 +1344,46 @@ class CategoriesView(QWidget):
                     border: none;
                 }}
             """)
-        
+
+        # Update all frames (column backgrounds)
+        for child in self.findChildren(QFrame):
+            child.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {colors['surface']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 6px;
+                    padding: 8px;
+                }}
+            """)
+
+        # Update category list widget styling
+        if hasattr(self, 'category_list'):
+            self.category_list.setStyleSheet(f"""
+                QListWidget {{
+                    background-color: {colors['background']};
+                    border: 1px solid {colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                }}
+                QListWidget::item {{
+                    color: {colors['text_primary']};
+                    padding: 5px;
+                    border-radius: 2px;
+                }}
+                QListWidget::item:hover {{
+                    background-color: {colors['surface_variant']};
+                }}
+                QListWidget::item:selected {{
+                    background-color: {colors['primary']};
+                    color: {colors['background']};
+                }}
+            """)
+
         # Update title color
         for child in self.findChildren(QLabel):
             if "Categories" in child.text() and child.font().pointSize() > 12:  # Title label
                 child.setStyleSheet(f"color: {colors['text_primary']};")
-        
+
         # Update column title colors
         if hasattr(self, 'category_title'):
             self.category_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold; padding: 2px;")
