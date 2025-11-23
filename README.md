@@ -48,6 +48,26 @@ A comprehensive desktop budget tracking application built with PyQt6 and matplot
 - **Bidirectional Transfer Visibility**: Manual transfers show on both sides (e.g., Week ↔ Savings)
 - **Disabled by Default**: Toggle in Settings → Enable Transactions Tab for debugging and data inspection
 
+### 📝 Scratch Pad Tab *(Excel-Like Workspace)*
+- **Spreadsheet Interface**: Excel-like grid with 50 rows × 26 columns (A-Z)
+- **Formula Support**: Excel-style formulas with `=` prefix for calculations
+- **GET Function**: Pull live data from accounts and bills with `=GET(account_name, property)`
+  - Account properties: `balance`, `goal`, `auto_save`
+  - Bill properties: `balance`, `amount`, `frequency`, `type`, `auto_save`, `variable`
+- **Built-in Functions**:
+  - `SUM(range)` - Sum cell ranges like `=SUM(A1:A10)`
+  - `AVERAGE(range)` - Average of cell ranges
+  - `CURRENT_DATE()` - Today's date
+- **Math Operations**: Standard operators (`+`, `-`, `*`, `/`) and parentheses for complex formulas
+- **Cell References**: Use cell addresses (A1, B2) in formulas with support for ranges (A1:B10)
+- **Text Formatting**: 4 styles - Header 1 (H1), Header 2 (H2), Normal Text (P), Notes (n)
+- **Autocomplete**: Smart suggestions for functions, account names, and properties while typing
+- **Formula Bar**: Edit formulas in dedicated input bar with error display
+- **Cell Dependency Highlighting**: Click a cell to see which cells it depends on (light blue highlights)
+- **Multi-Cell Selection**: Select and copy/paste ranges, insert cell references into formulas
+- **JSON Persistence**: All formulas, values, and formatting saved automatically to workspace file
+- **Error Handling**: Clear error messages for invalid formulas, missing accounts, or property mismatches
+
 ### 💼 Reimbursements Tracking
 - **Separate Tracking System**: Work travel expenses and temporary out-of-pocket costs tracked independently from main budget
 - **5-State Lifecycle**: Pending → Submitted → Reimbursed/Partial/Denied with auto-date tracking
@@ -97,21 +117,24 @@ BudgetApp/
 ├── views/                  # UI components
 │   ├── dashboard.py       # Main dashboard with analytics
 │   ├── bills_view.py      # Bills management interface
-│   └── weekly_view.py     # Weekly budget planning
+│   ├── weekly_view.py     # Weekly budget planning
+│   └── scratch_pad_view.py # Excel-like workspace with formulas
 ├── widgets/               # Custom UI widgets
 │   ├── chart_widget.py    # matplotlib integration widgets
 │   └── theme_selector.py  # Theme switching component
 ├── services/              # Business logic
 │   ├── transaction_manager.py  # Data operations
 │   ├── analytics.py           # Spending analysis
-│   └── paycheck_processor.py  # Income distribution
+│   ├── paycheck_processor.py  # Income distribution
+│   └── workspace_calculator.py # Scratch Pad formula engine
 ├── themes/                # Visual styling
 │   ├── theme_manager.py   # Theme system core
 │   └── assets/           # Theme-specific GIFs and images
-└── dialogs/              # Modal dialogs for data entry
-    ├── add_transaction_dialog.py
-    ├── add_paycheck_dialog.py
-    └── pay_bill_dialog.py
+├── dialogs/              # Modal dialogs for data entry
+│   ├── add_transaction_dialog.py
+│   ├── add_paycheck_dialog.py
+│   └── pay_bill_dialog.py
+└── scratch_pad_workspace.json # Saved workspace data
 ```
 
 ## 🎯 Current Development Focus
@@ -169,8 +192,18 @@ Choose from 5 carefully crafted themes:
 
 **Current Version**: V2.0 Active Development
 **Status**: Feature-complete core with ongoing enhancements
-**Latest Updates** (2025-11-21):
-- ✅ **UI Polish & Bug Fixes**:
+**Latest Updates** (2025-11-23):
+- ✅ **Scratch Pad Tab - COMPLETE**: Excel-like workspace for budget planning and calculations
+  * 50×26 spreadsheet grid with formula support (SUM, AVERAGE, GET, CURRENT_DATE)
+  * Live data integration via GET function - pull account/bill balances and properties
+  * Cell formatting system (H1, H2, Normal, Notes) with theme-aware styling
+  * Smart autocomplete for functions, account names, and properties
+  * Formula bar with error display and cell dependency highlighting
+  * Multi-cell selection with copy/paste and cell reference insertion
+  * JSON persistence for all formulas, values, and formatting
+  * Nested function support and complex formula evaluation
+  * Error handling with precise error messages for debugging
+- ✅ **UI Polish & Bug Fixes** (2025-11-21):
   * Tax tab scroll area now properly displays scrollbar on initial load
   * Categories tab correlation plots increased from 5 to 4 per row (180x180px each)
   * Categories tab correlation plots now have proper padding around data points (20% range padding)

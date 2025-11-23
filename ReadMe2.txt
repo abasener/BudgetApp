@@ -1,7 +1,22 @@
 ================================================================================
 BudgetApp V2 - Dynamic Rollover System Documentation
 ================================================================================
-Last Updated: 2025-11-21
+Last Updated: 2025-11-23
+
+RECENT FIXES & ADDITIONS (2025-11-23):
+- Added: Scratch Pad tab - Excel-like workspace with formula support and live data integration
+- Added: Formula engine with SUM(), AVERAGE(), GET(), CURRENT_DATE() functions
+- Added: GET function to pull live account/bill data (balance, amount, frequency, type, etc.)
+- Added: Cell formatting system (H1, H2, Normal Text, Notes) with theme-aware colors
+- Added: Smart autocomplete for functions, account names, and property suggestions
+- Added: Formula bar with error display and cell dependency highlighting
+- Added: Multi-cell selection with copy/paste and cell reference insertion
+- Added: JSON workspace persistence for formulas, values, and formatting
+- Added: WorkspaceCalculator service for formula evaluation and dependency tracking
+- Fixed: GET function error messages - now accurately report property vs account errors
+- Fixed: String property handling - GET can now return text values (frequency, type, etc.)
+- Fixed: CURRENT_DATE() type handling - returns date objects correctly
+- Fixed: Cell format preservation when editing cell content
 
 RECENT FIXES & ADDITIONS (2025-11-21):
 - Fixed: Tax tab scroll area now properly displays scrollbar on initial load (added showEvent handler)
@@ -1553,5 +1568,295 @@ TESTING NOTES:
 - Test export generates correct filename
 - Test tag filtering updates table correctly
 - Test status changes auto-update dates
+
+================================================================================
+PART 9: SCRATCH PAD - EXCEL-LIKE WORKSPACE
+================================================================================
+
+OVERVIEW:
+The Scratch Pad tab provides an Excel-like spreadsheet interface for budget planning,
+calculations, and "what-if" scenarios. It features live data integration via the GET
+function to pull current account/bill balances and properties.
+
+SPREADSHEET SPECIFICATIONS:
+- Grid Size: 50 rows × 26 columns (A-Z)
+- Cell Addressing: Standard Excel notation (A1, B2, Z50)
+- Formula Prefix: All formulas start with "="
+- Persistence: Auto-saved to scratch_pad_workspace.json
+
+FORMULA SYSTEM:
+
+1. SUPPORTED FUNCTIONS:
+   - SUM(range): Sum values in a range
+     * Examples: =SUM(A1:A10), =SUM(B2:D5)
+
+   - AVERAGE(range): Average of values in a range
+     * Examples: =AVERAGE(A1:D1), =AVERAGE(B2:B20)
+
+   - GET(account_name, property): Pull live data from accounts/bills
+     * Account properties: balance, goal, auto_save
+     * Bill properties: balance, amount, frequency, type, auto_save, variable
+     * Examples: =GET(Rent, balance), =GET(Safety Saving, goal)
+
+   - CURRENT_DATE(): Returns today's date
+     * Example: =CURRENT_DATE()
+
+2. OPERATORS:
+   - Addition: +
+   - Subtraction: -
+   - Multiplication: *
+   - Division: /
+   - Parentheses: () for grouping
+
+3. CELL REFERENCES:
+   - Single cell: A1, B2, Z50
+   - Range: A1:B10 (used in SUM/AVERAGE)
+   - Mixed formulas: =A1+B1*2
+
+4. NESTED FUNCTIONS:
+   - Supported: =AVERAGE(SUM(A1:B1)+SUM(C1:D1))
+   - GET in calculations: =GET(Rent, balance)*2
+   - Complex: =(A1+B1)*2-5
+
+CELL FORMATTING SYSTEM:
+
+Format Types:
+- H1 (Header 1): Primary color, bold, +4px font size
+- H2 (Header 2): Secondary color, bold, +1px font size
+- P (Normal): Default text color, regular weight
+- n (Notes): Secondary text color, italic
+
+Format Application:
+- Select cell(s) → Choose format from dropdown
+- Formatting persists across sessions
+- Theme colors automatically applied
+
+USER INTERFACE FEATURES:
+
+1. Formula Bar:
+   - Shows current cell's formula or value
+   - Edit formulas here (not in-cell)
+   - Press Enter to apply changes
+   - Error messages appear below formula bar
+
+2. Autocomplete:
+   - Triggers when typing "=" in formula bar
+   - Suggests functions: SUM(), AVERAGE(), GET(), CURRENT_DATE()
+   - Suggests account/bill names when inside GET()
+   - Suggests properties based on account type
+   - Press Tab or click to accept suggestion
+
+3. Cell Selection:
+   - Click to select single cell
+   - Drag to select range
+   - Selection preserved when typing in formula bar
+   - Click other cells while editing formula to insert references
+
+4. Dependency Highlighting:
+   - Click a cell with formula
+   - Dependent cells highlighted in light blue
+   - Shows which cells contribute to current cell's value
+
+5. Copy/Paste:
+   - Select cells → Ctrl+C to copy
+   - Select destination → Ctrl+V to paste
+   - Copies formulas, not values
+   - Tab-separated format for Excel compatibility
+
+6. Toolbar Buttons:
+   - Refresh: Recalculate all formulas
+   - Clear: Delete all cell contents (with confirmation)
+   - Format dropdown: Change cell text formatting
+
+ERROR HANDLING:
+
+Error Types and Messages:
+1. Account/Bill Not Found:
+   "Cannot find account or bill named 'X'"
+
+2. Invalid Property for Account:
+   "Property 'X' not valid for account 'Y'. Valid properties: balance, goal, auto_save"
+
+3. Invalid Property for Bill:
+   "Property 'X' not valid for bill 'Y'. Valid properties: balance, amount, frequency, type, auto_save, variable"
+
+4. Circular Reference:
+   "Circular reference detected involving X"
+
+5. Type Mismatch:
+   "Cannot use non-numeric value 'X' in calculation"
+
+6. Invalid Formula Syntax:
+   "Cell or variable 'X' not found"
+
+Error Display:
+- Cell shows: "ERROR" in red (theme error color)
+- Formula bar shows: Original formula
+- Error label shows: Detailed error message
+
+DATA PERSISTENCE:
+
+JSON Structure (scratch_pad_workspace.json):
+{
+  "cells": {
+    "A1": {
+      "formula": "Budget 2025",
+      "type": "string",
+      "format": "H1"
+    },
+    "B2": {
+      "formula": "=GET(Rent, balance)",
+      "type": "number",
+      "format": "P"
+    }
+  }
+}
+
+Saved Data:
+- formula: Original input (literal or formula)
+- type: Data type (string, number, date, error)
+- format: Formatting style (H1, H2, P, n)
+
+Auto-Save Triggers:
+- Cell content change
+- Cell format change
+- Clear all cells
+- Application exit
+
+IMPLEMENTATION ARCHITECTURE:
+
+Key Files:
+- views/scratch_pad_view.py: UI implementation
+- services/workspace_calculator.py: Formula engine
+- scratch_pad_workspace.json: Data storage
+
+Core Classes:
+
+1. ScratchPadView (views/scratch_pad_view.py):
+   - QTableWidget for spreadsheet grid
+   - Formula bar (QLineEdit) for editing
+   - QCompleter for autocomplete
+   - Format dropdown (QComboBox)
+   - Theme-aware styling
+
+2. WorkspaceCalculator (services/workspace_calculator.py):
+   - evaluate_formula(): Main evaluation engine
+   - get_external_variable(): GET function implementation
+   - parse_range(): Convert "A1:B10" to cell list
+   - parse_cell_reference(): Convert "A1" to (row, col)
+   - Dependency tracking for highlighting
+
+FORMULA EVALUATION FLOW:
+
+1. User enters formula in formula bar
+2. on_formula_entered() captures Enter key
+3. set_cell_formula() called with cell reference
+4. WorkspaceCalculator.set_cell_formula():
+   a. Preserve existing format
+   b. Call evaluate_formula()
+   c. Store result in cells dict
+   d. Update cell type (string/number/date/error)
+5. display_cell_value() updates UI:
+   a. Apply formatting (H1/H2/P/n)
+   b. Show ERROR in red if error tuple
+   c. Format numbers/dates appropriately
+6. save_workspace() writes to JSON
+
+GET FUNCTION IMPLEMENTATION:
+
+Function: get_external_variable(var_name)
+
+Input Format: "account_name, property"
+Example: "Rent, balance" → 1792.95
+
+Process:
+1. Parse var_name: Split on comma
+2. Query database for matching account/bill
+3. Check property validity
+4. Return value or error tuple
+
+Return Types:
+- Numbers: Float (balance, goal, auto_save, amount)
+- Strings: String (frequency, type, variable)
+- Dates: date object (last_payment_date)
+- Errors: ("ERROR", "message")
+
+Error Handling:
+- Account found, invalid property → Property error with valid list
+- Account not found → Account not found error
+- Missing comma → Format error
+
+SPECIAL CASES:
+
+1. String Returns from GET:
+   - If formula is ONLY =GET(...) and returns string
+   - Return string directly (don't try to evaluate as expression)
+   - Example: =GET(Rent, frequency) → "monthly"
+
+2. CURRENT_DATE():
+   - If formula is ONLY =CURRENT_DATE()
+   - Return date object directly
+   - If used in calculation, convert to days since epoch
+
+3. Format Preservation:
+   - When editing cell content, preserve existing format
+   - Check for format in cells dict before defaulting to "P"
+   - Apply format before saving
+
+4. Multi-Cell Selection:
+   - When formula bar has focus and user clicks cells
+   - If current text starts with "=", insert cell reference at cursor
+   - Support range insertion when dragging (A1:B5)
+
+TESTING CHECKLIST:
+
+Basic Functionality:
+☑ Enter numbers, strings, dates
+☑ Cell references (=A1)
+☑ Basic math (=A1+B1, =A1*2)
+☑ SUM function (=SUM(A1:A10))
+☑ AVERAGE function (=AVERAGE(A1:B10))
+☑ GET function with all properties
+☑ CURRENT_DATE function
+☑ Nested functions
+
+UI Features:
+☑ Formula bar editing
+☑ Autocomplete suggestions
+☑ Format dropdown changes
+☑ Multi-cell selection
+☑ Copy/paste ranges
+☑ Cell reference insertion
+☑ Dependency highlighting
+☑ Error display
+
+Data Persistence:
+☑ Save on cell change
+☑ Save on format change
+☑ Load on app start
+☑ Clear all confirmation
+☑ Refresh recalculation
+
+Error Handling:
+☑ Invalid account name
+☑ Invalid property name
+☑ Circular references
+☑ Type mismatches
+☑ Formula syntax errors
+
+CODE LOCATIONS:
+- views/scratch_pad_view.py: Complete UI (570 lines)
+- services/workspace_calculator.py: Formula engine (450 lines)
+- main.py: Tab registration (line ~125)
+
+FUTURE ENHANCEMENTS (Not Implemented):
+- Undo/redo functionality
+- Formula copying with relative references
+- More functions (MIN, MAX, COUNT, IF)
+- Charts/graphs from cell data
+- Named ranges
+- Cell comments
+- Conditional formatting
+- Import/export to Excel
 
 ================================================================================

@@ -26,6 +26,7 @@ from views.categories_view import CategoriesView
 from views.year_overview_view import YearOverviewView
 from views.transactions_view import TransactionsView
 from views.reimbursements_view import ReimbursementsView
+from views.scratch_pad_view import ScratchPadView
 # Conditional import for optional tax features
 try:
     from views.taxes_view import TaxesView
@@ -113,6 +114,11 @@ class BudgetApp(QMainWindow):
             transaction_manager=self.transaction_manager
         )
 
+        # Initialize scratch pad view
+        self.scratch_pad_view = ScratchPadView(
+            transaction_manager=self.transaction_manager
+        )
+
         # Add tabs
         self.tabs.addTab(self.dashboard, "Dashboard")
         self.tabs.addTab(self.bills_view, "Bills")
@@ -123,6 +129,9 @@ class BudgetApp(QMainWindow):
 
         # Add Reimbursements tab (always visible for now)
         self.reimbursements_tab_index = self.tabs.addTab(self.reimbursements_view, "Reimbursements")
+
+        # Add Scratch Pad tab (always visible)
+        self.scratch_pad_tab_index = self.tabs.addTab(self.scratch_pad_view, "Scratch Pad")
 
         # Add Transactions tab if enabled in settings
         if self.app_settings.get("enable_transactions_tab", False):
