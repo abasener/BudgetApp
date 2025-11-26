@@ -669,6 +669,106 @@
       "formula": "100",
       "type": "number",
       "format": "n"
+    },
+    "K2": {
+      "formula": "Curnt saving total",
+      "type": "string",
+      "format": "n"
+    },
+    "K3": {
+      "formula": "Curent date",
+      "type": "string",
+      "format": "n"
+    },
+    "K4": {
+      "formula": "Goal Date",
+      "type": "string",
+      "format": "n"
+    },
+    "K5": {
+      "formula": "Amount of days left",
+      "type": "string",
+      "format": "n"
+    },
+    "M2": {
+      "formula": "=L2 / L5",
+      "type": "formula",
+      "format": "P"
+    },
+    "K6": {
+      "formula": "Posable goal amount to save",
+      "type": "string",
+      "format": "n"
+    },
+    "M3": {
+      "formula": "=(L2-L6) / L5",
+      "type": "formula",
+      "format": "P"
+    },
+    "N2": {
+      "formula": "Spending all money",
+      "type": "string",
+      "format": "n"
+    },
+    "N3": {
+      "formula": "Saving save amount",
+      "type": "string",
+      "format": "n"
+    },
+    "M1": {
+      "formula": "OutPuts",
+      "type": "string",
+      "format": "H2"
+    },
+    "K7": {
+      "formula": "Posable amount to spend per day",
+      "type": "string",
+      "format": "n"
+    },
+    "M4": {
+      "formula": "=L2 - (L5 * L7)",
+      "type": "formula",
+      "format": "P"
+    },
+    "N4": {
+      "formula": "How much is lfet if I spend the desiered amount",
+      "type": "string",
+      "format": "n"
+    },
+    "L1": {
+      "formula": "Sarting Valuse",
+      "type": "string",
+      "format": "H2"
+    },
+    "L2": {
+      "formula": "=GET(Safety Saving,balance)",
+      "type": "formula",
+      "format": "P"
+    },
+    "L3": {
+      "formula": "=CURRENT_DATE()",
+      "type": "formula",
+      "format": "P"
+    },
+    "L4": {
+      "formula": "12/31/2025",
+      "type": "date",
+      "format": "P"
+    },
+    "L5": {
+      "formula": "= L4-L3",
+      "type": "formula",
+      "format": "P"
+    },
+    "L6": {
+      "formula": "5000",
+      "type": "number",
+      "format": "P"
+    },
+    "L7": {
+      "formula": "100",
+      "type": "number",
+      "format": "P"
     }
   }
 }

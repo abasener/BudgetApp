@@ -1,7 +1,7 @@
 # 🚀 BudgetApp V2 - Project Roadmap
 
-**Last Updated:** November 19, 2025
-**Current Phase:** Phase 3 - Reimbursements & Automation
+**Last Updated:** November 26, 2025
+**Current Phase:** Phase 4 - Polish & Bug Fixes
 
 ---
 
@@ -10,8 +10,8 @@
 ```
 Phase 1: Core UI & Transfer System     [████████████████████] 100% ✅
 Phase 2: Transactions Tab              [████████████████████] 100% ✅
-Phase 3: Reimbursements & Automation   [██████████░░░░░░░░░░]  50%
-Phase 4: Polish & Future Features      [░░░░░░░░░░░░░░░░░░░░]   0% 💡
+Phase 3: Reimbursements & Automation   [██████████░░░░░░░░░░]  50% (Reimbursements ✅, Rules 📅 on hold)
+Phase 4: Polish & Bug Fixes            [░░░░░░░░░░░░░░░░░░░░]   0% (Starting now)
 ```
 
 ---
@@ -612,13 +612,618 @@ if account.balance >= account.goal_amount:
 
 ---
 
-<details>
-<summary><h2>💡 Phase 4: Polish & Future Features</h2></summary>
+<details open>
+<summary><h2>🔧 Phase 4: Polish & Bug Fixes (IN PROGRESS)</h2></summary>
 
 ### 🎯 Goals
-Quality-of-life improvements and nice-to-have features.
+Quality-of-life improvements, edge case handling, and UI refinements before returning to Phase 3 Rules system.
 
-### 🌟 Feature Ideas
+**Note:** Phase 3 is 50% complete (Reimbursements ✅ done, Rules & Automation 📅 on hold). We're doing Phase 4 polish first, then returning to complete Phase 3 later.
+
+---
+
+### 📋 Active Bug/Polish Overview
+
+| Category | Issue | Priority | Status |
+|----------|-------|----------|--------|
+| 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | 📋 Todo |
+| 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | 📋 Todo |
+| 🎨 **Theme System** | Theme colors/fonts not updating consistently | 🟡 Medium | 📋 Todo |
+| ✨ **Feature Polish** | Week tab - Edit transaction dates | 🟡 Medium | 📋 Todo |
+| ✨ **Feature Polish** | Tab reordering system | 🟡 Medium | 💭 Design |
+| ✨ **Feature Polish** | Scratch Pad - Case-insensitive & advanced paste | 🟡 Medium | 📋 Todo |
+| ⚙️ **Settings Overhaul** | Export/Import all data | 🟡 Medium | 💭 Design |
+| ⚙️ **Settings Overhaul** | Tab visibility toggles | 🟡 Medium | 📋 Todo |
+| 🔧 **Low Priority** | Year tab - Better visualizations for bottom plots | 🟢 Low | 💭 Design |
+| 🔧 **Low Priority** | Dashboard dynamic sizing | 🟢 Low | 💭 Design |
+
+---
+
+<details open>
+<summary><h3>🐛 Critical Bug Fixes</h3></summary>
+
+#### 🔴 **Bug 4.1: Transactions Tab - Editing Not Persisting**
+**Status:** 📋 Todo | **Priority:** 🔴 High
+
+**Issue:**
+- Edits to transactions not always saving
+- Likely only implemented for one sub-tab, forgot to apply to all 4
+- Slow performance making it hard to test
+
+**Root Cause:**
+- Originally erred on side of locking transactions to avoid breaking data
+- Need to review save logic across all 4 sub-tabs (Bills, Savings, Paycheck, Spending)
+
+**Expected Behavior:**
+- Since this is an admin/power-user tool, give warnings but allow more edits
+- Users should be able to edit most fields (with appropriate warnings for risky changes)
+- Save button should persist ALL changes across all 4 sub-tabs
+
+**Next Steps:**
+1. Test each sub-tab's save functionality individually
+2. Review locking logic - which fields should truly be locked vs. just warned?
+3. Add performance optimization if needed (see Bug 4.2)
+4. Add better error messages/validation feedback
+
+**Files to Check:**
+- `views/transactions_view.py` - Save logic for all 4 sub-tabs
+- `views/transactions_table_widget.py` - Edit tracking
+
+---
+
+#### 🔴 **Bug 4.2: Tax Tab - Scrollbar Disappeared (Again)**
+**Status:** 📋 Todo | **Priority:** 🔴 High
+
+**Issue:**
+- Scrollbar not showing on Tax tab
+- This was previously fixed with `showEvent` handler
+
+**Expected Behavior:**
+- Scrollbar appears on initial load when content exceeds viewport
+
+**Next Steps:**
+- Apply same fix as before (check `views/taxes_view.py` for `showEvent` handler)
+- Verify if issue exists in other tabs (Year Overview?)
+
+**Reference:**
+- Previous fix documented in ReadMe2.txt (2025-11-21 fixes)
+
+---
+
+</details>
+
+---
+
+<details>
+<summary><h3>🎨 Theme System Fixes</h3></summary>
+
+#### 🎨 **Bug 4.3: Theme Colors Not Updating on Theme Change**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Issue:**
+Multiple UI elements not updating colors when theme changes. Requires tab reload or app restart to see new theme.
+
+**Affected Elements:**
+
+**Bills/Savings Tabs:**
+- "Sort by" label for dropdown
+- Save Changes button on "See History" popups
+- Table text color after clicking (changes from correct color to white)
+- Current balance number in Edit Account/Bill dialogs
+- Button hover/focus styling (appears to be global issue)
+
+**Tax/Year Overview Tabs:**
+- Year label text colors (only update when tab reloaded)
+- Year tab background color (using theme color but may not be optimal choice)
+
+**Hour Calculator:**
+- Text color appears hardcoded (not using theme)
+- Hover effects not using theme colors
+
+**Scratch Pad:**
+- Cell text (all 4 styles: H1, H2, Normal, Notes) not updating on theme change
+
+**Expected Behavior:**
+- ALL elements should update immediately when theme changes
+- No reload/restart required
+
+**Implementation Pattern:**
+```python
+def __init__(self):
+    theme_manager.theme_changed.connect(self.on_theme_changed)
+
+def on_theme_changed(self, theme_id):
+    colors = theme_manager.get_colors()
+    # Update ALL styled widgets here
+    self.apply_theme_colors()
+    self.refresh()
+```
+
+**Next Steps:**
+1. Audit all tabs for missing `on_theme_changed` connections
+2. Year tab - match background color approach to Taxes tab
+3. Create theme color update checklist for future tabs
+
+**Files to Check:**
+- `views/bills_view.py` - Sort by label, buttons
+- `views/savings_view.py` - Sort by label, buttons
+- `views/dialogs/bill_transaction_history_dialog.py` - Save Changes button
+- `views/dialogs/edit_account_dialog.py` - Current balance text
+- `views/dialogs/edit_bill_dialog.py` - Current balance text
+- `views/dialogs/hour_calculator.py` - Text colors, hover effects
+- `views/taxes_view.py` - Year labels
+- `views/year_overview_view.py` - Year labels, background color
+- `views/scratch_pad_view.py` - Cell text styling
+
+---
+
+#### 🎨 **Bug 4.4: Theme Fonts Not Applied Consistently**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Issue:**
+- Not all text using theme fonts
+- Fonts are defined in theme manager but not applied everywhere
+
+**Available Font Types (in themes/theme_manager.py):**
+- `main` - Body text
+- `title` - Page titles
+- `header` - Section headers
+- `button` - Button text
+- `button_small` - Small button text
+
+**Note:** Fonts `subtitle`, `small`, `menu`, `nonspace` mentioned by user but need verification if in theme definitions.
+
+**Expected Behavior:**
+- ALL text should pull from corresponding theme font type
+- Currently only visible in non-default themes (default has same font for all)
+
+**Next Steps:**
+1. Verify all font types exist in theme manager
+2. Audit all views for hardcoded fonts
+3. Create font application helper function
+4. Test with Coffee theme (has distinct fonts)
+
+---
+
+#### 🎨 **Bug 4.5: Settings - Default Theme Changes Current Theme**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Issue:**
+- Changing "Default Theme" in Settings dialog applies immediately
+- Should only affect next app load, not current session
+
+**Current Controls:**
+1. **Settings Dialog:** Default Theme (should apply on next launch only)
+2. **Main App Dropdown:** Current Theme (should apply immediately)
+
+**Expected Behavior:**
+- Settings default theme = saved to `app_settings.json`, loaded on startup
+- Main app dropdown = changes theme immediately for current session
+- Two separate controls doing two separate things
+
+**Next Steps:**
+- Disconnect theme change trigger from Settings default theme dropdown
+- Ensure app loads `default_theme` from settings on startup
+- Keep main app theme selector as-is (immediate change)
+
+**Files to Check:**
+- `views/dialogs/settings_dialog.py` - Default theme dropdown
+- `main.py` - Theme loading on startup
+
+---
+
+</details>
+
+---
+
+<details>
+<summary><h3>✨ Feature Polish (Medium Priority)</h3></summary>
+
+#### ✨ **Feature 4.6: Week Tab - Edit Transaction Dates**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Purpose:**
+Add ability to change transaction dates directly in weekly view transaction table.
+
+**Current State:**
+- Can edit description, amount, category
+- Cannot edit date (requires using Transactions tab or re-creating transaction)
+
+**Expected Behavior:**
+- Date column editable like other fields
+- Validation: Warn if moving transaction to different week
+- Trigger rollover recalculation if date changes
+
+**Implementation Notes:**
+- Similar to existing editable fields in weekly transaction table
+- Add date validation dialog
+- Call `trigger_rollover_recalculation()` after save
+
+**Files to Modify:**
+- `views/weekly_view.py` - Transaction table editing
+
+---
+
+#### ✨ **Feature 4.7: Current Week/Paycheck Highlighting**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Purpose:**
+Visual indicator for current week in navigation dropdowns.
+
+**Two Locations:**
+
+**1. Pay Period Dropdown (Top of Week Tab):**
+- Add ⭐ or visual indicator next to current week's pay period
+- Example: "Week 59-60 (Nov 18 - Dec 1) ⭐"
+
+**2. Week 1/Week 2 Sub-section Headers:**
+- Bold text or background highlight for current week
+- Example: **Week 1** (bold) vs. Week 2 (normal)
+
+**Implementation:**
+- Calculate current week from today's date
+- Apply visual indicator in dropdown population logic
+- Update weekly when tab refreshed
+
+**Files to Modify:**
+- `views/weekly_view.py` - Pay period dropdown, week headers
+
+---
+
+#### ✨ **Feature 4.8: Categories Tab - "Include Abnormal" Checkbox**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Purpose:**
+Add checkbox to toggle abnormal spending in Categories tab analytics.
+
+**Default State:**
+- **Categories tab:** Include abnormal = ON (show all transactions)
+- **Dashboard:** Include abnormal = OFF (hide abnormal spending)
+
+**Rationale:**
+- Abnormal spending (new car, medical bills) skews dashboard totals
+- But Categories tab looks at granular transaction level, so include by default
+- User can still toggle off if desired
+
+**Implementation:**
+- Add checkbox similar to Dashboard "Normal Spending Only" toggle
+- Default: Unchecked (shows abnormal)
+- Filter analytics when checked
+
+**Files to Modify:**
+- `views/categories_view.py` - Add checkbox, wire to analytics filtering
+
+---
+
+#### ✨ **Feature 4.9: Tab Reordering System**
+**Status:** 💭 Design | **Priority:** 🟡 Medium
+
+**Purpose:**
+Reorder tabs for better workflow + allow user customization.
+
+**Proposed Default Order:**
+1. Dashboard
+2. Weekly
+3. Bills
+4. Savings
+5. Reimbursements
+6. Categories
+7. Year Overview
+8. Taxes (optional)
+9. Scratch Pad
+10. Transactions (optional - admin tool)
+
+**Bonus Feature:**
+- Settings option to customize tab order
+- Drag-and-drop or up/down arrows
+- Save order to `app_settings.json`
+
+**Implementation:**
+- Change tab creation order in `main.py`
+- Add custom order UI to Settings dialog
+- Store as array: `["dashboard", "weekly", "bills", ...]`
+
+**Files to Modify:**
+- `main.py` - Tab creation order
+- `views/dialogs/settings_dialog.py` - Custom order UI (optional)
+
+---
+
+#### ✨ **Feature 4.10: View Menu - Add Missing Tabs**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Purpose:**
+Add all tabs to View → Navigate menu dropdown.
+
+**Currently Missing:**
+- Reimbursements
+- Scratch Pad
+- Possibly others
+
+**Expected Behavior:**
+- View menu has entry for every visible tab
+- Clicking navigates to that tab
+- Disabled tabs (Transactions, Taxes) hidden from menu or grayed out
+
+**Files to Modify:**
+- `main.py` - View menu construction
+
+---
+
+#### ✨ **Feature 4.11: Scratch Pad - Case-Insensitive Functions/Cells**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Purpose:**
+Make Scratch Pad formulas case-insensitive for easier use.
+
+**Expected Behavior:**
+- Cell references: `K2` = `k2`
+- Functions: `GET` = `get`, `SUM` = `sum`, `AVERAGE` = `average`
+- Account names: Case-insensitive matching
+
+**Implementation:**
+- Convert all cell references to uppercase before lookup
+- Convert function names to uppercase before evaluation
+- Case-insensitive account name matching in GET function
+
+**Files to Modify:**
+- `services/workspace_calculator.py` - Formula parsing
+
+---
+
+#### ✨ **Feature 4.12: Scratch Pad - Advanced Copy/Paste Modes**
+**Status:** 💭 Design | **Priority:** 🟡 Medium
+
+**Purpose:**
+Add Excel-like paste options for formulas.
+
+**Three Paste Modes:**
+
+**1. Normal Paste (Current Behavior):**
+- Pastes formulas as-is
+- Cell references update based on absolute position
+
+**2. Shift+Paste (Values Only):**
+- Pastes calculated values, not formulas
+- Example: Copy `=SUM(A1:A10)` (result: 500) → Paste `500`
+
+**3. Ctrl+Shift+V (Relative Paste):**
+- Adjusts cell references relative to new position
+- Both rows AND columns adjust
+- Example:
+  - Cell K2 contains `=A1+B1`
+  - Copy K2, paste to M4 (moved right 2, down 2)
+  - Result: `=C3+D3` (A→C, B→D, 1→3)
+
+**Implementation Complexity:**
+- Relative paste requires formula AST modification
+- Need to track copy source position
+- Recalculate dependencies after paste
+
+**Files to Modify:**
+- `views/scratch_pad_view.py` - Copy/paste handlers
+- `services/workspace_calculator.py` - Formula adjustment logic
+
+---
+
+</details>
+
+---
+
+<details>
+<summary><h3>⚙️ Settings Dialog Overhaul</h3></summary>
+
+#### ⚙️ **Feature 4.13: Tab Visibility Toggles**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Purpose:**
+Allow users to hide tabs they don't use for cleaner interface.
+
+**Always Visible (Core Tabs):**
+- Dashboard
+- Weekly
+- Bills
+- Savings
+
+**Optional Tabs (Can Toggle Off):**
+- Reimbursements (default: ON)
+- Categories (default: ON)
+- Year Overview (default: ON)
+- Taxes (default: OFF - already toggleable)
+- Scratch Pad (default: ON)
+- Transactions (default: OFF - already toggleable, admin tool)
+
+**Implementation:**
+- Add checkboxes to Settings dialog
+- Save to `app_settings.json`
+- Show/hide tabs on setting change (or require restart?)
+
+**Files to Modify:**
+- `views/dialogs/settings_dialog.py` - Add toggles
+- `main.py` - Conditional tab creation
+
+---
+
+#### ⚙️ **Feature 4.14: Settings - General Cleanup & Organization**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Purpose:**
+Reorganize Settings dialog into logical groups.
+
+**Proposed Structure:**
+
+**General:**
+- Default theme (on next launch)
+- Data directory location
+
+**Tab Visibility:**
+- Checkboxes for optional tabs (Feature 4.13)
+
+**Features:**
+- Enable Transactions Tab ✅ (already exists)
+- Enable Taxes Tab ✅ (already exists)
+- Testing/Debug Mode toggle
+- Other feature flags
+
+**Data Management:**
+- Export All Data (Feature 4.15)
+- Import All Data (Feature 4.16)
+
+**Files to Modify:**
+- `views/dialogs/settings_dialog.py` - Reorganize layout
+
+---
+
+#### ⚙️ **Feature 4.15: Export All Data**
+**Status:** 💭 Design | **Priority:** 🟡 Medium
+
+**Purpose:**
+Export all app data for backup/sharing.
+
+**Export Options (User Selects):**
+- ☑ Settings (`app_settings.json`)
+- ☑ Database (`.db` file or SQL dump)
+- ☑ Scratch Pad Workspace (`scratch_pad_workspace.json`)
+- ☑ Tax data (part of database?)
+- ☑ Reimbursements (part of database)
+- ☑ Year Overview data (calculated from database, not separate)
+
+**Export Format:**
+- **Option A:** Single ZIP file with all selected items
+  - Pros: Easy to share, single file
+  - Cons: User must unzip (can app auto-unzip on import?)
+
+- **Option B:** Separate files in selected folder
+  - Pros: Direct access to files
+  - Cons: Multiple files to manage
+
+**Decision:** Discuss when implementing (lean toward ZIP with auto-unzip on import)
+
+**Files to Modify:**
+- `views/dialogs/settings_dialog.py` - Export UI
+- New utility: `utils/data_export.py` or similar
+
+---
+
+#### ⚙️ **Feature 4.16: Import All Data**
+**Status:** 💭 Design | **Priority:** 🟡 Medium
+
+**Purpose:**
+Import exported data with conflict resolution.
+
+**Import Conflict Handling:**
+
+**Database:**
+- Overwrite: Replace entire database
+- Merge: Combine data (requires ID conflict resolution)
+- Cancel: Abort import
+
+**Settings:**
+- Overwrite: Use imported settings
+- Merge: Keep current settings, import only new keys
+- Cancel: Keep current settings
+
+**Scratch Pad:**
+- Overwrite: Replace workspace
+- Merge: Combine (how to handle cell conflicts?)
+- Cancel: Keep current workspace
+
+**Implementation:**
+- Similar to Excel import (reference: `views/dialogs/import_transactions_dialog.py`)
+- Show preview before committing
+- Backup current data before import
+
+**Files to Modify:**
+- `views/dialogs/settings_dialog.py` - Import UI
+- New utility: `utils/data_import.py` or similar
+
+---
+
+</details>
+
+---
+
+<details>
+<summary><h3>🔧 Low Priority / Nice-to-Have</h3></summary>
+
+#### 🔧 **Feature 4.17: Year Tab - Enhanced Bottom Visualizations**
+**Status:** 💭 Design | **Priority:** 🟢 Low
+
+**Issue:**
+- Bottom 3-4 line plots are placeholders
+- Don't display data well, no useful info can be pulled from them
+
+**Expected Behavior:**
+- Replace with better visualizations that show meaningful insights
+- Moved from Phase 4.4 "Enhanced Year Overview" to active work
+
+**Design Questions:**
+- What data should they show? (Monthly trends? Category breakdowns by year?)
+- What chart types work best? (Keep line plots or switch to bar/scatter?)
+- Merge with existing "Enhanced Year Overview" ideas?
+
+**Reference:**
+- See Feature 4.4 in "Nice-to-Have Feature Ideas" section for enhancement ideas
+
+---
+
+#### 🔧 **Feature 4.18: Dashboard - Dynamic Sizing/Scrollbar**
+**Status:** 💭 Design | **Priority:** 🟢 Low | **⚠️ FRAGILE**
+
+**Issue:**
+- Dashboard widgets don't adapt to window size
+- Content can overflow without scrollbar
+
+**Proposed Solutions:**
+1. Add vertical scrollbar when content exceeds viewport
+2. Dynamic widget sizing based on available space
+3. Collapsible sections to save space
+
+**Warning:**
+- Dashboard layout is complex and fragile
+- Changes could break existing functionality
+- Requires careful testing
+
+**Next Steps:**
+- Test current overflow scenarios
+- Prototype scrollbar solution first (safest)
+- Consider dynamic sizing only if necessary
+
+**Files to Modify:**
+- `views/dashboard.py` - Layout and sizing logic
+
+---
+
+#### 🔧 **Feature 4.19: Testing Mode Popups Audit**
+**Status:** 📋 Todo | **Priority:** 🟢 Low
+
+**Purpose:**
+Ensure all debug/testing popups respect testing mode toggle.
+
+**Task:**
+- Find all dialogs/popups with debug output
+- Check if they're controlled by testing mode flag
+- Ensure they don't appear when testing mode OFF
+
+**Testing Mode Location:**
+- Settings dialog (may be labeled "Debug Mode")
+
+**Next Steps:**
+1. Find testing mode flag in settings
+2. Search codebase for debug dialogs
+3. Verify flag is checked before showing
+
+**Files to Check:**
+- Search for `QMessageBox` and `print()` statements
+- Check if wrapped in `if testing_mode:` conditions
+
+---
+
+</details>
+
+---
+
+### 🌟 Nice-to-Have Feature Ideas (Lower Priority)
 
 #### 📝 **Feature 4.1: Notes Field for Transactions**
 **Priority:** 🟢 Nice-to-Have | **Status:** 💭 Idea
@@ -771,14 +1376,21 @@ Currently, tabs refresh on every switch (implemented Nov 2024). This ensures dat
 
 ## 🗺️ Implementation Priority
 
-**Current Focus:** Phase 3 - Reimbursements & Automation (50% complete)
+**Current Focus:** Phase 4 - Polish & Bug Fixes (just starting)
 
-**Next Steps:**
-1. Begin automation features (Recurring Transaction Templates)
-2. Consider Account Archiving System (requires architecture decisions)
-3. Evaluate Rules/Templates system scope
+**Immediate Next Steps:**
+1. Identify and fix bugs discovered during usage
+2. Handle edge cases in existing features
+3. UI refinements and consistency improvements
+4. Performance optimizations if needed
 
-**Deferred to Phase 4:**
-- Performance optimizations for tab refreshing
+**After Phase 4:**
+- Return to Phase 3 - Complete Rules & Automation system (see RULES_PLANNING.md)
+- Implement Goals, Warnings, and Automations with block-based UI builder
+- Add recurring transaction templates
+
+**Long-term Future Ideas:**
 - Enhanced keyboard shortcuts
 - Year overview enhancements
+- Smart category detection
+- Account archiving system

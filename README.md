@@ -139,15 +139,13 @@ BudgetApp/
 
 ## 🎯 Current Development Focus
 
-The application is actively being developed with focus on:
-- **Phase 3: Rules & Automation (Next Up)**: Goal/Warning/Automation system
-  - 📅 Planning phase - awaiting flowchart design
-  - See RULES_PLANNING.md for full specification
-- **Transactions Tab (COMPLETE ✅)**: Advanced data inspection interface
-  - ✅ All 4 sub-tabs with real data, save/delete functionality
-  - ✅ Fixed AccountHistory running_total corruption bug
-  - ✅ Automatic tab refresh on switch
-- **Performance optimization**: Query limiting and conditional refresh (Phase 4)
+**Status:** Phase 4 - Polish & Bug Fixes (In Progress)
+
+The application is feature-complete for core budgeting. Current focus:
+- **Phase 4: Polish & Bug Fixes** - Quality-of-life improvements and edge case handling
+- **Phase 3: 50% Complete** - Reimbursements system ✅ done, Rules & Automation 📅 on hold
+  - See RULES_PLANNING.md for future Rules system specification
+- **Completed**: Transactions Tab, Scratch Pad, Year Overview, Categories, Tax tracking
 
 ## 🔧 Installation & Usage
 
@@ -191,8 +189,8 @@ Choose from 5 carefully crafted themes:
 ## 🚧 Development Status
 
 **Current Version**: V2.0 Active Development
-**Status**: Feature-complete core with ongoing enhancements
-**Latest Updates** (2025-11-23):
+**Status**: Feature-complete core with ongoing polish
+**Latest Updates** (2025-11-26):
 - ✅ **Scratch Pad Tab - COMPLETE**: Excel-like workspace for budget planning and calculations
   * 50×26 spreadsheet grid with formula support (SUM, AVERAGE, GET, CURRENT_DATE)
   * Live data integration via GET function - pull account/bill balances and properties
@@ -221,14 +219,15 @@ Choose from 5 carefully crafted themes:
 - ✅ **Smart Pie Chart Math**: Percentages calculate as % of (income - abnormal spending) when filtered
 - See ReadMe2.txt for complete technical documentation
 
-**Next Priorities**: Additional analytics features, seasonal pattern analysis
+**Next Priorities**: Phase 4 polish (UI refinements, bug fixes, edge cases)
 
 ---
 
 *Built with ❤️ for personal financial management and data-driven budgeting*
 
-**For detailed technical documentation**, see [ReadMe2.txt](ReadMe2.txt) which contains:
-- Complete rollover system specification
-- AccountHistory auto-update mechanism
-- Week calculation formulas with examples
-- Critical bug fixes and prevention guidelines
+## 📚 Documentation
+
+- **[README.md](README.md)** (this file) - Public-facing feature overview and setup
+- **[ReadMe2.txt](ReadMe2.txt)** - Developer technical reference (database schemas, architecture, file structure)
+- **[ReadMeLLM.md](ReadMeLLM.md)** - AI assistant memory (gotchas, bug histories, anti-patterns)
+- **[PROJECT_PLAN.md](PROJECT_PLAN.md)** - Project roadmap and feature tracking
