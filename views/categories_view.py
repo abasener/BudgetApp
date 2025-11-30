@@ -73,6 +73,32 @@ class CategoriesView(QWidget):
         # Add stretch to push buttons to the right
         header_layout.addStretch()
 
+        # Include Abnormal checkbox
+        from PyQt6.QtWidgets import QCheckBox
+        self.include_abnormal_checkbox = QCheckBox("Include Abnormal")
+        self.include_abnormal_checkbox.setFont(theme_manager.get_font("button_small"))
+        self.include_abnormal_checkbox.setChecked(True)  # Default: ON (show all)
+        self.include_abnormal_checkbox.setToolTip("Include abnormal spending in analytics")
+        self.include_abnormal_checkbox.stateChanged.connect(self.on_include_abnormal_changed)
+        self.include_abnormal_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {colors['text_primary']};
+                padding: 5px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 1px solid {colors['border']};
+                border-radius: 3px;
+                background-color: {colors['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border-color: {colors['primary']};
+            }}
+        """)
+        header_layout.addWidget(self.include_abnormal_checkbox)
+
         # Refresh button - compact tool button with just emoji
         self.refresh_button = QToolButton()
         self.refresh_button.setText("🔄")
@@ -577,6 +603,11 @@ class CategoriesView(QWidget):
         bottom_frame.setLayout(bottom_layout)
         return bottom_frame
         
+    def on_include_abnormal_changed(self, state):
+        """Handle include abnormal checkbox state change"""
+        # Refresh all data when checkbox changes
+        self.refresh()
+
     def on_category_selected(self, item):
         """Handle category selection from list"""
         self.selected_category = item.data(Qt.ItemDataRole.UserRole)
@@ -601,13 +632,14 @@ class CategoriesView(QWidget):
             self.purchases_value.setText("0")
             self.weekly_freq_value.setText("0.0")
             return
-            
+
         try:
             # Get all transactions for this category
             all_transactions = self.transaction_manager.get_all_transactions()
+            include_abnormal = self.include_abnormal_checkbox.isChecked()
             category_transactions = [
-                t for t in all_transactions 
-                if t.is_spending and t.include_in_analytics and 
+                t for t in all_transactions
+                if t.is_spending and (include_abnormal or t.include_in_analytics) and
                 (t.category == self.selected_category)
             ]
             
@@ -690,13 +722,14 @@ class CategoriesView(QWidget):
             if self.category_histogram:
                 self.category_histogram.update_data([])
             return
-            
+
         try:
             # Get all transactions for this category
             all_transactions = self.transaction_manager.get_all_transactions()
+            include_abnormal = self.include_abnormal_checkbox.isChecked()
             category_transactions = [
-                t for t in all_transactions 
-                if t.is_spending and t.include_in_analytics and 
+                t for t in all_transactions
+                if t.is_spending and (include_abnormal or t.include_in_analytics) and
                 (t.category == self.selected_category)
             ]
             
@@ -724,13 +757,14 @@ class CategoriesView(QWidget):
             if self.category_trend_chart:
                 self.category_trend_chart.update_data({})
             return
-            
+
         try:
             # Get all transactions for this category
             all_transactions = self.transaction_manager.get_all_transactions()
+            include_abnormal = self.include_abnormal_checkbox.isChecked()
             category_transactions = [
-                t for t in all_transactions 
-                if t.is_spending and t.include_in_analytics and 
+                t for t in all_transactions
+                if t.is_spending and (include_abnormal or t.include_in_analytics) and
                 (t.category == self.selected_category)
             ]
             
@@ -781,13 +815,14 @@ class CategoriesView(QWidget):
         if not self.selected_category or not self.transaction_manager:
             self.clear_correlation_plots()
             return
-            
+
         try:
             # Get all spending transactions
             all_transactions = self.transaction_manager.get_all_transactions()
+            include_abnormal = self.include_abnormal_checkbox.isChecked()
             spending_transactions = [
-                t for t in all_transactions 
-                if t.is_spending and t.include_in_analytics and t.category
+                t for t in all_transactions
+                if t.is_spending and (include_abnormal or t.include_in_analytics) and t.category
             ]
             
             if not spending_transactions:
@@ -870,8 +905,13 @@ class CategoriesView(QWidget):
                 correlation = 0.0
                 if len(selected_values) > 2:
                     try:
-                        correlation, _ = pearsonr(selected_values, other_values)
-                        if np.isnan(correlation):
+                        # Check if arrays have variance (not constant)
+                        if np.std(selected_values) > 0 and np.std(other_values) > 0:
+                            correlation, _ = pearsonr(selected_values, other_values)
+                            if np.isnan(correlation):
+                                correlation = 0.0
+                        else:
+                            # One or both arrays are constant - correlation undefined
                             correlation = 0.0
                     except:
                         correlation = 0.0
@@ -897,15 +937,23 @@ class CategoriesView(QWidget):
                     x_min = min(other_values)
                     x_max = max(other_values)
                     x_range = x_max - x_min
-                    x_padding = (1 / padding_factor) * x_range if x_range > 0 else 0
-                    ax.set_xlim(x_min - x_padding, x_max + x_padding)
+                    if x_range > 0:
+                        x_padding = (1 / padding_factor) * x_range
+                        ax.set_xlim(x_min - x_padding, x_max + x_padding)
+                    else:
+                        # Single value - expand around it
+                        ax.set_xlim(x_min - 1, x_max + 1)
 
                     # Y-axis padding
                     y_min = min(selected_values)
                     y_max = max(selected_values)
                     y_range = y_max - y_min
-                    y_padding = (1 / padding_factor) * y_range if y_range > 0 else 0
-                    ax.set_ylim(y_min - y_padding, y_max + y_padding)
+                    if y_range > 0:
+                        y_padding = (1 / padding_factor) * y_range
+                        ax.set_ylim(y_min - y_padding, y_max + y_padding)
+                    else:
+                        # Single value - expand around it
+                        ax.set_ylim(y_min - 1, y_max + 1)
                 
                 # Style the plot with ticks and grid
                 if selected_values and other_values and max(other_values) > 0 and max(selected_values) > 0:
@@ -1031,7 +1079,8 @@ class CategoriesView(QWidget):
         try:
             # Get all spending transactions
             all_transactions = self.transaction_manager.get_all_transactions()
-            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+            include_abnormal = self.include_abnormal_checkbox.isChecked()
+            spending_transactions = [t for t in all_transactions if t.is_spending and (include_abnormal or t.include_in_analytics)]
 
             # Calculate spending by category
             category_spending = {}
@@ -1106,11 +1155,12 @@ class CategoriesView(QWidget):
         """Update category overview statistics"""
         if not self.transaction_manager:
             return
-            
+
         try:
             # Get all spending transactions
             all_transactions = self.transaction_manager.get_all_transactions()
-            spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+            include_abnormal = self.include_abnormal_checkbox.isChecked()
+            spending_transactions = [t for t in all_transactions if t.is_spending and (include_abnormal or t.include_in_analytics)]
             
             # Calculate statistics
             total_categories = len(set(t.category for t in spending_transactions if t.category))
@@ -1146,7 +1196,8 @@ class CategoriesView(QWidget):
             if sorted_categories:
                 # Group transactions by category
                 all_transactions = self.transaction_manager.get_all_transactions()
-                spending_transactions = [t for t in all_transactions if t.is_spending and t.include_in_analytics]
+                include_abnormal = self.include_abnormal_checkbox.isChecked()
+                spending_transactions = [t for t in all_transactions if t.is_spending and (include_abnormal or t.include_in_analytics)]
 
                 category_amounts = {}
                 for transaction in spending_transactions:
@@ -1525,7 +1576,7 @@ class CategoriesView(QWidget):
                     background-color: {colors.get('primary_dark', colors['primary'])};
                 }}
             """)
-        
+
         if hasattr(self, 'remove_category_btn'):
             self.remove_category_btn.setStyleSheet(f"""
                 QPushButton {{
@@ -1538,6 +1589,26 @@ class CategoriesView(QWidget):
                 }}
                 QPushButton:hover {{
                     background-color: {colors.get('hover', colors['surface_variant'])};
+                }}
+            """)
+
+        # Update include abnormal checkbox
+        if hasattr(self, 'include_abnormal_checkbox'):
+            self.include_abnormal_checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {colors['text_primary']};
+                    padding: 5px;
+                }}
+                QCheckBox::indicator {{
+                    width: 18px;
+                    height: 18px;
+                    border: 1px solid {colors['border']};
+                    border-radius: 3px;
+                    background-color: {colors['surface']};
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {colors['primary']};
+                    border-color: {colors['primary']};
                 }}
             """)
     

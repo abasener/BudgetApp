@@ -1,6 +1,6 @@
 # 🚀 BudgetApp V2 - Project Roadmap
 
-**Last Updated:** November 26, 2025
+**Last Updated:** November 29, 2025
 **Current Phase:** Phase 4 - Polish & Bug Fixes
 
 ---
@@ -627,8 +627,13 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 | Category | Issue | Priority | Status |
 |----------|-------|----------|--------|
 | 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | 📋 Todo |
-| 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | 📋 Todo |
+| 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | ✅ Complete |
+| 🐛 **Critical Bugs** | Transactions tab - Sign display incorrect | 🔴 High | 📋 Todo |
+| 🐛 **Critical Bugs** | Scratch Pad - Refresh removes formatting | 🔴 High | 📋 Todo |
+| 🐛 **Display Issues** | Week tab - Starting/ending amounts display same | 🟡 Medium | 📋 Todo |
 | 🎨 **Theme System** | Theme colors/fonts not updating consistently | 🟡 Medium | 📋 Todo |
+| ✨ **Feature Polish** | Categories tab - Include Abnormal checkbox | 🟡 Medium | ✅ Complete |
+| ✨ **Feature Polish** | Current Week/Paycheck Highlighting | 🟡 Medium | ✅ Complete |
 | ✨ **Feature Polish** | Week tab - Edit transaction dates | 🟡 Medium | 📋 Todo |
 | ✨ **Feature Polish** | Tab reordering system | 🟡 Medium | 💭 Design |
 | ✨ **Feature Polish** | Scratch Pad - Case-insensitive & advanced paste | 🟡 Medium | 📋 Todo |
@@ -636,6 +641,7 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 | ⚙️ **Settings Overhaul** | Tab visibility toggles | 🟡 Medium | 📋 Todo |
 | 🔧 **Low Priority** | Year tab - Better visualizations for bottom plots | 🟢 Low | 💭 Design |
 | 🔧 **Low Priority** | Dashboard dynamic sizing | 🟢 Low | 💭 Design |
+| 🔧 **Low Priority** | Other Income transaction type | 🟢 Low | 💭 Design |
 
 ---
 
@@ -671,22 +677,132 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 
 ---
 
-#### 🔴 **Bug 4.2: Tax Tab - Scrollbar Disappeared (Again)**
+#### 🔴 **Bug 4.2: Transactions Tab - Sign Display Incorrect**
 **Status:** 📋 Todo | **Priority:** 🔴 High
+
+**Issue:**
+- Negative spending (e.g., -$1805.40) displays as POSITIVE in Transactions tab table
+- Sign convention appears to be "cleaned up" for user-friendliness
+- But Transactions tab is an admin/power-user tool - should show RAW data
+
+**Example:**
+- Database: `Transaction.amount = -1805.40`
+- Transactions tab displays: `$1805.40` (missing the negative sign!)
+
+**Root Cause:**
+- Likely using `abs()` or assuming all amounts should display positive
+- May be trying to infer direction from transaction type instead of showing actual value
+
+**Expected Behavior:**
+- Transactions tab should show data EXACTLY as stored in database
+- `-$1805.40` should display as `-$1805.40` (not `$1805.40`)
+- This is an admin tool, not user-facing - accuracy > prettiness
+- Signs matter for debugging and data inspection
+
+**Next Steps:**
+1. Check all 4 sub-tabs (Bills, Savings, Paycheck, Spending) for sign handling
+2. Remove any `abs()` calls or sign normalization in display logic
+3. Show raw `Transaction.amount` and `AccountHistory.change_amount` values
+4. Add color coding if needed (red for negative, green for positive) but KEEP the sign
+
+**Files to Check:**
+- `views/transactions_view.py` - Display logic for all 4 tables
+- `views/transactions_table_widget.py` - Amount formatting
+
+---
+
+#### 🔴 **Bug 4.3: Tax Tab - Scrollbar Disappeared (Again)**
+**Status:** ✅ Complete (2025-11-29) | **Priority:** 🔴 High
 
 **Issue:**
 - Scrollbar not showing on Tax tab
 - This was previously fixed with `showEvent` handler
 
+**Solution:**
+- Improved `showEvent` handler in `views/taxes_view.py`
+- Removed unnecessary `hasattr(self, 'init_ui')` check
+- Added `adjustSize()` call to force proper layout adjustment
+- Scrollbar now appears correctly on initial tab load
+
+**Files Modified:**
+- `views/taxes_view.py:103-114` - Enhanced showEvent handler
+
+---
+
+#### 🔴 **Bug 4.4: Scratch Pad - Refresh Removes All Formatting**
+**Status:** 📋 Todo | **Priority:** 🔴 High
+
+**Issue:**
+- When refresh button is pressed on Scratch Pad tab, all formatting is lost
+- Headers, notes, and other user-added formatting disappear
+- Only raw cell values/formulas remain
+
+**Root Cause:**
+- Refresh likely reloads from data storage without preserving formatting metadata
+- May be treating Scratch Pad as pure data grid instead of rich text/formatted document
+- Formatting might not be persisted to storage, only in-memory
+
 **Expected Behavior:**
-- Scrollbar appears on initial load when content exceeds viewport
+- Refresh should reload data WITHOUT removing user formatting
+- Headers should remain headers
+- Notes/text should remain styled
+- Only recalculate formulas/values, preserve all visual formatting
 
 **Next Steps:**
-- Apply same fix as before (check `views/taxes_view.py` for `showEvent` handler)
-- Verify if issue exists in other tabs (Year Overview?)
+1. Check how formatting is stored (in-memory vs persisted)
+2. Ensure refresh method preserves formatting metadata
+3. If formatting not persisted, add to save/load logic
 
-**Reference:**
-- Previous fix documented in ReadMe2.txt (2025-11-21 fixes)
+**Files to Check:**
+- `views/scratch_pad_view.py` - Refresh logic
+- Scratch Pad data model/storage
+
+---
+
+#### 🟡 **Bug 4.5: Week Tab - Starting/Ending Amounts Display Same**
+**Status:** 📋 Todo | **Priority:** 🟡 Medium
+
+**Issue:**
+- Week tab displays starting money and final money as the same value
+- This is a persistent issue, not just with negative spending
+- Makes it hard to see what was actually spent during the week
+- Layout may not be intuitive - unclear which number means what
+
+**Example (Week 64):**
+- Base allocation: $435.55
+- Total spending: -$1465.33 (net negative due to -$1805.40 transaction)
+- Expected remaining: $1900.88
+- **But displays show same value for start and end** (unclear which is which)
+
+**Root Cause:**
+- Unclear which display element shows "starting" vs "current/remaining"
+- May be calculation issue or display labeling issue
+- Layout/UX design makes it hard to distinguish values
+
+**Expected Behavior:**
+- **Clear labels:** "Starting Amount" vs "Current Remaining" vs "Total Spent"
+- **Visual hierarchy:** Make it obvious which number is which
+- **Calculation transparency:**
+  - Starting = Base allocation + rollovers + transfers in - transfers out
+  - Spent = Sum of spending transactions (can be negative!)
+  - Remaining = Starting - Spent
+
+**Suggested Improvements:**
+1. Add clear text labels (not just icons or positions)
+2. Use different font sizes/weights for hierarchy
+3. Consider vertical layout instead of horizontal
+4. Add tooltip explanations for each value
+5. Show calculation breakdown (expandable/collapsible)
+
+**Next Steps:**
+1. Audit weekly_view.py text display section
+2. Identify which QLabel shows what value
+3. Add clear, unambiguous labels
+4. Test with various scenarios (positive/negative spending, rollovers, transfers)
+
+**Files to Check:**
+- `views/weekly_view.py` - `update_week_text_info()` method (lines 533-600)
+- Look for QLabel widgets displaying financial amounts
 
 ---
 
@@ -845,33 +961,38 @@ Add ability to change transaction dates directly in weekly view transaction tabl
 ---
 
 #### ✨ **Feature 4.7: Current Week/Paycheck Highlighting**
-**Status:** 📋 Todo | **Priority:** 🟡 Medium
+**Status:** ✅ Complete (2025-11-29) | **Priority:** 🟡 Medium
 
 **Purpose:**
 Visual indicator for current week in navigation dropdowns.
 
-**Two Locations:**
+**Implementation Complete:**
 
 **1. Pay Period Dropdown (Top of Week Tab):**
-- Add ⭐ or visual indicator next to current week's pay period
-- Example: "Week 59-60 (Nov 18 - Dec 1) ⭐"
+- ✅ Added ⭐ to right side of current pay period
+- ✅ Determined by checking if today's date falls within period date range
+- ✅ Star is right-aligned with spaces for visual separation
+- ✅ Example: `"Pay Period 30          ⭐\n11/18/2024"`
 
 **2. Week 1/Week 2 Sub-section Headers:**
-- Bold text or background highlight for current week
-- Example: **Week 1** (bold) vs. Week 2 (normal)
+- ✅ Added ⭐ to right side of current week header
+- ✅ All week headers remain bold (original styling preserved)
+- ✅ Determined by checking if today falls within week's date range
+- ✅ Star is right-aligned with spaces for visual separation
+- ✅ Example: `Week 1: 11/18/2024 - 11/24/2024          ⭐` vs `Week 2: 11/25/2024 - 12/01/2024`
 
-**Implementation:**
-- Calculate current week from today's date
-- Apply visual indicator in dropdown population logic
-- Update weekly when tab refreshed
+**Date Detection Logic:**
+- Uses `week.start_date <= today <= week.end_date` check
+- Automatically updates when tab is refreshed or new week begins
 
-**Files to Modify:**
-- `views/weekly_view.py` - Pay period dropdown, week headers
+**Files Modified:**
+- `views/weekly_view.py:2080-2106` - Pay period star indicator
+- `views/weekly_view.py:126-156` - Week header bold highlighting
 
 ---
 
 #### ✨ **Feature 4.8: Categories Tab - "Include Abnormal" Checkbox**
-**Status:** 📋 Todo | **Priority:** 🟡 Medium
+**Status:** ✅ Complete (2025-11-29) | **Priority:** 🟡 Medium
 
 **Purpose:**
 Add checkbox to toggle abnormal spending in Categories tab analytics.
@@ -885,13 +1006,22 @@ Add checkbox to toggle abnormal spending in Categories tab analytics.
 - But Categories tab looks at granular transaction level, so include by default
 - User can still toggle off if desired
 
-**Implementation:**
-- Add checkbox similar to Dashboard "Normal Spending Only" toggle
-- Default: Unchecked (shows abnormal)
-- Filter analytics when checked
+**Implementation Complete:**
+- ✅ Added checkbox to header with theme-aware styling
+- ✅ Default: Checked (shows all transactions including abnormal)
+- ✅ Refreshes all analytics when toggled
+- ✅ Updated all data filtering methods:
+  - Category details, histogram, weekly trends
+  - Correlation plots, box plot, pie chart
+  - Category stats and color mapping
+- ✅ Theme updates apply to checkbox styling
+- ✅ Fixed matplotlib warnings (xlim/ylim singular, correlation on constant arrays)
 
-**Files to Modify:**
-- `views/categories_view.py` - Add checkbox, wire to analytics filtering
+**Files Modified:**
+- `views/categories_view.py:76-100` - Checkbox UI
+- `views/categories_view.py:606-609` - Handler method
+- `views/categories_view.py` - Updated 8 filtering methods
+- `views/categories_view.py:1583-1600` - Theme styling
 
 ---
 
@@ -1216,6 +1346,57 @@ Ensure all debug/testing popups respect testing mode toggle.
 **Files to Check:**
 - Search for `QMessageBox` and `print()` statements
 - Check if wrapped in `if testing_mode:` conditions
+
+---
+
+#### 🔧 **Feature 4.20: "Other Income" Transaction Type**
+**Status:** 💭 Design | **Priority:** 🟢 Low
+
+**Purpose:**
+Support non-paycheck income (refunds, reimbursements, gifts, account transfers) in a semantically clear way.
+
+**Current Workaround:**
+- User can enter negative spending (e.g., -$1805.40)
+- Mathematically works: `remaining = starting - (-1805.40)` adds money
+- But semantically confusing: "spending" implies money out, not in
+
+**Proposed Solution:**
+Add `OTHER_INCOME` transaction type that:
+- Works like SPENDING but ADDS money instead of subtracting
+- Displays clearly as "Income" in transaction tables
+- Can be categorized (e.g., "Venmo Refund", "Gift", "Reimbursement")
+- Marked as abnormal by default (won't skew normal spending analytics)
+
+**Use Cases:**
+1. Money regained from closed accounts
+2. Venmo/PayPal refunds not from paychecks
+3. Gifts/windfalls
+4. Insurance reimbursements (separate from Reimbursements tab, which tracks pre-payment)
+5. Credit card rewards/cashback
+
+**Implementation:**
+```python
+class TransactionType(Enum):
+    SPENDING = "spending"
+    BILL_PAY = "bill_pay"
+    SAVING = "saving"
+    INCOME = "income"
+    ROLLOVER = "rollover"
+    OTHER_INCOME = "other_income"  # NEW
+```
+
+**Display:**
+- Weekly tab: Show as green/positive entry (opposite of red spending)
+- Transaction table: Clear "Other Income" label
+- Analytics: Exclude by default (similar to abnormal spending)
+
+**Alternative:**
+- Keep current negative spending approach
+- User already comfortable with it
+- Easy to find (search for negative Venmo transactions)
+- Only implement if polish phase has time
+
+**Decision:** Defer until after critical bugs fixed
 
 ---
 

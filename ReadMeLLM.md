@@ -1,6 +1,6 @@
 # ReadMeLLM.md - LLM Memory & Context
 
-**Last Updated:** 2025-11-26
+**Last Updated:** 2025-11-29
 **Purpose:** AI assistant reference for BudgetApp development
 **Audience:** Large Language Models (Claude, GPT, etc.)
 **Format:** Optimized for LLM parsing, not human reading
@@ -772,10 +772,12 @@ transactions = get_transactions_by_week(week.week_number)
 
 ### ❌ **DON'T Add (Bloat):**
 - Session-by-session changelogs (outdated quickly)
+- Dated completion summaries ("Today we completed X, Y, Z on 2025-11-29")
 - Temporary organizational changes (moving test files)
 - Minor code tweaks that don't affect architecture
 - Detailed play-by-play of what we just did
 - Duplicate information already in PROJECT_PLAN.md
+- Session timestamps on bug fixes (just mark ✅ Complete, no date unless critical)
 
 ### ✅ **DO Add (Value):**
 - **New bugs discovered** → PROJECT_PLAN.md Phase 4 tracking table

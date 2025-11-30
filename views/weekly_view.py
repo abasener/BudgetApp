@@ -128,7 +128,20 @@ class WeekDetailWidget(QWidget):
         if self.week_data:
             start_date = self.week_data.start_date.strftime('%m/%d/%Y')
             end_date = self.week_data.end_date.strftime('%m/%d/%Y')
-            week_title = f"Week {self.week_number}: {start_date} - {end_date}"
+
+            # Check if this week contains today's date
+            from datetime import date
+            today = date.today()
+            is_current_week = self.week_data.start_date <= today <= self.week_data.end_date
+
+            # Add star to current week (right-aligned like pay periods)
+            week_title_base = f"Week {self.week_number}: {start_date} - {end_date}"
+            if is_current_week:
+                # Add spaces to push star to the right (approximately 45 chars total width for week headers)
+                padding_length = max(1, 45 - len(week_title_base))
+                week_title = f"{week_title_base}{' ' * padding_length}⭐"
+            else:
+                week_title = week_title_base
         else:
             week_title = f"Week {self.week_number}: No Data"
 
@@ -2077,9 +2090,30 @@ class WeeklyView(QWidget):
         # Sort periods by period_id (newest first)
         bi_weekly_periods.sort(key=lambda p: p['period_id'], reverse=True)
 
+        # Determine current pay period based on today's date
+        from datetime import date
+        today = date.today()
+        current_period_id = None
+
+        for period in bi_weekly_periods:
+            # Check if today falls within this period's date range
+            if period['start_date'] <= today <= period['end_date']:
+                current_period_id = period['period_id']
+                break
+
         for period in bi_weekly_periods:
             start_date = period['start_date']
-            item_text = f"Pay Period {period['period_id']}\n{start_date.strftime('%m/%d/%Y')}"
+            period_id = period['period_id']
+
+            # Add star to current period (right side of first line)
+            if period_id == current_period_id:
+                # Add spaces to push star to the right (approximately 20 chars total width)
+                period_text = f"Pay Period {period_id}"
+                padding_length = max(1, 20 - len(period_text))
+                item_text = f"{period_text}{' ' * padding_length}⭐\n{start_date.strftime('%m/%d/%Y')}"
+            else:
+                item_text = f"Pay Period {period_id}\n{start_date.strftime('%m/%d/%Y')}"
+
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, period)
             self.week_list.addItem(item)

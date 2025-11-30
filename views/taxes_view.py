@@ -104,14 +104,14 @@ class TaxesView(QWidget):
         """Handle show event - force scroll area to update scrollbars"""
         super().showEvent(event)
         # Force scroll area to recalculate and show scrollbar if needed
-        if hasattr(self, 'init_ui'):
-            # Find the scroll area and force it to update
-            for child in self.findChildren(QScrollArea):
-                # Update geometry to ensure scrollbar appears
-                child.updateGeometry()
-                # Force layout recalculation
-                if child.widget():
-                    child.widget().updateGeometry()
+        # Process all scroll areas in the view
+        for child in self.findChildren(QScrollArea):
+            # Update geometry to ensure scrollbar appears
+            child.updateGeometry()
+            # Force layout recalculation
+            if child.widget():
+                child.widget().updateGeometry()
+                child.widget().adjustSize()
 
     def get_year_color(self, year):
         """Get consistent color for a year based on chart_colors"""
