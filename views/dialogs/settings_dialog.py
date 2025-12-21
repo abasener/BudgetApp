@@ -175,10 +175,10 @@ class SettingsDialog(QDialog):
         import_test_button.clicked.connect(self.import_test_data)
         button_grid.addWidget(import_test_button, 0, 0)
 
-        reset_test_button = QPushButton("🧪 Reset Test Data")
+        reset_test_button = QPushButton("🧪 Load Test Data")
         reset_test_button.setStyleSheet("color: orange; font-weight: bold; padding: 8px;")
-        reset_test_button.setToolTip("Delete transactions and weeks, reset account balances, keep bills and accounts")
-        reset_test_button.clicked.connect(self.confirm_reset_test)
+        reset_test_button.setToolTip("Delete ALL data and generate fresh test data (accounts, bills, transactions)")
+        reset_test_button.clicked.connect(self.confirm_load_test_data)
         button_grid.addWidget(reset_test_button, 0, 1)
 
         # Bottom row - Data management
@@ -726,6 +726,139 @@ class SettingsDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, "Reset Failed", f"Error during data reset: {e}")
+
+    def confirm_load_test_data(self):
+        """Math-based confirmation dialog to load test data from generate_test_data.py"""
+        import random
+
+        # Generate random math problem
+        num1 = random.randint(2, 50)
+        num2 = random.randint(2, 50)
+        correct_answer = num1 * num2
+
+        # First confirmation
+        reply = QMessageBox.question(
+            self,
+            "⚠️ Load Test Data",
+            "This will delete ALL existing data and generate fresh test data:\n\n"
+            "• All transactions, weeks, and history will be deleted\n"
+            "• All accounts and bills will be deleted\n"
+            "• Fresh test accounts, bills, and transactions will be created\n\n"
+            "This action cannot be undone!\n\n"
+            "Are you sure you want to continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Math verification with hidden answer
+        from PyQt6.QtWidgets import QLineEdit
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Math Verification Required")
+        dialog_layout = QVBoxLayout()
+
+        # Get background color for hiding the answer
+        colors = theme_manager.get_colors()
+        bg_color = colors['surface']
+
+        # Create label with hidden answer (answer is same color as background)
+        prompt_label = QLabel()
+        prompt_label.setTextFormat(Qt.TextFormat.RichText)
+        prompt_label.setText(
+            f"To confirm this action, solve:<br><br>"
+            f"{num1} × {num2} = ?<span style='color: {bg_color};'>{correct_answer}</span>"
+        )
+        prompt_label.setFont(theme_manager.get_font("main"))
+        prompt_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        dialog_layout.addWidget(prompt_label)
+
+        # Input field
+        input_field = QLineEdit()
+        input_field.setPlaceholderText("Enter answer")
+        dialog_layout.addWidget(input_field)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        dialog_layout.addLayout(button_layout)
+
+        dialog.setLayout(dialog_layout)
+
+        # Connect buttons
+        ok_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+
+        # Show dialog
+        result = dialog.exec()
+        if result != QDialog.DialogCode.Accepted:
+            return
+
+        # Get the answer
+        try:
+            answer = int(input_field.text())
+        except ValueError:
+            answer = -1
+
+        if answer != correct_answer:
+            QMessageBox.critical(
+                self,
+                "Incorrect Answer",
+                f"Incorrect! The answer was {correct_answer}.\n\nTest data load cancelled for your protection."
+            )
+            return
+
+        # Run the generate_test_data script
+        try:
+            # Close transaction manager's database connection
+            if hasattr(self.transaction_manager, 'db'):
+                self.transaction_manager.db.close()
+
+            # Close any existing database connections first
+            from models.database import engine
+            engine.dispose()
+
+            # Import and run the generate_test_data function
+            import sys
+            import os
+
+            # Add the project root to sys.path if not already there
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+
+            # Import the generate_test_data module
+            from generate_test_data import generate_test_data
+
+            # Run the test data generation
+            generate_test_data()
+
+            # Reconnect transaction_manager to database
+            from models import get_db
+            self.transaction_manager.db = get_db()
+
+            QMessageBox.information(
+                self,
+                "✅ Test Data Loaded",
+                "Successfully generated fresh test data!\n\n"
+                "• Created test accounts and bills\n"
+                "• Created paychecks and weeks\n"
+                "• Created spending transactions\n"
+                "• Created transfers and abnormal transactions\n\n"
+                "Ready for testing!"
+            )
+
+            # Signal that settings changed so main window refreshes
+            self.settings_saved.emit()
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Load Failed", f"Error loading test data: {e}")
 
     def confirm_reset_test(self):
         """Math-based confirmation dialog for test data reset"""

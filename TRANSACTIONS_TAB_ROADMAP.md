@@ -107,59 +107,40 @@ For Account<->Account transfers (2 transactions), we need to:
 
 ## Implementation Steps
 
-### Step 1: Fix Locking Logic
+### Step 1: Fix Locking Logic ✅ DONE
 File: `transactions_view.py`
 Function: `is_transaction_locked()`
 
-Change from:
-```python
-if transaction.transaction_type in [TransactionType.ROLLOVER.value, TransactionType.INCOME.value]:
-    return True
-```
+Updated to only lock:
+- `type=rollover` (all)
+- `type=saving` with "end-of-period" in description
 
-To:
-```python
-if transaction.transaction_type == TransactionType.ROLLOVER.value:
-    return True
+### Step 2: Add New Columns ✅ DONE
+Added to all tabs:
+- "ID" column (transaction.id)
+- "Type" column (transaction.transaction_type)
+- "Week" column (transaction.week_number)
 
-# Only lock auto-generated savings (end-of-period rollovers)
-if transaction.transaction_type == TransactionType.SAVING.value:
-    if transaction.description:
-        desc_lower = transaction.description.lower()
-        if "end-of-period" in desc_lower:
-            return True
+### Step 3: Restructure Tabs ✅ DONE
+- Renamed "Bills" tab to "Accounts"
+- Merged Bills + Savings into `load_accounts_data()`
+- Added "Acct Type" column (Bill/Savings)
+- Removed old `load_bills_data()` and `load_savings_data()`
 
-return False
-```
-
-### Step 2: Add New Columns
-Update column definitions in each `load_*_data()` function:
-- Add "ID" column (transaction.id)
-- Add "Type" column (transaction.transaction_type)
-- Add "Week" column (transaction.week_number)
-
-### Step 3: Restructure Tabs
-1. Rename "Bills" tab to "Accounts"
-2. Merge Bills + Savings data loading into one function
-3. Rename "Savings" tab to "Transfers"
-4. Create new `load_transfers_data()` function
-
-### Step 4: Create Transfers Tab
-New function `load_transfers_data()`:
-- Query transactions where `type = saving`
-- Determine From/To based on:
-  - If `amount > 0`: To = account_id/bill_id, From = Week {week_number}
-  - If `amount < 0`: From = account_id/bill_id, To = Week {week_number}
-- For account-to-account pairs: detect and combine (or show both with clear linking)
+### Step 4: Create Transfers Tab ✅ DONE
+- Created `load_transfers_data()` function
+- Filters `type=saving` excluding "end-of-period"
+- Shows From/To columns with positive amounts
+- Determines direction from amount sign
 
 ### Step 5: Fix Save Logic
-When editing transactions:
+TODO: When editing transactions:
 1. Save the updated values
 2. Call `paycheck_processor.recalculate_period_rollovers(week_number)`
 3. Refresh the view
 
 ### Step 6: Handle Paycheck Edits
-Special case for income transactions:
+TODO: Special case for income transactions:
 1. Update the transaction amount
 2. Recalculate percentage-based auto-saves (if any)
 3. Recalculate week allocations

@@ -454,6 +454,42 @@ def generate_test_data():
         print(f"\n   Created {total_spending_count} spending transactions total")
 
         # ================================================================
+        # STEP 6b: Create ABNORMAL Spending Transactions (for testing checkbox)
+        # ================================================================
+        print("\n   Adding abnormal spending transactions...")
+
+        abnormal_transactions = [
+            # One-time unusual purchases that shouldn't affect analytics
+            ("Emergency car repair - one time", 450.00, "Misc", 2),
+            ("Medical expense - wisdom teeth", 350.00, "Health", 3),
+            ("Replaced laptop after accident", 800.00, "Misc", 4),
+            ("Wedding gift for friend", 150.00, "Misc", 5),
+            ("Bought a real lightsaber replica", 275.00, "Entertainment", 6),
+        ]
+
+        abnormal_count = 0
+        for desc, amount, category, week_idx in abnormal_transactions:
+            if week_idx < len(weeks):
+                week = weeks[week_idx]
+                trans_date = week.start_date + timedelta(days=random.randint(1, 4))
+                if trans_date <= yesterday:
+                    transaction = Transaction(
+                        transaction_type=TransactionType.SPENDING.value,
+                        amount=amount,
+                        date=trans_date,
+                        description=desc,
+                        category=category,
+                        week_number=week.week_number,
+                        include_in_analytics=False  # ABNORMAL - excluded from analytics
+                    )
+                    db.add(transaction)
+                    abnormal_count += 1
+                    print(f"      [ABNORMAL] {desc}: ${amount:.2f}")
+
+        db.commit()
+        print(f"   Created {abnormal_count} abnormal spending transactions")
+
+        # ================================================================
         # STEP 7: Add a Few Reimbursements for Testing
         # ================================================================
         print("\n[9/9] Creating reimbursements...")
@@ -503,6 +539,178 @@ def generate_test_data():
         print(f"   Created {reimbursements_created} reimbursements")
 
         # ================================================================
+        # STEP 8: Create Transfer Transactions (for testing Transfers tab)
+        # ================================================================
+        print("\n[10/10] Creating transfer transactions...")
+
+        transfer_count = 0
+
+        # Get account/bill references
+        safety_account = next(a for a in accounts if a.name == "Safety Saving")
+        vacation_account = next(a for a in accounts if a.name == "Vacation")
+        new_home_account = next(a for a in accounts if a.name == "New Home")
+        rent_bill = next(b for b in bills if b.name == "Rent")
+
+        # --- WEEK -> ACCOUNT TRANSFERS (positive amount) ---
+        # User moves money from week spending to savings
+        if len(weeks) > 2:
+            trans_date = weeks[2].start_date + timedelta(days=3)
+            if trans_date <= yesterday:
+                # Week 3 -> Safety Saving: $50
+                transfer = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=50.00,  # Positive = into account
+                    date=trans_date,
+                    description="Moving extra to safety net",
+                    week_number=weeks[2].week_number,
+                    account_id=safety_account.id,
+                    category="Transfer"
+                )
+                db.add(transfer)
+                db.flush()  # Get the transaction ID
+                # Record in account history
+                history_manager.add_transaction_change(
+                    account_id=safety_account.id,
+                    account_type="savings",
+                    change_amount=50.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer.id
+                )
+                transfer_count += 1
+                print(f"   Week {weeks[2].week_number} -> Safety Saving: $50.00")
+
+        if len(weeks) > 4:
+            trans_date = weeks[4].start_date + timedelta(days=2)
+            if trans_date <= yesterday:
+                # Week 5 -> Vacation: $100
+                transfer = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=100.00,  # Positive = into account
+                    date=trans_date,
+                    description="Vacation fund boost",
+                    week_number=weeks[4].week_number,
+                    account_id=vacation_account.id,
+                    category="Transfer"
+                )
+                db.add(transfer)
+                db.flush()
+                history_manager.add_transaction_change(
+                    account_id=vacation_account.id,
+                    account_type="savings",
+                    change_amount=100.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer.id
+                )
+                transfer_count += 1
+                print(f"   Week {weeks[4].week_number} -> Vacation: $100.00")
+
+        # --- ACCOUNT -> WEEK TRANSFERS (negative amount) ---
+        # User pulls money from savings back to week for spending
+        if len(weeks) > 5:
+            trans_date = weeks[5].start_date + timedelta(days=1)
+            if trans_date <= yesterday:
+                # Vacation -> Week 6: $25 (withdrawing some vacation fund)
+                transfer = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=-25.00,  # Negative = out of account
+                    date=trans_date,
+                    description="Need extra for week expenses",
+                    week_number=weeks[5].week_number,
+                    account_id=vacation_account.id,
+                    category="Transfer"
+                )
+                db.add(transfer)
+                db.flush()
+                history_manager.add_transaction_change(
+                    account_id=vacation_account.id,
+                    account_type="savings",
+                    change_amount=-25.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer.id
+                )
+                transfer_count += 1
+                print(f"   Vacation -> Week {weeks[5].week_number}: $25.00")
+
+        # --- WEEK -> BILL TRANSFERS ---
+        # User adds extra to a bill fund
+        if len(weeks) > 3:
+            trans_date = weeks[3].start_date + timedelta(days=4)
+            if trans_date <= yesterday:
+                # Week 4 -> Rent: $75 (extra toward rent)
+                transfer = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=75.00,  # Positive = into bill account
+                    date=trans_date,
+                    description="Extra for rent cushion",
+                    week_number=weeks[3].week_number,
+                    bill_id=rent_bill.id,
+                    category="Transfer"
+                )
+                db.add(transfer)
+                db.flush()
+                history_manager.add_transaction_change(
+                    account_id=rent_bill.id,
+                    account_type="bill",
+                    change_amount=75.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer.id
+                )
+                transfer_count += 1
+                print(f"   Week {weeks[3].week_number} -> Rent: $75.00")
+
+        # --- ACCOUNT -> ACCOUNT TRANSFERS (two transactions) ---
+        # Moving money between savings accounts
+        if len(weeks) > 6:
+            trans_date = weeks[6].start_date + timedelta(days=2)
+            if trans_date <= yesterday:
+                # Safety Saving -> New Home: $200
+                # Transaction 1: Withdrawal from Safety Saving (negative)
+                transfer_out = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=-200.00,  # Negative = out of source
+                    date=trans_date,
+                    description="Transferring $200 to New Home fund",
+                    week_number=weeks[6].week_number,
+                    account_id=safety_account.id,
+                    category="Transfer"
+                )
+                db.add(transfer_out)
+                db.flush()
+                history_manager.add_transaction_change(
+                    account_id=safety_account.id,
+                    account_type="savings",
+                    change_amount=-200.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer_out.id
+                )
+
+                # Transaction 2: Deposit to New Home (positive)
+                transfer_in = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=200.00,  # Positive = into destination
+                    date=trans_date,
+                    description="Transferring $200 from Safety Saving",
+                    week_number=weeks[6].week_number,
+                    account_id=new_home_account.id,
+                    category="Transfer"
+                )
+                db.add(transfer_in)
+                db.flush()
+                history_manager.add_transaction_change(
+                    account_id=new_home_account.id,
+                    account_type="savings",
+                    change_amount=200.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer_in.id
+                )
+
+                transfer_count += 2  # Two transactions for account-to-account
+                print(f"   Safety Saving -> New Home: $200.00 (account-to-account)")
+
+        db.commit()
+        print(f"   Created {transfer_count} transfer transactions")
+
+        # ================================================================
         # Trigger final rollover recalculations
         # ================================================================
         print("\nRecalculating rollovers...")
@@ -543,6 +751,20 @@ def generate_test_data():
             marker = " <-- CURRENT" if is_current else ""
             print(f"   Week {week.week_number} ({week.start_date}): "
                   f"${week.running_total:.2f} base, {spending} spending{marker}")
+
+        # Summary counts
+        total_abnormal = db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.SPENDING.value,
+            Transaction.include_in_analytics == False
+        ).count()
+        total_transfers = db.query(Transaction).filter(
+            Transaction.transaction_type == TransactionType.SAVING.value
+        ).count()
+
+        print(f"\nTransaction Counts:")
+        print(f"   Normal spending: {total_spending_count}")
+        print(f"   Abnormal spending (excluded from analytics): {total_abnormal}")
+        print(f"   Transfers (type=saving): {total_transfers}")
 
         print("\nReady to test! Run main.py to see the app with test data.")
 
