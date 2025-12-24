@@ -4,8 +4,9 @@ Shows all transactions organized by type (Bills, Savings, Paycheck, Spending)
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-                             QLineEdit, QPushButton, QLabel)
+                             QLineEdit, QPushButton, QLabel, QToolButton)
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from themes import theme_manager
 from views.transactions_table_widget import TransactionTableWidget
 
@@ -16,12 +17,65 @@ class TransactionsView(QWidget):
     Provides advanced search, filtering, and bulk editing capabilities
     """
 
+    # Field descriptions for each sub-tab (used in info button tooltip)
+    # NOTE: If a row is LOCKED (🔒), NO fields in that row can be edited.
+    # The descriptions below apply to non-locked rows only.
+    FIELD_INFO = {
+        "accounts": {
+            "ID": "Unique transaction ID. Cannot be changed.",
+            "Locked": "If locked (🔒), entire row is read-only. System-generated transactions are locked.",
+            "Date": "Transaction date. EDITABLE - changing auto-updates the Week.",
+            "Account": "The bill/savings account. EDITABLE - must match an existing account name.",
+            "Movement": "Money direction. EDITABLE - Deposit (into account), Withdrawal (from account), Payment (bill).",
+            "Amount": "Dollar amount. EDITABLE - enter positive only. Use Movement for direction.",
+            "Type": "Transaction type. Auto-set based on Movement/account. Cannot be changed.",
+            "Week": "Week number. Auto-calculated from Date. Cannot be changed.",
+            "Manual Notes": "Your notes. EDITABLE - displays in account history.",
+            "Auto Notes": "System-generated description. Cannot be changed.",
+        },
+        "paycheck": {
+            "ID": "Unique paycheck ID. Cannot be changed.",
+            "Earned Date": "Date paycheck received. EDITABLE - for bookkeeping, no recalculation.",
+            "Start Date": "Pay period start (must be Monday). EDITABLE - triggers full recalculation.",
+            "Amount": "Paycheck amount. EDITABLE - enter positive. Triggers allocation recalculation.",
+            "Type": "Always 'income'. Cannot be changed.",
+            "Week": "Week number. Auto-calculated from dates. Cannot be changed.",
+            "Locked": "If locked (🔒), entire row is read-only.",
+            "Manual Notes": "Your notes. EDITABLE.",
+            "Auto Notes": "System-generated date range. Cannot be changed.",
+        },
+        "spending": {
+            "ID": "Unique transaction ID. Cannot be changed.",
+            "Date": "Purchase date. EDITABLE - may move transaction to different week.",
+            "Amount": "Dollar amount. EDITABLE - enter positive only.",
+            "Category": "Spending category. EDITABLE - can type new. Rollovers show First/Second.",
+            "Type": "Transaction type (spending/rollover). Cannot be changed.",
+            "Abnormal": "Exclude from analytics. EDITABLE - checkbox.",
+            "Paycheck": "Paycheck number. Auto-calculated from Week. Cannot be changed.",
+            "Week": "Week number. Auto-calculated from Date. Cannot be changed.",
+            "Locked": "If locked (🔒), entire row is read-only. Rollovers are locked.",
+            "Manual Notes": "Your notes. EDITABLE.",
+            "Auto Notes": "System-generated description. Cannot be changed.",
+        },
+        "transfers": {
+            "ID": "Both transaction IDs (source/dest). Cannot be changed.",
+            "Date": "Transfer date. EDITABLE - updates both linked transactions.",
+            "Amount": "Dollar amount. EDITABLE - enter positive. From/To sets direction.",
+            "From": "Source account. EDITABLE - must exist. Cannot match To.",
+            "To": "Destination account. EDITABLE - must exist. Cannot match From.",
+            "Week": "Week number. Auto-calculated from Date. Cannot be changed.",
+            "Locked": "If locked (🔒), entire row is read-only.",
+            "Manual Notes": "Your notes. EDITABLE - updates both linked transactions.",
+            "Auto Notes": "System-generated description. Cannot be changed.",
+        },
+    }
+
     def __init__(self, transaction_manager, parent=None):
         super().__init__(parent)
         self.transaction_manager = transaction_manager
 
         # Track which sub-tab is currently active
-        self.current_subtab = "bills"
+        self.current_subtab = "accounts"
 
         self.init_ui()
         self.apply_theme()
@@ -99,6 +153,17 @@ class TransactionsView(QWidget):
         setattr(self, f"{tab_name.lower()}_save_btn", save_btn)
         top_bar.addWidget(save_btn)
 
+        # Info button (circular "i" button with tooltip)
+        info_btn = QToolButton()
+        info_btn.setText("i")
+        info_btn.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        info_btn.setFixedSize(24, 24)
+        info_btn.setToolTip(self._get_field_info_tooltip(tab_name.lower()))
+        # Make tooltip stay visible longer
+        info_btn.setToolTipDuration(30000)  # 30 seconds
+        setattr(self, f"{tab_name.lower()}_info_btn", info_btn)
+        top_bar.addWidget(info_btn)
+
         layout.addLayout(top_bar)
 
         # Create table widget
@@ -116,6 +181,19 @@ class TransactionsView(QWidget):
         widget.setLayout(layout)
         return widget
 
+    def _get_field_info_tooltip(self, tab_name):
+        """Generate tooltip text for the info button based on tab name"""
+        field_info = self.FIELD_INFO.get(tab_name, {})
+        if not field_info:
+            return "No field information available."
+
+        # Build tooltip text with field names in brackets
+        lines = ["<b>Column Descriptions:</b><br>"]
+        for field, description in field_info.items():
+            lines.append(f"<b>[{field}]</b> - {description}<br>")
+
+        return "".join(lines)
+
     def on_subtab_changed(self, index):
         """Handle sub-tab change"""
         tab_names = ["accounts", "paycheck", "spending", "transfers"]
@@ -129,144 +207,112 @@ class TransactionsView(QWidget):
             self.current_subtab = tab_names[index]
 
     def load_test_data(self, tab_name, table):
-        """Load test data for demonstration (will be replaced with real data in Phase 4-7)"""
-        # Define columns based on tab type
-        # Note: 🔒 column moved before notes so notes can stretch
-        if tab_name == "bills":
-            columns = ["Date", "Account", "Amount", "🔒", "Manual Notes", "Auto Notes"]
-            test_data = [
-                {"Date": "10/28/2024", "Account": "Internet", "Amount": "$65.00", "🔒": "",
-                 "Manual Notes": "October bill", "Auto Notes": "Manual: Bill payment"},
-                {"Date": "10/25/2024", "Account": "Rent", "Amount": "$1200.00", "🔒": "🔒",
-                 "Manual Notes": "Monthly rent", "Auto Notes": "Generated: Auto saved from payweek 30"},
-                {"Date": "10/21/2024", "Account": "Internet", "Amount": "$100.00", "🔒": "🔒",
-                 "Manual Notes": "", "Auto Notes": "Generated: Auto saved from payweek 30"},
-            ]
-            locked_rows = {1, 2}  # Rows 1 and 2 are locked
-        elif tab_name == "savings":
-            columns = ["Date", "Account", "Amount", "🔒", "Manual Notes", "Auto Notes"]
-            test_data = [
-                {"Date": "10/28/2024", "Account": "Emergency Fund", "Amount": "$500.00", "🔒": "",
-                 "Manual Notes": "Emergency deposit", "Auto Notes": "Manual: Transfer from checking"},
-                {"Date": "10/27/2024", "Account": "Emergency Fund", "Amount": "$767.22", "🔒": "🔒",
-                 "Manual Notes": "", "Auto Notes": "Generated: Rollover into Emergency Fund from payweek 30"},
-                {"Date": "10/21/2024", "Account": "Vacation", "Amount": "$200.00", "🔒": "",
-                 "Manual Notes": "Save for trip", "Auto Notes": "Manual: Vacation savings"},
-            ]
-            locked_rows = {1}  # Row 1 is locked (rollover)
-        elif tab_name == "paycheck":
-            columns = ["Earned Date", "Start Date", "Amount", "🔒", "Manual Notes", "Auto Notes"]
-            test_data = [
-                {"Earned Date": "10/15/2024", "Start Date": "10/21/2024", "Amount": "$4237.50", "🔒": "🔒",
-                 "Manual Notes": "Bi-weekly paycheck", "Auto Notes": "Generated: Paycheck 30"},
-                {"Earned Date": "10/01/2024", "Start Date": "10/07/2024", "Amount": "$4237.50", "🔒": "🔒",
-                 "Manual Notes": "Bi-weekly paycheck", "Auto Notes": "Generated: Paycheck 29"},
-            ]
-            locked_rows = {0, 1}  # All paychecks are locked
-        else:  # spending
-            columns = ["Date", "Category", "Amount", "Paycheck #", "Week", "🔒", "Abnormal", "Manual Notes", "Auto Notes"]
-            test_data = [
-                {"Date": "10/28/2024", "Category": "Groceries", "Amount": "$45.67", "Paycheck #": "30",
-                 "Week": "second", "🔒": "", "Abnormal": "",
-                 "Manual Notes": "Walmart", "Auto Notes": "Manual: Spending for payweek 30 week 2"},
-                {"Date": "10/27/2024", "Category": "Rollover", "Amount": "$312.76", "Paycheck #": "30",
-                 "Week": "first", "🔒": "🔒", "Abnormal": "",
-                 "Manual Notes": "", "Auto Notes": "Generated: Rollover into second week (Week 60) from first week (Week 59) in payweek 30"},
-                {"Date": "10/26/2024", "Category": "Gas", "Amount": "$35.00", "Paycheck #": "30",
-                 "Week": "first", "🔒": "", "Abnormal": "",
-                 "Manual Notes": "Shell", "Auto Notes": "Manual: Spending for payweek 30 week 1"},
-                {"Date": "10/25/2024", "Category": "Coffee", "Amount": "$5.50", "Paycheck #": "30",
-                 "Week": "first", "🔒": "", "Abnormal": "☑",
-                 "Manual Notes": "Starbucks", "Auto Notes": "Manual: Spending for payweek 30 week 1"},
-            ]
-            locked_rows = {1}  # Rollover is locked
-
-        # Set columns and load data
-        table.set_columns(columns)
-        table.load_data(test_data, locked_rows)
+        """Deprecated - real data is loaded in refresh() via load_*_data() methods"""
+        # This method is no longer used - all tabs load real data
+        pass
 
     def load_accounts_data(self):
         """
-        Load merged Bills + Savings account history data.
-        This shows all AccountHistory entries for both bill and savings accounts.
+        Load transactions involving Bills + Savings accounts directly from Transaction table.
+
+        Shows all transactions where account_id or bill_id is set (Week↔Account transfers),
+        EXCLUDING Account-to-Account transfers (those go in Transfers tab).
+
+        Movement types:
+        - Deposit: Money going INTO account from week (positive amount)
+        - Withdrawal: Money going FROM account TO week (negative amount)
+        - Payment: Money leaving budget entirely (bill_pay type)
         """
-        from models.account_history import AccountHistory, AccountHistoryManager
-        from models.transactions import Transaction
+        from models.transactions import Transaction, TransactionType
 
-        history_manager = AccountHistoryManager(self.transaction_manager.db)
-        all_history_entries = []
+        # Get all transactions that involve an account or bill
+        all_transactions = self.transaction_manager.get_all_transactions()
 
-        # Get all bills and their history
-        bills = self.transaction_manager.get_all_bills()
-        for bill in bills:
-            bill_history = history_manager.get_account_history(bill.id, "bill")
-            for entry in bill_history:
-                # Skip starting balance entries (they have no transaction_id)
-                if entry.transaction_id is not None:
-                    all_history_entries.append((entry, bill.name, "Bill"))
-
-        # Get all savings accounts and their history
-        accounts = self.transaction_manager.get_all_accounts()
-        for account in accounts:
-            account_history = history_manager.get_account_history(account.id, "savings")
-            for entry in account_history:
-                # Skip starting balance entries (they have no transaction_id)
-                if entry.transaction_id is not None:
-                    all_history_entries.append((entry, account.name, "Savings"))
+        # Filter for transactions with account_id or bill_id set
+        # Exclude Account-to-Account transfers (transfer_group_id is set)
+        account_transactions = [
+            t for t in all_transactions
+            if (t.account_id is not None or t.bill_id is not None)
+            and t.transfer_group_id is None  # Exclude Account-to-Account transfers
+        ]
 
         # Sort by date (oldest first)
-        all_history_entries.sort(key=lambda x: x[0].transaction_date)
+        account_transactions.sort(key=lambda t: t.date)
+
+        # Build account/bill name lookup
+        accounts = self.transaction_manager.get_all_accounts()
+        account_names = {a.id: a.name for a in accounts}
+        bills = self.transaction_manager.get_all_bills()
+        bill_names = {b.id: b.name for b in bills}
 
         # Convert to table format
         rows_data = []
         locked_rows = set()
         transaction_ids = {}  # Map row index -> transaction ID
-        row_idx = 0
 
-        for history_entry, account_name, account_type in all_history_entries:
-            # Get the associated transaction for description and locking logic
-            trans = self.transaction_manager.db.query(Transaction).filter_by(id=history_entry.transaction_id).first()
-            if not trans:
-                continue
-
+        for idx, trans in enumerate(account_transactions):
             # Store transaction ID for saving changes
-            transaction_ids[row_idx] = trans.id
+            transaction_ids[idx] = trans.id
 
             # Determine if locked (auto-generated transactions)
             is_locked = self.is_transaction_locked(trans)
             if is_locked:
-                locked_rows.add(row_idx)
+                locked_rows.add(idx)
 
-            # Format amount with proper sign display (use change_amount from AccountHistory)
-            amount_value = history_entry.change_amount
-
-            # Generate auto-notes (pass amount for deposit/withdrawal detection)
-            auto_notes = self.generate_auto_notes(trans, amount_value)
-            if amount_value >= 0:
-                amount_display = f"${amount_value:,.2f}"
+            # Get account name
+            if trans.account_id:
+                account_name = account_names.get(trans.account_id, "Unknown Account")
+            elif trans.bill_id:
+                account_name = bill_names.get(trans.bill_id, "Unknown Bill")
             else:
-                amount_display = f"-${abs(amount_value):,.2f}"
+                account_name = "Unknown"
+
+            # Determine Movement type based on transaction characteristics
+            # - Payment: bill_pay type (money leaving budget)
+            # - Deposit: positive amount (money into account from week)
+            # - Withdrawal: negative amount (money from account to week)
+            amount_value = trans.amount
+
+            if trans.transaction_type == TransactionType.BILL_PAY.value:
+                movement = "Payment"
+            elif amount_value >= 0:
+                movement = "Deposit"
+            else:
+                movement = "Withdrawal"
+
+            # All amounts shown as positive now - Movement indicates direction
+            amount_display = f"${abs(amount_value):,.2f}"
+
+            # Generate auto-notes
+            auto_notes = self.generate_auto_notes(trans, amount_value)
 
             row = {
                 "ID": str(trans.id),
-                "Date": history_entry.transaction_date.strftime("%m/%d/%Y"),
+                "Locked": "🔒" if is_locked else "",
+                "Date": trans.date.strftime("%m/%d/%Y"),
                 "Account": account_name,
-                "Acct Type": account_type,
+                "Movement": movement,
                 "Amount": amount_display,
                 "Type": trans.transaction_type or "",
                 "Week": str(trans.week_number) if trans.week_number else "",
-                "🔒": "🔒" if is_locked else "",
                 "Manual Notes": trans.description or "",
                 "Auto Notes": auto_notes
             }
             rows_data.append(row)
-            row_idx += 1
 
         # Set columns and load data
-        columns = ["ID", "Date", "Account", "Acct Type", "Amount", "Type", "Week", "🔒", "Manual Notes", "Auto Notes"]
+        columns = ["ID", "Locked", "Date", "Account", "Movement", "Amount", "Type", "Week", "Manual Notes", "Auto Notes"]
+        # Non-editable columns: ID, Locked, Type (auto-set), Week (auto-calc), Auto Notes
+        non_editable = {"ID", "Locked", "Type", "Week", "Auto Notes"}
+        # Fixed dropdown columns: Movement has 3 options
+        dropdowns = {"Movement": ["Deposit", "Withdrawal", "Payment"]}
+        # Editable dropdown columns: Account shows existing accounts but allows typing new
+        all_account_names = list(account_names.values()) + list(bill_names.values())
+        editable_dropdowns = {"Account": sorted(set(all_account_names))}
+
         table = getattr(self, "accounts_table", None)
         if table:
-            table.set_columns(columns)
+            table.set_columns(columns, non_editable, dropdowns, editable_dropdowns)
             table.load_data(rows_data, locked_rows, transaction_ids)
 
     def load_paycheck_data(self):
@@ -329,21 +375,30 @@ class TransactionsView(QWidget):
                 "Amount": amount_display,
                 "Type": paycheck.transaction_type or "",
                 "Week": str(paycheck.week_number) if paycheck.week_number else "",
-                "🔒": "🔒" if is_locked else "",
+                "Locked": "🔒" if is_locked else "",
                 "Manual Notes": paycheck.description or "",
                 "Auto Notes": auto_notes
             }
             rows_data.append(row)
 
         # Set columns and load data
-        columns = ["ID", "Earned Date", "Start Date", "Amount", "Type", "Week", "🔒", "Manual Notes", "Auto Notes"]
+        columns = ["ID", "Earned Date", "Start Date", "Amount", "Type", "Week", "Locked", "Manual Notes", "Auto Notes"]
+        # Non-editable columns: ID, Type, Week (auto-calc), Locked, Auto Notes
+        # Earned Date and Start Date are editable (Start Date triggers recalc)
+        non_editable = {"ID", "Type", "Week", "Locked", "Auto Notes"}
+
         table = getattr(self, "paycheck_table", None)
         if table:
-            table.set_columns(columns)
+            table.set_columns(columns, non_editable)
             table.load_data(rows_data, locked_rows, transaction_ids)
 
     def load_spending_data(self):
-        """Load real spending transaction data from database"""
+        """Load real spending transaction data from database
+
+        Column order: [ID][Date][Amount][Category][Type][Abnormal][Paycheck][Week][Locked][Manual Notes][Auto Notes]
+        - Removed Week Pos column
+        - For rollovers: Category shows "First" or "Second" instead of "Rollover"
+        """
         from models.transactions import Transaction, TransactionType
         import calendar
 
@@ -379,9 +434,9 @@ class TransactionsView(QWidget):
             # Calculate paycheck number
             payweek = (trans.week_number + 1) // 2 if trans.week_number else "?"
 
-            # Calculate week position (first/second)
+            # Calculate week position (first/second) - used for rollover category display
             if trans.week_number:
-                week_position = "first" if trans.week_number % 2 == 1 else "second"
+                week_position = "First" if trans.week_number % 2 == 1 else "Second"
             else:
                 week_position = ""
 
@@ -389,8 +444,9 @@ class TransactionsView(QWidget):
             day_name = calendar.day_name[trans.date.weekday()]
 
             # Generate category display
+            # For rollovers: show "First" or "Second" instead of "Rollover"
             if trans.transaction_type == TransactionType.ROLLOVER.value:
-                category = "Rollover"
+                category = week_position if week_position else "Rollover"
             else:
                 category = trans.category or "Uncategorized"
 
@@ -412,134 +468,160 @@ class TransactionsView(QWidget):
             row = {
                 "ID": str(trans.id),
                 "Date": trans.date.strftime("%m/%d/%Y"),
-                "Category": category,
                 "Amount": amount_display,
+                "Category": category,
                 "Type": trans.transaction_type or "",
-                "Paycheck #": str(payweek),
-                "Week #": str(trans.week_number) if trans.week_number else "",
-                "Week Pos": week_position,
-                "🔒": "🔒" if is_locked else "",
                 "Abnormal": abnormal,
+                "Paycheck": str(payweek),
+                "Week": str(trans.week_number) if trans.week_number else "",
+                "Locked": "🔒" if is_locked else "",
                 "Manual Notes": trans.description or "",
                 "Auto Notes": auto_notes
             }
             rows_data.append(row)
 
         # Set columns and load data
-        columns = ["ID", "Date", "Category", "Amount", "Type", "Paycheck #", "Week #", "Week Pos", "🔒", "Abnormal", "Manual Notes", "Auto Notes"]
+        columns = ["ID", "Date", "Amount", "Category", "Type", "Abnormal", "Paycheck", "Week", "Locked", "Manual Notes", "Auto Notes"]
+        # Non-editable columns: ID, Type, Paycheck (auto-calc), Week (auto-calc), Locked, Auto Notes
+        non_editable = {"ID", "Type", "Paycheck", "Week", "Locked", "Auto Notes"}
+        # Get all unique categories from spending transactions for editable dropdown
+        existing_categories = set()
+        for t in spending_transactions:
+            if t.category:
+                existing_categories.add(t.category)
+        editable_dropdowns = {"Category": sorted(existing_categories)}
+
         table = getattr(self, "spending_table", None)
         if table:
-            table.set_columns(columns)
+            table.set_columns(columns, non_editable, None, editable_dropdowns)
             table.load_data(rows_data, locked_rows, transaction_ids)
 
     def load_transfers_data(self):
         """
-        Load transfer transactions (type=saving) with From/To display.
+        Load ONLY Account-to-Account transfer transactions.
 
-        Transfers include:
-        - Week ↔ Account/Bill (single transaction)
-        - Account ↔ Account (two transactions)
+        This tab shows transfers between two accounts (savings or bills),
+        NOT Week↔Account transfers (those are shown in Accounts tab as Deposit/Withdrawal).
 
-        For Week ↔ Account:
-        - amount > 0: Week is source, Account is destination
-        - amount < 0: Account is source, Week is destination
+        Account-to-Account transfers are identified by having a transfer_group_id set.
+        Each transfer creates two transactions with the same group_id:
+        - Negative amount = source account (money leaving)
+        - Positive amount = destination account (money arriving)
 
-        For Account ↔ Account:
-        - Two transactions with opposite signs
-        - Negative = source account, Positive = destination account
+        We show each transaction separately so user can see both sides.
         """
         from models.transactions import Transaction, TransactionType
 
         # Get all transactions
         all_transactions = self.transaction_manager.get_all_transactions()
 
-        # Filter for transfer transactions (type=saving, excluding end-of-period rollovers)
-        transfer_transactions = []
-        for t in all_transactions:
-            if t.transaction_type == TransactionType.SAVING.value:
-                # Exclude end-of-period auto-rollovers (they belong to Accounts tab via AccountHistory)
-                if t.description:
-                    if "end-of-period" in t.description.lower():
-                        continue
-                transfer_transactions.append(t)
+        # Filter for Account-to-Account transfers ONLY (have transfer_group_id)
+        transfer_transactions = [
+            t for t in all_transactions
+            if t.transfer_group_id is not None
+        ]
 
-        # Sort by date (oldest first)
-        transfer_transactions.sort(key=lambda t: t.date)
+        # Sort by date, then by group_id to keep pairs together
+        transfer_transactions.sort(key=lambda t: (t.date, t.transfer_group_id, t.amount))
 
-        # Build account/bill name lookup
+        # Build account name lookup
         accounts = self.transaction_manager.get_all_accounts()
         account_names = {a.id: a.name for a in accounts}
         bills = self.transaction_manager.get_all_bills()
         bill_names = {b.id: b.name for b in bills}
 
+        # Group transactions by transfer_group_id
+        groups = {}
+        for trans in transfer_transactions:
+            if trans.transfer_group_id not in groups:
+                groups[trans.transfer_group_id] = []
+            groups[trans.transfer_group_id].append(trans)
+
         # Convert to table format with From/To columns
+        # Show ONE row per transfer pair (not both transactions)
         rows_data = []
         locked_rows = set()
-        transaction_ids = {}  # Map row index -> transaction ID
+        transaction_ids = {}  # Map row index -> (source_trans_id, dest_trans_id) tuple
+        row_idx = 0
 
-        for idx, trans in enumerate(transfer_transactions):
-            # Store transaction ID for saving changes
-            transaction_ids[idx] = trans.id
+        # Process each unique transfer group (one row per pair)
+        for group_id, group_transactions in groups.items():
+            if len(group_transactions) != 2:
+                # Skip incomplete pairs (shouldn't happen, but be safe)
+                continue
 
-            # Check if locked
-            is_locked = self.is_transaction_locked(trans)
-            if is_locked:
-                locked_rows.add(idx)
-
-            # Determine From/To based on amount sign and linked account/bill
-            # Positive amount = money going INTO account (Week -> Account)
-            # Negative amount = money coming OUT OF account (Account -> Week)
-
-            from_source = ""
-            to_dest = ""
-
-            if trans.account_id:
-                account_name = account_names.get(trans.account_id, "Unknown Account")
-                if trans.amount >= 0:
-                    # Week -> Account
-                    from_source = f"Week {trans.week_number}" if trans.week_number else "Week ?"
-                    to_dest = account_name
+            # Find source (negative) and destination (positive) transactions
+            source_trans = None
+            dest_trans = None
+            for trans in group_transactions:
+                if trans.amount < 0:
+                    source_trans = trans
                 else:
-                    # Account -> Week
-                    from_source = account_name
-                    to_dest = f"Week {trans.week_number}" if trans.week_number else "Week ?"
-            elif trans.bill_id:
-                bill_name = bill_names.get(trans.bill_id, "Unknown Bill")
-                if trans.amount >= 0:
-                    # Week -> Bill
-                    from_source = f"Week {trans.week_number}" if trans.week_number else "Week ?"
-                    to_dest = bill_name
-                else:
-                    # Bill -> Week
-                    from_source = bill_name
-                    to_dest = f"Week {trans.week_number}" if trans.week_number else "Week ?"
+                    dest_trans = trans
+
+            if not source_trans or not dest_trans:
+                continue
+
+            # Get account names for source and destination
+            if source_trans.account_id:
+                from_account = account_names.get(source_trans.account_id, "Unknown Account")
+            elif source_trans.bill_id:
+                from_account = bill_names.get(source_trans.bill_id, "Unknown Bill")
             else:
-                # No account or bill linked - possibly incomplete data
-                from_source = "Unknown"
-                to_dest = "Unknown"
+                from_account = "Unknown"
 
-            # Amount is always displayed as positive (absolute value)
-            amount_value = abs(trans.amount)
+            if dest_trans.account_id:
+                to_account = account_names.get(dest_trans.account_id, "Unknown Account")
+            elif dest_trans.bill_id:
+                to_account = bill_names.get(dest_trans.bill_id, "Unknown Bill")
+            else:
+                to_account = "Unknown"
+
+            # Store BOTH transaction IDs for saving changes (we'll update both when editing)
+            # Use tuple: (source_id, dest_id)
+            transaction_ids[row_idx] = (source_trans.id, dest_trans.id)
+
+            # Check if locked (either transaction locked = row locked)
+            is_locked = self.is_transaction_locked(source_trans) or self.is_transaction_locked(dest_trans)
+            if is_locked:
+                locked_rows.add(row_idx)
+
+            # Amount is always positive (absolute value from source)
+            amount_value = abs(source_trans.amount)
             amount_display = f"${amount_value:,.2f}"
 
+            # Use source transaction for date/week/notes (they should be the same anyway)
             row = {
-                "ID": str(trans.id),
-                "Date": trans.date.strftime("%m/%d/%Y"),
+                "ID": f"{source_trans.id}/{dest_trans.id}",  # Show both IDs
+                "Date": source_trans.date.strftime("%m/%d/%Y"),
                 "Amount": amount_display,
-                "From": from_source,
-                "To": to_dest,
-                "Week": str(trans.week_number) if trans.week_number else "",
-                "🔒": "🔒" if is_locked else "",
-                "Manual Notes": trans.description or "",
-                "Auto Notes": f"Manual: Transfer {amount_display} from {from_source} to {to_dest}"
+                "From": from_account,
+                "To": to_account,
+                "Week": str(source_trans.week_number) if source_trans.week_number else "",
+                "Locked": "🔒" if is_locked else "",
+                "Manual Notes": source_trans.description or "",
+                "Auto Notes": f"Transfer {amount_display} from {from_account} to {to_account}"
             }
             rows_data.append(row)
+            row_idx += 1
+
+        # Sort by date
+        rows_data.sort(key=lambda r: r["Date"])
 
         # Set columns and load data
-        columns = ["ID", "Date", "Amount", "From", "To", "Week", "🔒", "Manual Notes", "Auto Notes"]
+        columns = ["ID", "Date", "Amount", "From", "To", "Week", "Locked", "Manual Notes", "Auto Notes"]
+        # Non-editable columns: ID, Week (auto-calc), Locked, Auto Notes
+        non_editable = {"ID", "Week", "Locked", "Auto Notes"}
+        # Editable dropdown columns: From and To show existing accounts but allow typing new
+        all_account_names = list(account_names.values()) + list(bill_names.values())
+        editable_dropdowns = {
+            "From": sorted(set(all_account_names)),
+            "To": sorted(set(all_account_names))
+        }
+
         table = getattr(self, "transfers_table", None)
         if table:
-            table.set_columns(columns)
+            table.set_columns(columns, non_editable, None, editable_dropdowns)
             table.load_data(rows_data, locked_rows, transaction_ids)
 
     def is_transaction_locked(self, transaction):
@@ -675,14 +757,27 @@ class TransactionsView(QWidget):
                 failures.append((row_idx, "No transaction ID found"))
                 continue
 
-            try:
-                success = self.transaction_manager.delete_transaction(trans_id)
-                if success:
-                    successes.append((trans_id, "Deleted"))
-                else:
-                    failures.append((trans_id, "Delete failed"))
-            except Exception as e:
-                failures.append((trans_id, f"Delete error: {str(e)}"))
+            # Handle transfers tab - has tuple of (source_id, dest_id)
+            if tab_name == "transfers" and isinstance(trans_id, tuple):
+                source_id, dest_id = trans_id
+                try:
+                    success1 = self.transaction_manager.delete_transaction(source_id)
+                    success2 = self.transaction_manager.delete_transaction(dest_id)
+                    if success1 and success2:
+                        successes.append((f"{source_id}/{dest_id}", "Deleted (both sides)"))
+                    else:
+                        failures.append((f"{source_id}/{dest_id}", "Delete failed"))
+                except Exception as e:
+                    failures.append((f"{source_id}/{dest_id}", f"Delete error: {str(e)}"))
+            else:
+                try:
+                    success = self.transaction_manager.delete_transaction(trans_id)
+                    if success:
+                        successes.append((trans_id, "Deleted"))
+                    else:
+                        failures.append((trans_id, "Delete failed"))
+                except Exception as e:
+                    failures.append((trans_id, f"Delete error: {str(e)}"))
 
         # Process edits
         for row_idx in edited_rows:
@@ -706,19 +801,63 @@ class TransactionsView(QWidget):
                 failures.append((trans_id, validation_error))
                 continue
 
-            # Update transaction in database
-            try:
-                updated_trans = self.transaction_manager.update_transaction(trans_id, updates)
-                if updated_trans:
-                    changes = self._format_changes(row_data, updates)
-                    successes.append((trans_id, changes))
-                else:
-                    failures.append((trans_id, "Update failed"))
-            except Exception as e:
-                failures.append((trans_id, f"Update error: {str(e)}"))
+            # Handle paycheck tab - special recalculation logic for start date/amount changes
+            if tab_name == "paycheck" and updates.get("_needs_recalculation"):
+                try:
+                    # Get the original paycheck transaction
+                    original_paycheck = self.transaction_manager.get_transaction_by_id(trans_id)
+                    if not original_paycheck:
+                        failures.append((trans_id, "Could not find original paycheck"))
+                        continue
 
-        # Show results dialog
-        self._show_save_results_dialog(successes, failures)
+                    # Apply paycheck recalculation
+                    success, message = self._apply_paycheck_recalculation(
+                        original_paycheck, updates, row_data
+                    )
+
+                    if success:
+                        successes.append((trans_id, message))
+                    else:
+                        failures.append((trans_id, message))
+                except Exception as e:
+                    failures.append((trans_id, f"Recalculation error: {str(e)}"))
+                continue  # Skip normal update flow
+
+            # Handle transfers tab - update BOTH transactions
+            elif tab_name == "transfers" and isinstance(trans_id, tuple):
+                source_id, dest_id = trans_id
+                try:
+                    # Build updates for source (negative amount, From account)
+                    source_updates = self._build_transfer_source_updates(updates, row_data)
+                    # Build updates for dest (positive amount, To account)
+                    dest_updates = self._build_transfer_dest_updates(updates, row_data)
+
+                    updated_source = self.transaction_manager.update_transaction(source_id, source_updates)
+                    updated_dest = self.transaction_manager.update_transaction(dest_id, dest_updates)
+
+                    if updated_source and updated_dest:
+                        changes = self._format_changes(row_data, updates)
+                        successes.append((f"{source_id}/{dest_id}", changes))
+                    else:
+                        failures.append((f"{source_id}/{dest_id}", "Update failed"))
+                except Exception as e:
+                    failures.append((f"{source_id}/{dest_id}", f"Update error: {str(e)}"))
+            else:
+                # Regular single transaction update
+                try:
+                    updated_trans = self.transaction_manager.update_transaction(trans_id, updates)
+                    if updated_trans:
+                        changes = self._format_changes(row_data, updates)
+                        successes.append((trans_id, changes))
+                    else:
+                        failures.append((trans_id, "Update failed"))
+                except Exception as e:
+                    failures.append((trans_id, f"Update error: {str(e)}"))
+
+        # Show results dialog only in testing mode
+        from views.dialogs.settings_dialog import get_setting
+        if get_setting("testing_mode", False):
+            self._show_save_results_dialog(successes, failures)
 
         # Reload table data from database
         self.refresh()
@@ -731,44 +870,517 @@ class TransactionsView(QWidget):
             (updates_dict, error_message) - either updates dict or error message
         """
         from datetime import datetime
+        from models.transactions import TransactionType
 
         updates = {}
 
-        # Parse date
+        # Route to tab-specific validation
+        if tab_name == "accounts":
+            return self._validate_accounts_row(row_data)
+        elif tab_name == "spending":
+            return self._validate_spending_row(row_data)
+        elif tab_name == "paycheck":
+            return self._validate_paycheck_row(row_data)
+        elif tab_name == "transfers":
+            return self._validate_transfers_row(row_data)
+
+        return None, f"Unknown tab: {tab_name}"
+
+    def _validate_accounts_row(self, row_data):
+        """Validate and convert Accounts tab row data
+
+        Returns (updates, errors) where:
+        - updates: dict of valid field updates to apply
+        - errors: list of error messages for failed fields (empty if all valid)
+
+        Valid fields are saved even if some fields fail validation.
+        """
+        from datetime import datetime
+        from models.transactions import TransactionType
+
+        updates = {}
+        errors = []
+
+        # Parse and validate Date
         if "Date" in row_data:
             try:
                 date_obj = datetime.strptime(row_data["Date"], "%m/%d/%Y").date()
                 updates["date"] = date_obj
             except ValueError:
-                return None, f"Invalid date format: {row_data['Date']}"
+                errors.append(f"Invalid date format: {row_data['Date']} (use MM/DD/YYYY)")
 
-        # Parse amount (remove $ and commas)
-        # IMPORTANT: For Accounts tab, user sees AccountHistory.change_amount (negative for payments)
-        # but we need to store it as Transaction.amount (positive)
+        # Validate Account name - must match existing bill or savings account
+        if "Account" in row_data:
+            account_name = row_data["Account"].strip()
+            account_id, bill_id, account_type = self._lookup_account_by_name(account_name)
+
+            if account_id is None and bill_id is None:
+                errors.append(f"Account not found: '{account_name}'")
+            else:
+                # Set the appropriate ID field
+                if account_id:
+                    updates["account_id"] = account_id
+                    updates["bill_id"] = None
+                else:
+                    updates["bill_id"] = bill_id
+                    updates["account_id"] = None
+
+        # Get Movement type and parse Amount together (they're interdependent)
+        movement = row_data.get("Movement", "").strip()
+
         if "Amount" in row_data:
             try:
-                amount_str = row_data["Amount"].replace("$", "").replace(",", "").strip()
-                amount = float(amount_str)
+                amount_str = row_data["Amount"].replace("$", "").replace(",", "").replace("-", "").strip()
+                amount = abs(float(amount_str))  # Always positive base amount
 
-                # For Accounts tab: convert change_amount → transaction.amount
-                # Accounts show negative for payments/withdrawals, but transaction stores positive
-                if tab_name == "accounts":
-                    updates["amount"] = abs(amount)  # Always store as positive in transaction
+                # Movement determines sign in database and transaction type
+                if movement == "Deposit":
+                    updates["amount"] = amount  # Positive = into account
+                    updates["transaction_type"] = TransactionType.SAVING.value
+                elif movement == "Withdrawal":
+                    updates["amount"] = -amount  # Negative = out of account
+                    updates["transaction_type"] = TransactionType.SAVING.value
+                elif movement == "Payment":
+                    updates["amount"] = amount  # Bill payments stored positive
+                    updates["transaction_type"] = TransactionType.BILL_PAY.value
                 else:
-                    updates["amount"] = amount  # Spending/Paycheck/Transfers: use as-is
-
+                    errors.append(f"Invalid movement type: '{movement}' (must be Deposit, Withdrawal, or Payment)")
             except ValueError:
-                return None, f"Invalid amount: {row_data['Amount']}"
+                errors.append(f"Invalid amount: {row_data['Amount']}")
 
-        # Get description from Manual Notes
+        # Manual Notes - always valid
         if "Manual Notes" in row_data:
             updates["description"] = row_data["Manual Notes"]
 
-        # Get abnormal flag (for spending)
-        if "Abnormal" in row_data:
-            updates["include_in_analytics"] = not row_data["Abnormal"]  # Abnormal checked = exclude
+        # Return updates and combined error message (if any)
+        error_msg = "; ".join(errors) if errors else None
+        return updates, error_msg
 
-        return updates, None
+    def _validate_spending_row(self, row_data):
+        """Validate and convert Spending tab row data
+
+        Returns (updates, errors) - valid fields saved even if some fail.
+        """
+        from datetime import datetime
+
+        updates = {}
+        errors = []
+
+        # Parse Date
+        if "Date" in row_data:
+            try:
+                date_obj = datetime.strptime(row_data["Date"], "%m/%d/%Y").date()
+                updates["date"] = date_obj
+            except ValueError:
+                errors.append(f"Invalid date format: {row_data['Date']} (use MM/DD/YYYY)")
+
+        # Parse Amount - spending is always positive in display and database
+        if "Amount" in row_data:
+            try:
+                amount_str = row_data["Amount"].replace("$", "").replace(",", "").replace("-", "").strip()
+                updates["amount"] = abs(float(amount_str))
+            except ValueError:
+                errors.append(f"Invalid amount: {row_data['Amount']}")
+
+        # Category - always valid (can be new category)
+        if "Category" in row_data:
+            updates["category"] = row_data["Category"].strip()
+
+        # Abnormal flag
+        if "Abnormal" in row_data:
+            updates["include_in_analytics"] = not row_data["Abnormal"]  # Checked = exclude
+
+        # Manual Notes - always valid
+        if "Manual Notes" in row_data:
+            updates["description"] = row_data["Manual Notes"]
+
+        error_msg = "; ".join(errors) if errors else None
+        return updates, error_msg
+
+    def _validate_paycheck_row(self, row_data):
+        """Validate and convert Paycheck tab row data
+
+        Returns (updates, errors) - valid fields saved even if some fail.
+
+        IMPORTANT: Start Date and Amount changes trigger paycheck recalculation.
+        This is a complex operation that:
+        1. Checks for week overlap with other paychecks
+        2. Checks that no spending transactions would be orphaned
+        3. Deletes auto-generated transactions (auto-saves, rollovers)
+        4. Re-runs paycheck processing with new values
+
+        See TRANSACTIONS_TAB_ROADMAP.md for detailed documentation.
+        """
+        from datetime import datetime, timedelta
+
+        updates = {}
+        errors = []
+
+        # Parse Earned Date (simple - just updates transaction date)
+        if "Earned Date" in row_data:
+            try:
+                date_obj = datetime.strptime(row_data["Earned Date"], "%m/%d/%Y").date()
+                updates["date"] = date_obj
+            except ValueError:
+                errors.append(f"Invalid earned date format: {row_data['Earned Date']} (use MM/DD/YYYY)")
+
+        # Parse Amount - may trigger recalculation
+        new_amount = None
+        if "Amount" in row_data:
+            try:
+                amount_str = row_data["Amount"].replace("$", "").replace(",", "").replace("-", "").strip()
+                new_amount = abs(float(amount_str))
+                updates["amount"] = new_amount
+            except ValueError:
+                errors.append(f"Invalid amount: {row_data['Amount']}")
+
+        # Parse Start Date - may trigger recalculation
+        new_start_date = None
+        if "Start Date" in row_data:
+            try:
+                new_start_date = datetime.strptime(row_data["Start Date"], "%m/%d/%Y").date()
+
+                # Validate Start Date must be Monday
+                if new_start_date.weekday() != 0:
+                    errors.append(f"Start Date must be a Monday (got {new_start_date.strftime('%A')})")
+                    new_start_date = None
+            except ValueError:
+                errors.append(f"Invalid start date format: {row_data['Start Date']} (use MM/DD/YYYY)")
+
+        # If Start Date or Amount changed, mark for recalculation
+        # The actual recalculation happens in _apply_paycheck_recalculation()
+        if new_start_date is not None:
+            updates["_new_start_date"] = new_start_date
+            updates["_needs_recalculation"] = True
+
+        if new_amount is not None:
+            updates["_needs_recalculation"] = True
+
+        # Manual Notes - always valid
+        if "Manual Notes" in row_data:
+            updates["description"] = row_data["Manual Notes"]
+
+        error_msg = "; ".join(errors) if errors else None
+        return updates, error_msg
+
+    def _validate_transfers_row(self, row_data):
+        """Validate and convert Transfers tab row data
+
+        Returns (updates, errors) - valid fields saved even if some fail.
+        """
+        from datetime import datetime
+
+        updates = {}
+        errors = []
+
+        # Parse Date
+        if "Date" in row_data:
+            try:
+                date_obj = datetime.strptime(row_data["Date"], "%m/%d/%Y").date()
+                updates["date"] = date_obj
+            except ValueError:
+                errors.append(f"Invalid date format: {row_data['Date']} (use MM/DD/YYYY)")
+
+        # Parse Amount - transfers always positive in display
+        if "Amount" in row_data:
+            try:
+                amount_str = row_data["Amount"].replace("$", "").replace(",", "").replace("-", "").strip()
+                updates["amount"] = abs(float(amount_str))
+            except ValueError:
+                errors.append(f"Invalid amount: {row_data['Amount']}")
+
+        # Validate From account
+        from_account_id = None
+        from_bill_id = None
+        if "From" in row_data:
+            from_name = row_data["From"].strip()
+            from_account_id, from_bill_id, _ = self._lookup_account_by_name(from_name)
+            if from_account_id is None and from_bill_id is None:
+                errors.append(f"From account not found: '{from_name}'")
+            else:
+                updates["from_account_id"] = from_account_id
+                updates["from_bill_id"] = from_bill_id
+
+        # Validate To account
+        to_account_id = None
+        to_bill_id = None
+        if "To" in row_data:
+            to_name = row_data["To"].strip()
+            to_account_id, to_bill_id, _ = self._lookup_account_by_name(to_name)
+            if to_account_id is None and to_bill_id is None:
+                errors.append(f"To account not found: '{to_name}'")
+            else:
+                updates["to_account_id"] = to_account_id
+                updates["to_bill_id"] = to_bill_id
+
+        # Check From and To are not the same account
+        if "From" in row_data and "To" in row_data:
+            from_name = row_data["From"].strip().lower()
+            to_name = row_data["To"].strip().lower()
+            if from_name == to_name:
+                # Both From and To fail - remove their updates and add errors
+                updates.pop("from_account_id", None)
+                updates.pop("from_bill_id", None)
+                updates.pop("to_account_id", None)
+                updates.pop("to_bill_id", None)
+                errors.append(f"From and To cannot be the same account: '{row_data['From']}'")
+
+        # Manual Notes
+        if "Manual Notes" in row_data:
+            updates["description"] = row_data["Manual Notes"]
+
+        error_msg = "; ".join(errors) if errors else None
+        return updates, error_msg
+
+    def _lookup_account_by_name(self, name):
+        """
+        Look up an account by name
+
+        Returns:
+            (account_id, bill_id, account_type) - one of account_id or bill_id will be set
+        """
+        name_lower = name.lower().strip()
+
+        # Check savings accounts
+        accounts = self.transaction_manager.get_all_accounts()
+        for account in accounts:
+            if account.name.lower().strip() == name_lower:
+                return account.id, None, "savings"
+
+        # Check bills
+        bills = self.transaction_manager.get_all_bills()
+        for bill in bills:
+            if bill.name.lower().strip() == name_lower:
+                return None, bill.id, "bill"
+
+        return None, None, None
+
+    def _apply_paycheck_recalculation(self, original_paycheck, updates, row_data):
+        """
+        Apply paycheck recalculation when start date or amount changes.
+
+        This is a complex operation that:
+        1. Validates the new start date doesn't overlap with other paychecks
+        2. Checks that no spending transactions would be orphaned
+        3. Deletes auto-generated transactions (auto-saves, rollovers)
+        4. Updates or recreates the weeks with new dates
+        5. Re-runs paycheck allocation with new amount
+
+        Returns:
+            (success: bool, message: str)
+        """
+        from datetime import timedelta
+        from models.transactions import TransactionType
+
+        new_start_date = updates.get("_new_start_date")
+        new_amount = updates.get("amount", original_paycheck.amount)
+
+        # Get current week info
+        all_weeks = self.transaction_manager.get_all_weeks()
+        current_week = next((w for w in all_weeks if w.week_number == original_paycheck.week_number), None)
+
+        if not current_week:
+            return False, "Could not find associated week"
+
+        # If start date is changing, do overlap and orphan checks
+        if new_start_date and new_start_date != current_week.start_date:
+            # Calculate new week ranges
+            new_week1_end = new_start_date + timedelta(days=6)
+            new_week2_start = new_start_date + timedelta(days=7)
+            new_week2_end = new_week2_start + timedelta(days=6)
+
+            # Get the second week of this paycheck period
+            week2_number = original_paycheck.week_number + 1
+            current_week2 = next((w for w in all_weeks if w.week_number == week2_number), None)
+
+            # Check for overlap with OTHER paychecks (exclude current paycheck's weeks)
+            for existing_week in all_weeks:
+                # Skip current paycheck's weeks
+                if existing_week.week_number in [original_paycheck.week_number, week2_number]:
+                    continue
+
+                # Check if new week 1 overlaps
+                if new_start_date <= existing_week.end_date and new_week1_end >= existing_week.start_date:
+                    return False, f"New dates overlap with Week {existing_week.week_number} ({existing_week.start_date} - {existing_week.end_date})"
+
+                # Check if new week 2 overlaps
+                if new_week2_start <= existing_week.end_date and new_week2_end >= existing_week.start_date:
+                    return False, f"New dates overlap with Week {existing_week.week_number} ({existing_week.start_date} - {existing_week.end_date})"
+
+            # Check for orphaned spending transactions
+            # Get all spending transactions in the current weeks
+            all_transactions = self.transaction_manager.get_all_transactions()
+            spending_in_weeks = [
+                t for t in all_transactions
+                if t.transaction_type == TransactionType.SPENDING.value
+                and t.week_number in [original_paycheck.week_number, week2_number]
+            ]
+
+            # Check if any spending transactions would fall outside new date range
+            for spending in spending_in_weeks:
+                if spending.date < new_start_date or spending.date > new_week2_end:
+                    return False, f"Cannot move dates: spending transaction on {spending.date} would be orphaned"
+
+            # Delete auto-generated transactions (auto-saves, rollovers)
+            # These are identified by transaction_type and are recreated during processing
+            auto_generated_types = [TransactionType.ROLLOVER.value, TransactionType.SAVING.value]
+            for trans in all_transactions:
+                if trans.week_number in [original_paycheck.week_number, week2_number]:
+                    if trans.transaction_type in auto_generated_types:
+                        # Check if it's truly auto-generated (has no user description or specific patterns)
+                        # Auto-saves have descriptions like "Savings allocation for..." or "Auto-savings allocation..."
+                        desc = trans.description or ""
+                        is_auto = (
+                            "allocation for" in desc.lower() or
+                            "auto-" in desc.lower() or
+                            "end-of-period" in desc.lower() or
+                            trans.transaction_type == TransactionType.ROLLOVER.value
+                        )
+                        if is_auto:
+                            self.transaction_manager.delete_transaction(trans.id)
+
+            # Update week dates
+            current_week.start_date = new_start_date
+            current_week.end_date = new_week1_end
+
+            if current_week2:
+                current_week2.start_date = new_week2_start
+                current_week2.end_date = new_week2_end
+
+        # Update paycheck amount and other fields
+        simple_updates = {}
+        if "date" in updates:
+            simple_updates["date"] = updates["date"]
+        if "amount" in updates:
+            simple_updates["amount"] = updates["amount"]
+        if "description" in updates:
+            simple_updates["description"] = updates["description"]
+
+        if simple_updates:
+            self.transaction_manager.update_transaction(original_paycheck.id, simple_updates)
+
+        # If amount changed, recalculate percentage-based auto-saves and rollovers
+        if "amount" in updates and updates["amount"] != original_paycheck.amount:
+            new_amount = updates["amount"]
+            week2_number = original_paycheck.week_number + 1
+
+            # Recalculate percentage-based auto-saves
+            # These have descriptions containing "% of paycheck"
+            try:
+                self._recalculate_percentage_auto_saves(
+                    original_paycheck.week_number,
+                    week2_number,
+                    new_amount
+                )
+            except Exception as e:
+                print(f"Warning: Auto-save recalculation failed: {e}")
+
+            # Trigger rollover recalculation for this paycheck period
+            try:
+                self.transaction_manager.trigger_rollover_recalculation(original_paycheck.week_number)
+            except Exception as e:
+                # Log but don't fail - the main update succeeded
+                print(f"Warning: Rollover recalculation failed: {e}")
+
+        changes = []
+        if new_start_date and new_start_date != (current_week.start_date if current_week else None):
+            changes.append(f"Start Date: {new_start_date}")
+        if "amount" in updates:
+            changes.append(f"Amount: ${updates['amount']:,.2f}")
+        if "date" in updates:
+            changes.append(f"Earned Date: {updates['date']}")
+
+        return True, ", ".join(changes) if changes else "Updated"
+
+    def _build_transfer_source_updates(self, updates, row_data):
+        """Build updates dict for the source (withdrawal) side of a transfer"""
+        source_updates = {}
+
+        # Date applies to both
+        if "date" in updates:
+            source_updates["date"] = updates["date"]
+
+        # Amount is negative for source (withdrawal)
+        if "amount" in updates:
+            source_updates["amount"] = -abs(updates["amount"])
+
+        # From account becomes the account_id for source transaction
+        if "from_account_id" in updates:
+            source_updates["account_id"] = updates["from_account_id"]
+            source_updates["bill_id"] = None
+        elif "from_bill_id" in updates:
+            source_updates["bill_id"] = updates["from_bill_id"]
+            source_updates["account_id"] = None
+
+        # Description
+        if "description" in updates:
+            source_updates["description"] = updates["description"]
+
+        return source_updates
+
+    def _build_transfer_dest_updates(self, updates, row_data):
+        """Build updates dict for the destination (deposit) side of a transfer"""
+        dest_updates = {}
+
+        # Date applies to both
+        if "date" in updates:
+            dest_updates["date"] = updates["date"]
+
+        # Amount is positive for dest (deposit)
+        if "amount" in updates:
+            dest_updates["amount"] = abs(updates["amount"])
+
+        # To account becomes the account_id for dest transaction
+        if "to_account_id" in updates:
+            dest_updates["account_id"] = updates["to_account_id"]
+            dest_updates["bill_id"] = None
+        elif "to_bill_id" in updates:
+            dest_updates["bill_id"] = updates["to_bill_id"]
+            dest_updates["account_id"] = None
+
+        # Description
+        if "description" in updates:
+            dest_updates["description"] = updates["description"]
+
+        return dest_updates
+
+    def _recalculate_percentage_auto_saves(self, week1_number, week2_number, new_paycheck_amount):
+        """
+        Recalculate percentage-based auto-saves when paycheck amount changes.
+
+        Finds auto-save transactions with "% of paycheck" in description and
+        recalculates their amounts based on the bill/account's percentage setting.
+        """
+        import re
+        from models.transactions import TransactionType
+
+        all_transactions = self.transaction_manager.get_all_transactions()
+
+        for trans in all_transactions:
+            # Only check transactions in this paycheck's weeks
+            if trans.week_number not in [week1_number, week2_number]:
+                continue
+
+            # Only check SAVING type (auto-saves)
+            if trans.transaction_type != TransactionType.SAVING.value:
+                continue
+
+            desc = trans.description or ""
+
+            # Check if this is a percentage-based auto-save
+            if "% of paycheck" not in desc:
+                continue
+
+            # Extract the percentage from the description (e.g., "10.0% of paycheck")
+            match = re.search(r'\((\d+\.?\d*)% of paycheck\)', desc)
+            if not match:
+                continue
+
+            percentage = float(match.group(1)) / 100.0  # Convert "10.0" to 0.1
+            new_amount = percentage * new_paycheck_amount
+
+            # Update the transaction with new amount
+            self.transaction_manager.update_transaction(trans.id, {"amount": new_amount})
 
     def _format_changes(self, row_data, updates):
         """Format changes for display in results dialog"""
@@ -937,5 +1549,26 @@ class TransactionsView(QWidget):
                     }}
                     QPushButton:pressed {{
                         background-color: {colors['primary_dark']};
+                    }}
+                """)
+
+            # Style info button (circular "i" button)
+            info_btn = getattr(self, f"{tab_name}_info_btn", None)
+            if info_btn:
+                info_btn.setStyleSheet(f"""
+                    QToolButton {{
+                        background-color: {colors['primary']};
+                        color: {colors['background']};
+                        border: 2px solid {colors['primary']};
+                        border-radius: 12px;
+                        font-weight: bold;
+                    }}
+                    QToolButton:hover {{
+                        background-color: {colors['accent']};
+                        border-color: {colors['accent']};
+                    }}
+                    QToolButton:pressed {{
+                        background-color: {colors['primary_dark']};
+                        border-color: {colors['primary_dark']};
                     }}
                 """)

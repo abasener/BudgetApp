@@ -18,6 +18,7 @@ if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 import random
+import uuid
 from datetime import date, timedelta
 
 # Database imports
@@ -658,21 +659,25 @@ def generate_test_data():
                 transfer_count += 1
                 print(f"   Week {weeks[3].week_number} -> Rent: $75.00")
 
-        # --- ACCOUNT -> ACCOUNT TRANSFERS (two transactions) ---
-        # Moving money between savings accounts
+        # --- ACCOUNT -> ACCOUNT TRANSFERS (two linked transactions) ---
+        # Moving money between savings accounts - uses transfer_group_id to link pair
         if len(weeks) > 6:
             trans_date = weeks[6].start_date + timedelta(days=2)
             if trans_date <= yesterday:
                 # Safety Saving -> New Home: $200
+                # Generate a group ID to link both transactions
+                group_id = str(uuid.uuid4())
+
                 # Transaction 1: Withdrawal from Safety Saving (negative)
                 transfer_out = Transaction(
                     transaction_type=TransactionType.SAVING.value,
                     amount=-200.00,  # Negative = out of source
                     date=trans_date,
-                    description="Transferring $200 to New Home fund",
+                    description="Transfer to New Home fund",
                     week_number=weeks[6].week_number,
                     account_id=safety_account.id,
-                    category="Transfer"
+                    category="Transfer",
+                    transfer_group_id=group_id  # Link to partner transaction
                 )
                 db.add(transfer_out)
                 db.flush()
@@ -689,10 +694,11 @@ def generate_test_data():
                     transaction_type=TransactionType.SAVING.value,
                     amount=200.00,  # Positive = into destination
                     date=trans_date,
-                    description="Transferring $200 from Safety Saving",
+                    description="Transfer from Safety Saving",
                     week_number=weeks[6].week_number,
                     account_id=new_home_account.id,
-                    category="Transfer"
+                    category="Transfer",
+                    transfer_group_id=group_id  # Same group ID links the pair
                 )
                 db.add(transfer_in)
                 db.flush()
@@ -705,7 +711,59 @@ def generate_test_data():
                 )
 
                 transfer_count += 2  # Two transactions for account-to-account
-                print(f"   Safety Saving -> New Home: $200.00 (account-to-account)")
+                print(f"   Safety Saving -> New Home: $200.00 (linked pair: {group_id[:8]}...)")
+
+        # Second Account -> Account transfer for more test coverage
+        if len(weeks) > 4:
+            trans_date = weeks[4].start_date + timedelta(days=5)
+            if trans_date <= yesterday:
+                # Vacation -> Safety Saving: $75
+                group_id2 = str(uuid.uuid4())
+
+                # Transaction 1: Withdrawal from Vacation (negative)
+                transfer_out2 = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=-75.00,
+                    date=trans_date,
+                    description="Reallocating to safety fund",
+                    week_number=weeks[4].week_number,
+                    account_id=vacation_account.id,
+                    category="Transfer",
+                    transfer_group_id=group_id2
+                )
+                db.add(transfer_out2)
+                db.flush()
+                history_manager.add_transaction_change(
+                    account_id=vacation_account.id,
+                    account_type="savings",
+                    change_amount=-75.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer_out2.id
+                )
+
+                # Transaction 2: Deposit to Safety Saving (positive)
+                transfer_in2 = Transaction(
+                    transaction_type=TransactionType.SAVING.value,
+                    amount=75.00,
+                    date=trans_date,
+                    description="Received from Vacation fund",
+                    week_number=weeks[4].week_number,
+                    account_id=safety_account.id,
+                    category="Transfer",
+                    transfer_group_id=group_id2
+                )
+                db.add(transfer_in2)
+                db.flush()
+                history_manager.add_transaction_change(
+                    account_id=safety_account.id,
+                    account_type="savings",
+                    change_amount=75.00,
+                    transaction_date=trans_date,
+                    transaction_id=transfer_in2.id
+                )
+
+                transfer_count += 2
+                print(f"   Vacation -> Safety Saving: $75.00 (linked pair: {group_id2[:8]}...)")
 
         db.commit()
         print(f"   Created {transfer_count} transfer transactions")
@@ -760,11 +818,15 @@ def generate_test_data():
         total_transfers = db.query(Transaction).filter(
             Transaction.transaction_type == TransactionType.SAVING.value
         ).count()
+        linked_transfers = db.query(Transaction).filter(
+            Transaction.transfer_group_id != None
+        ).count()
 
         print(f"\nTransaction Counts:")
         print(f"   Normal spending: {total_spending_count}")
         print(f"   Abnormal spending (excluded from analytics): {total_abnormal}")
         print(f"   Transfers (type=saving): {total_transfers}")
+        print(f"   Linked transfer pairs: {linked_transfers // 2} pairs ({linked_transfers} transactions)")
 
         print("\nReady to test! Run main.py to see the app with test data.")
 

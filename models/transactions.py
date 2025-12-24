@@ -47,6 +47,15 @@ class Transaction(Base):
     account_id = Column(Integer, ForeignKey("accounts.id"))  # For savings transactions
     account_saved_to = Column(String)  # Alternative to account_id (account name)
 
+    # === Transfer pairing field ===
+    # Links two transactions that form an Account-to-Account transfer
+    # When money moves from Account A to Account B:
+    #   - Transaction 1: withdrawal from A (negative amount)
+    #   - Transaction 2: deposit to B (positive amount)
+    # Both share the same transfer_group_id
+    # NULL for Week-to-Account or single-transaction transfers
+    transfer_group_id = Column(String(36), nullable=True, index=True)
+
     # === Timestamps ===
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
@@ -114,6 +123,11 @@ class Transaction(Base):
         elif self.account_id:
             return self.account_id
         return None
+
+    @property
+    def is_paired_transfer(self):
+        """Returns True if this transaction is part of an Account-to-Account transfer pair"""
+        return self.transfer_group_id is not None
 
     def get_change_amount_for_account(self):
         """

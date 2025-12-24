@@ -58,21 +58,40 @@
 class Transaction(Base):
     id: int
     date: Date
-    amount: float          # ⚠️ ALWAYS POSITIVE (even for bill payments!)
+    amount: float          # ⚠️ SIGNED: see Amount Sign Convention below
     description: str
     category: str
-    transaction_type: TransactionType  # ENUM: INCOME, SPENDING, BILL_PAY, SAVING, ROLLOVER, SPENDING_FROM_SAVINGS
+    transaction_type: TransactionType  # ENUM: INCOME, SPENDING, BILL_PAY, SAVING, ROLLOVER
     week_number: int       # Calendar week (1-52), NOT paycheck number
     account_id: int        # FK to savings accounts (nullable)
     bill_id: int           # FK to bills (nullable)
+    transfer_group_id: str # Links paired Account↔Account transfers (nullable)
     include_in_analytics: bool  # Filter for "normal spending only"
 ```
 
+**Amount Sign Convention:**
+- **UI Display**: Always show positive (direction shown via Movement column)
+- **User Input**: Always positive (if negative entered, take absolute value)
+- **Database Storage**: SIGNED based on transaction type:
+
+| Type     | Stored Amount | AccountHistory change_amount |
+|----------|---------------|------------------------------|
+| SAVING   | +/- (signed)  | Same as stored               |
+| BILL_PAY | + (positive)  | Inverted (negated)           |
+| SPENDING | + (positive)  | N/A                          |
+| ROLLOVER | +/- (signed)  | N/A                          |
+
+Examples:
+- Deposit into savings: `amount = +100`
+- Withdrawal from savings: `amount = -100`
+- Bill payment: `amount = +500` → AccountHistory gets `-500`
+- Transfer source: `amount = -200`
+- Transfer destination: `amount = +200`
+
 **Critical Gotchas:**
-- `amount` is **ALWAYS positive** - direction determined by `transaction_type`
 - `week_number` is **calendar week** (1-52), not bi-weekly paycheck number
 - Bill payments have `transaction_type=BILL_PAY` and `bill_id` set
-- Transfers between accounts create **2 transactions** (one negative, one positive in AccountHistory)
+- Account↔Account transfers create **2 transactions** linked by `transfer_group_id`
 
 ### AccountHistory Table
 ```python
@@ -630,17 +649,25 @@ balance = account.get_current_balance()
 
 ### Transaction Creation
 ```python
-# ❌ NEVER:
+# For BILL_PAY: amount is always positive (AccountHistory inverts it)
 transaction = Transaction(
     transaction_type=TransactionType.BILL_PAY,
-    amount=-35.00  # Wrong! Amount is always positive
+    amount=35.00  # Positive, AccountHistory gets -35.00
 )
 
-# ✅ ALWAYS:
+# For SAVING: amount sign indicates direction
 transaction = Transaction(
-    transaction_type=TransactionType.BILL_PAY,
-    amount=35.00  # Positive, direction from type + AccountHistory sign
+    transaction_type=TransactionType.SAVING,
+    amount=100.00  # Positive = deposit INTO account
 )
+transaction = Transaction(
+    transaction_type=TransactionType.SAVING,
+    amount=-100.00  # Negative = withdrawal FROM account
+)
+
+# For Account↔Account transfers: use transfer_group_id to link pair
+source_tx = Transaction(type=SAVING, amount=-100, account_id=source.id, transfer_group_id=uuid)
+dest_tx = Transaction(type=SAVING, amount=+100, account_id=dest.id, transfer_group_id=uuid)
 ```
 
 ### Week Queries

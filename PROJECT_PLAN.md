@@ -1,6 +1,6 @@
 # 🚀 BudgetApp V2 - Project Roadmap
 
-**Last Updated:** November 29, 2025
+**Last Updated:** December 22, 2025
 **Current Phase:** Phase 4 - Polish & Bug Fixes
 
 ---
@@ -626,9 +626,10 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 
 | Category | Issue | Priority | Status |
 |----------|-------|----------|--------|
-| 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | 📋 Todo |
+| 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | 🔄 In Progress |
 | 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | ✅ Complete |
-| 🐛 **Critical Bugs** | Transactions tab - Sign display incorrect | 🔴 High | 📋 Todo |
+| 🐛 **Critical Bugs** | Transactions tab - Sign display incorrect | 🔴 High | ✅ Refactored |
+| ✨ **Refactoring** | Transactions tab - Sub-tab restructure | 🔴 High | ✅ Complete |
 | 🐛 **Critical Bugs** | Scratch Pad - Refresh removes formatting | 🔴 High | 📋 Todo |
 | 🐛 **Display Issues** | Week tab - Starting/ending amounts display same | 🟡 Medium | 📋 Todo |
 | 🎨 **Theme System** | Theme colors/fonts not updating consistently | 🟡 Medium | 📋 Todo |
@@ -649,65 +650,90 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 <summary><h3>🐛 Critical Bug Fixes</h3></summary>
 
 #### 🔴 **Bug 4.1: Transactions Tab - Editing Not Persisting**
-**Status:** 📋 Todo | **Priority:** 🔴 High
+**Status:** 🔄 In Progress | **Priority:** 🔴 High
 
 **Issue:**
 - Edits to transactions not always saving
-- Likely only implemented for one sub-tab, forgot to apply to all 4
-- Slow performance making it hard to test
+- Need to implement save logic for all 4 sub-tabs
 
-**Root Cause:**
-- Originally erred on side of locking transactions to avoid breaking data
-- Need to review save logic across all 4 sub-tabs (Bills, Savings, Paycheck, Spending)
+**Progress (December 2024):**
+- ✅ Sub-tabs restructured: Bills+Savings merged → Accounts, Transfers tab added
+- ✅ All 4 tabs now query Transaction table directly (consistent pattern)
+- ✅ Transaction IDs tracked for each row (ready for save logic)
+- ✅ Transfers tab stores tuple `(source_id, dest_id)` for paired transactions
+- ✅ Info button added with field descriptions for each sub-tab
+- 📋 Next: Implement save handlers for each sub-tab
 
-**Expected Behavior:**
-- Since this is an admin/power-user tool, give warnings but allow more edits
-- Users should be able to edit most fields (with appropriate warnings for risky changes)
-- Save button should persist ALL changes across all 4 sub-tabs
-
-**Next Steps:**
-1. Test each sub-tab's save functionality individually
-2. Review locking logic - which fields should truly be locked vs. just warned?
-3. Add performance optimization if needed (see Bug 4.2)
-4. Add better error messages/validation feedback
-
-**Files to Check:**
-- `views/transactions_view.py` - Save logic for all 4 sub-tabs
-- `views/transactions_table_widget.py` - Edit tracking
+**See:** `TRANSACTIONS_TAB_ROADMAP.md` for detailed editing rules and implementation steps
 
 ---
 
-#### 🔴 **Bug 4.2: Transactions Tab - Sign Display Incorrect**
-**Status:** 📋 Todo | **Priority:** 🔴 High
+#### 🔴 **Bug 4.2: Transactions Tab - Sign Display**
+**Status:** ✅ Refactored (December 2024) | **Priority:** 🔴 High
 
-**Issue:**
-- Negative spending (e.g., -$1805.40) displays as POSITIVE in Transactions tab table
-- Sign convention appears to be "cleaned up" for user-friendliness
-- But Transactions tab is an admin/power-user tool - should show RAW data
+**Original Issue:**
+- Sign display was confusing - sometimes showing raw values, sometimes absolute
 
-**Example:**
-- Database: `Transaction.amount = -1805.40`
-- Transactions tab displays: `$1805.40` (missing the negative sign!)
+**Resolution - Intentional UX Design:**
+Rather than showing raw database signs (which confused users), we implemented a **Movement column** system:
 
-**Root Cause:**
-- Likely using `abs()` or assuming all amounts should display positive
-- May be trying to infer direction from transaction type instead of showing actual value
+| Tab | Amount Display | Direction Indicator |
+|-----|----------------|---------------------|
+| Accounts | Always positive | Movement column: Deposit/Withdrawal/Payment |
+| Paycheck | Always positive | N/A (always income) |
+| Spending | Always positive | N/A (type indicates direction) |
+| Transfers | Always positive | From/To columns show direction |
 
-**Expected Behavior:**
-- Transactions tab should show data EXACTLY as stored in database
-- `-$1805.40` should display as `-$1805.40` (not `$1805.40`)
-- This is an admin tool, not user-facing - accuracy > prettiness
-- Signs matter for debugging and data inspection
+**Movement Types (Accounts Tab):**
+- **Deposit**: Money going INTO account from week (was positive amount)
+- **Withdrawal**: Money going FROM account TO week (was negative amount)
+- **Payment**: Bill payment leaving budget entirely (type=bill_pay)
 
-**Next Steps:**
-1. Check all 4 sub-tabs (Bills, Savings, Paycheck, Spending) for sign handling
-2. Remove any `abs()` calls or sign normalization in display logic
-3. Show raw `Transaction.amount` and `AccountHistory.change_amount` values
-4. Add color coding if needed (red for negative, green for positive) but KEEP the sign
+**Rationale:**
+- User-friendly: No confusion about what negative/positive means
+- Clear direction: Movement/From/To columns explicitly show money flow
+- Consistent: All amounts positive, direction shown via dedicated column
 
-**Files to Check:**
-- `views/transactions_view.py` - Display logic for all 4 tables
-- `views/transactions_table_widget.py` - Amount formatting
+**Files Modified:**
+- `views/transactions_view.py` - All 4 `load_*_data()` methods updated
+
+---
+
+#### ✨ **Refactoring 4.2.1: Transactions Tab Sub-Tab Restructure**
+**Status:** ✅ Complete (December 2024) | **Priority:** 🔴 High
+
+**Changes Made:**
+
+**1. Sub-Tab Reorganization:**
+- OLD: Bills | Savings | Paycheck | Spending
+- NEW: Accounts | Paycheck | Spending | Transfers
+
+**2. Accounts Tab (merged Bills + Savings):**
+- Shows all Week↔Account transactions
+- New columns: `[ID][Locked][Date][Account][Movement][Amount][Type][Week][Manual Notes][Auto Notes]`
+- Movement column replaces sign display (Deposit/Withdrawal/Payment)
+- Excludes Account↔Account transfers (those go to Transfers tab)
+- Now queries Transaction directly (was using AccountHistory indirectly)
+
+**3. Transfers Tab (new):**
+- Shows ONLY Account↔Account transfers (where `transfer_group_id` is set)
+- Shows ONE row per transfer pair (not both sides)
+- Columns: `[ID][Date][Amount][From][To][Week][Locked][Manual Notes][Auto Notes]`
+- ID shows "source_id/dest_id" format
+- Stores tuple of both IDs for save logic
+
+**4. Spending Tab:**
+- Removed "Week Pos" column
+- Rollovers now show "First"/"Second" in Category column instead of "Rollover"
+- New column order: `[ID][Date][Amount][Category][Type][Abnormal][Paycheck][Week][Locked][Manual Notes][Auto Notes]`
+
+**5. All Tabs:**
+- Header changed from "🔒" to "Locked" (emoji stays in cell values)
+- All tabs now query Transaction table directly (consistent pattern)
+
+**Database Support:**
+- `transfer_group_id` field added to Transaction model (UUID, links paired transfers)
+- Migration script: `migrations/add_transfer_group_id.py`
 
 ---
 
@@ -1397,6 +1423,88 @@ class TransactionType(Enum):
 - Only implement if polish phase has time
 
 **Decision:** Defer until after critical bugs fixed
+
+---
+
+</details>
+
+---
+
+---
+
+<details>
+<summary><h3>🗄️ Database Migrations</h3></summary>
+
+#### **Migration: add_transfer_group_id (December 2024)**
+
+**Purpose:** Links paired Account-to-Account transfer transactions so they can be edited together.
+
+**Background:**
+- Week ↔ Account transfers: Single transaction (no linking needed)
+- Account ↔ Account transfers: Two transactions created (need linking)
+- `transfer_group_id` field stores a UUID that both transactions share
+
+**Files Added:**
+- `migrations/backup_database.py` - Database backup utility
+- `migrations/add_transfer_group_id.py` - Migration script
+
+**Model Changes:**
+- `models/transactions.py` - Added `transfer_group_id` column (String(36), nullable, indexed)
+- Added `is_paired_transfer` property
+
+**Running the Migration (Machine A / Production):**
+
+```bash
+# 1. Pull latest code from GitHub
+git pull
+
+# 2. Run the migration script
+python migrations/add_transfer_group_id.py
+```
+
+**What the Migration Does:**
+1. Creates a timestamped backup in `backups/` folder
+2. Adds `transfer_group_id` column to transactions table (safe - doesn't affect existing data)
+3. Scans for existing Account-to-Account transfer pairs and links them:
+   - Same date
+   - Same absolute amount
+   - Opposite signs (one positive, one negative)
+   - Different account_ids
+4. Verifies the migration succeeded
+
+**Sample Output:**
+```
+============================================================
+Migration: Add transfer_group_id to transactions table
+============================================================
+
+Step 1: Creating backup...
+[OK] Database backed up to: backups/budget_app_backup_20241220_123456.db
+
+Step 2: Adding transfer_group_id column...
+[OK] Successfully added transfer_group_id field
+
+Step 3: Linking existing transfer pairs...
+   Found 8 saving transactions with account_id
+   [LINKED] IDs 45 <-> 46: $200.00 (group: a1b2c3d4...)
+   [LINKED] IDs 52 <-> 53: $75.00 (group: e5f6g7h8...)
+
+   Pairs found: 2
+   Pairs linked: 2
+
+Step 4: Verifying migration...
+[OK] transfer_group_id column exists
+[OK] 4 transactions linked in 2 groups
+
+============================================================
+Migration complete!
+============================================================
+```
+
+**Rollback (if needed):**
+```bash
+python migrations/backup_database.py restore backups/budget_app_backup_YYYYMMDD_HHMMSS.db
+```
 
 ---
 

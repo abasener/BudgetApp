@@ -39,6 +39,9 @@ class TransactionTableWidget(QTableWidget):
         # Track special columns
         self.lock_column_index = -1  # Index of lock/editable column
         self.abnormal_column_index = -1  # Index of abnormal checkbox column
+        self.non_editable_columns = set()  # Set of column indices that are never editable
+        self.dropdown_columns = {}  # Map column index -> list of allowed values (fixed options)
+        self.editable_dropdown_columns = {}  # Map column index -> list of suggested values (user can type new)
 
         self.init_table()
 
@@ -66,16 +69,24 @@ class TransactionTableWidget(QTableWidget):
         # Track edits
         self.itemChanged.connect(self.on_item_changed)
 
-    def set_columns(self, column_headers):
+    def set_columns(self, column_headers, non_editable_columns=None, dropdown_columns=None, editable_dropdown_columns=None):
         """
         Set table columns
 
         Args:
             column_headers: List of column header names
+            non_editable_columns: Set of column names that should never be editable
+            dropdown_columns: Dict mapping column name -> list of allowed values (fixed, non-editable)
+            editable_dropdown_columns: Dict mapping column name -> list of suggested values (user can type new)
         """
         self.setColumnCount(len(column_headers))
 
-        # Replace 🔒 with "Editable" in headers
+        # Reset tracking
+        self.non_editable_columns = set()
+        self.dropdown_columns = {}
+        self.editable_dropdown_columns = {}
+
+        # Replace 🔒 with "Editable" in headers and track special columns
         display_headers = []
         for i, header in enumerate(column_headers):
             if header == "🔒":
@@ -86,6 +97,18 @@ class TransactionTableWidget(QTableWidget):
                 self.abnormal_column_index = i
             else:
                 display_headers.append(header)
+
+            # Track non-editable columns by index
+            if non_editable_columns and header in non_editable_columns:
+                self.non_editable_columns.add(i)
+
+            # Track dropdown columns by index (fixed options)
+            if dropdown_columns and header in dropdown_columns:
+                self.dropdown_columns[i] = dropdown_columns[header]
+
+            # Track editable dropdown columns by index (user can type new values)
+            if editable_dropdown_columns and header in editable_dropdown_columns:
+                self.editable_dropdown_columns[i] = editable_dropdown_columns[header]
 
         self.setHorizontalHeaderLabels(display_headers)
 
@@ -177,18 +200,55 @@ class TransactionTableWidget(QTableWidget):
                     checkbox_layout.addWidget(checkbox)
                     self.setCellWidget(display_row_idx, col_idx, checkbox_widget)
 
+                elif col_idx in self.dropdown_columns and not is_locked and not is_deleted:
+                    # Fixed dropdown column - use non-editable combobox
+                    from PyQt6.QtWidgets import QComboBox
+                    combo = QComboBox()
+                    combo.addItems(self.dropdown_columns[col_idx])
+                    # Set current value
+                    current_text = str(value)
+                    index = combo.findText(current_text)
+                    if index >= 0:
+                        combo.setCurrentIndex(index)
+                    else:
+                        combo.setCurrentText(current_text)
+                    # Store data row index for change tracking
+                    combo.setProperty("data_row_idx", data_row_idx)
+                    combo.currentTextChanged.connect(lambda text, r=data_row_idx: self._on_dropdown_changed(r))
+                    self.setCellWidget(display_row_idx, col_idx, combo)
+
+                elif col_idx in self.editable_dropdown_columns and not is_locked and not is_deleted:
+                    # Editable dropdown column - user can type new values or select from suggestions
+                    from PyQt6.QtWidgets import QComboBox
+                    combo = QComboBox()
+                    combo.setEditable(True)  # Allow typing custom values
+                    combo.addItems(self.editable_dropdown_columns[col_idx])
+                    # Set current value
+                    current_text = str(value)
+                    combo.setCurrentText(current_text)
+                    # Store data row index for change tracking
+                    combo.setProperty("data_row_idx", data_row_idx)
+                    combo.currentTextChanged.connect(lambda text, r=data_row_idx: self._on_dropdown_changed(r))
+                    # Also track when user finishes editing (for typed values)
+                    combo.lineEdit().editingFinished.connect(lambda r=data_row_idx: self._on_dropdown_changed(r))
+                    self.setCellWidget(display_row_idx, col_idx, combo)
+
                 else:
                     # Regular column
                     item = QTableWidgetItem(str(value))
                     item.setData(Qt.ItemDataRole.UserRole, data_row_idx)
 
-                    if is_locked:
-                        # Locked rows: grayed out and non-editable
+                    # Check if column is non-editable
+                    is_non_editable_column = col_idx in self.non_editable_columns
+
+                    if is_locked or is_non_editable_column:
+                        # Locked rows or non-editable columns: grayed out and non-editable
                         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                        item.setForeground(QColor(colors['text_secondary']))  # Use theme secondary text
-                        font = item.font()
-                        font.setItalic(True)
-                        item.setFont(font)
+                        if is_locked:
+                            item.setForeground(QColor(colors['text_secondary']))  # Use theme secondary text
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
 
                     if is_deleted:
                         # Deleted rows: red text
@@ -357,11 +417,27 @@ class TransactionTableWidget(QTableWidget):
                 if widget:
                     checkbox = widget.findChild(QCheckBox)
                     row_data[header] = checkbox.isChecked() if checkbox else False
+            elif col_idx in self.dropdown_columns or col_idx in self.editable_dropdown_columns:
+                # Get combobox value (works for both fixed and editable dropdowns)
+                from PyQt6.QtWidgets import QComboBox
+                widget = self.cellWidget(display_row, col_idx)
+                if widget and isinstance(widget, QComboBox):
+                    row_data[header] = widget.currentText()
+                else:
+                    # Fallback to item if dropdown not shown (locked row)
+                    item = self.item(display_row, col_idx)
+                    row_data[header] = item.text() if item else ""
             else:
                 item = self.item(display_row, col_idx)
                 row_data[header] = item.text() if item else ""
 
         return row_data
+
+    def _on_dropdown_changed(self, data_row_idx):
+        """Handle when a dropdown value is changed"""
+        if data_row_idx not in self.locked_rows and data_row_idx not in self.deleted_rows:
+            self.edited_rows.add(data_row_idx)
+            self.row_edited.emit(data_row_idx)
 
     def on_item_changed(self, item):
         """Handle when an item is edited"""

@@ -37,7 +37,8 @@ FIELDS:
   • id (int, PK)
   • transaction_type (str) - Values: "spending", "bill_pay", "saving", "income", "rollover"
   • week_number (int, FK → weeks.week_number) - Calendar week 1-52
-  • amount (float) - ⚠️ ALWAYS POSITIVE (even for bill payments!)
+  • amount (float) - ⚠️ SIGNED: see Amount Sign Convention below
+  • transfer_group_id (str, nullable) - Links paired Account↔Account transfers
   • date (Date) - Transaction date
   • description (str, nullable) - User description
   • category (str, nullable) - Spending category (e.g., "Groceries", "Gas")
@@ -61,8 +62,27 @@ HELPER PROPERTIES:
   • account_type (str) - "bill" or "savings"
   • get_change_amount_for_account() - Returns signed amount for AccountHistory
 
+AMOUNT SIGN CONVENTION:
+  UI displays all amounts as POSITIVE (direction shown via Movement column)
+  User enters POSITIVE values (negative input → absolute value taken)
+  Database stores SIGNED amounts based on transaction type:
+
+  | Type       | Stored Amount | get_change_amount_for_account() |
+  |------------|---------------|----------------------------------|
+  | SAVING     | +/- (signed)  | Same as stored (+ in, - out)     |
+  | BILL_PAY   | + (positive)  | Inverted (- money out)           |
+  | SPENDING   | + (positive)  | N/A (no account)                 |
+  | ROLLOVER   | +/- (signed)  | N/A (week transfer)              |
+
+  Examples:
+  • Deposit into savings: amount = +$100
+  • Withdrawal from savings: amount = -$100
+  • Bill payment: amount = +$500 → AccountHistory gets -$500
+  • Transfer source (Account→Account): amount = -$200
+  • Transfer destination: amount = +$200
+  • Rollover deficit: amount = -$50 (week overspent)
+
 CRITICAL NOTES:
-  ⚠️ amount is ALWAYS positive - direction determined by transaction_type
   ⚠️ week_number is calendar week (1-52), NOT paycheck number
   ⚠️ Bill payments: type=BILL_PAY, amount=positive, AccountHistory gets negative
 

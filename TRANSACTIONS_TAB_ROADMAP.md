@@ -1,209 +1,231 @@
-# Transactions Tab Refactor Roadmap
+# Transactions Tab Roadmap
 
-## !!! VERY IMPORTANT - READ FIRST !!!
+## Current Status: Save Logic Implemented
 
-**WE ARE NOT ADJUSTING ANY BACKEND OR DATABASE CODE**
-
-We are ONLY adjusting the code for the Transactions tab to:
-1. Read data from the existing database
-2. Interpret that data correctly
-3. Display it in a user-friendly way
-
-The backend (models, services, paycheck_processor, etc.) is complex and interconnected.
-What might seem like a helpful change could break the entire budget system.
-
-**FILES WE CAN MODIFY:**
-- `views/transactions_view.py` - Main transactions tab
-- `views/transactions_table_widget.py` - Table widget component
-
-**FILES WE CANNOT MODIFY:**
-- `models/*.py` - Database models
-- `services/*.py` - Business logic
-- Any other backend files
+**Last Updated:** December 23, 2025
 
 ---
 
-## DELETE THIS FILE WHEN DONE
+## Completed Work
 
-This is a temporary working document. Delete when the Transactions tab refactor is complete.
+### Phase 1: Display Refactoring (COMPLETE)
 
----
+- [x] Sub-tabs restructured: Bills+Savings merged into Accounts, new Transfers tab added
+- [x] All 4 tabs query Transaction table directly (consistent pattern)
+- [x] Transaction IDs tracked for each row
+- [x] Transfers tab stores tuple `(source_id, dest_id)` for paired transactions
+- [x] Info button added with field descriptions for each sub-tab
+- [x] Accounts tab loads from Transaction directly (was using AccountHistory indirectly)
+- [x] `transfer_group_id` field links Account-to-Account transfer pairs
 
-## Current Understanding
+### Phase 2: Save Logic (COMPLETE)
 
-### How Transfers Work (from transfer_dialog.py)
+- [x] Accounts tab save handler with Movement -> amount sign conversion
+- [x] Spending tab save handler with category creation support
+- [x] Paycheck tab save handler with date/amount recalculation
+- [x] Transfers tab save handler with From/To validation
+- [x] Partial field saves (valid fields save even if one field fails)
+- [x] Non-editable columns enforced in UI
+- [x] Fixed dropdown for Movement (Deposit/Withdrawal/Payment)
+- [x] Editable dropdowns for Account, Category, From, To fields
 
-**Week <-> Account/Bill Transfer (Single Transaction):**
-- Creates ONE transaction with `type=saving`
-- If Week -> Account: `amount = positive`, `account_id = destination`
-- If Account -> Week: `amount = negative`, `account_id = source`
-- The `week_number` field links to the week involved
+### Current Sub-Tab Structure
 
-**Account <-> Account Transfer (Two Transactions):**
-- Creates TWO transactions, both `type=saving`
-- Transaction 1: `amount = negative` (withdrawal from source)
-- Transaction 2: `amount = positive` (deposit to destination)
-- Both have same `week_number` (current week), same date
-- Notes reference each other: "Transferring $X to Y" / "Transferring $X from Y"
+| Tab | Shows | Filter Logic |
+|-----|-------|--------------|
+| **Accounts** | Week <-> Account transfers, bill payments | `account_id OR bill_id` is set, `transfer_group_id` is NULL |
+| **Paycheck** | Paychecks | `type = INCOME` |
+| **Spending** | Regular spending, rollovers | `type = SPENDING or ROLLOVER` |
+| **Transfers** | Account <-> Account transfers | `transfer_group_id` is set (one row per pair) |
 
-### Key Insight: Amount Signs in Database
-- `Transaction.amount` is NOT always positive!
-- For `saving` type: positive = INTO account, negative = OUT OF account
-- For `bill_pay` type: always positive (AccountHistory converts to negative)
-- For `spending` type: always positive
-- For `income` type: always positive
-- For `rollover` type: always positive
+### Column Structure
 
-### AccountHistory vs Transaction
-- `AccountHistory.change_amount` is SIGNED (reflects actual balance change)
-- Bills/Savings tabs currently show AccountHistory, which is why signs appear correct
-- Spending tab shows Transaction.amount directly
+**Accounts:** `[ID][Locked][Date][Account][Movement][Amount][Type][Week][Manual Notes][Auto Notes]`
 
----
+**Paycheck:** `[ID][Earned Date][Start Date][Amount][Type][Week][Locked][Manual Notes][Auto Notes]`
 
-## Decisions Made
+**Spending:** `[ID][Date][Amount][Category][Type][Abnormal][Paycheck][Week][Locked][Manual Notes][Auto Notes]`
 
-### 1. Locking Logic
-Only lock these transaction types:
-- `type = rollover` (all)
-- `type = saving` WHERE description contains "end-of-period" (auto-rollover to savings)
-
-Everything else is editable.
-
-### 2. New Tab Structure
-
-| Sub-tab | Shows | Source |
-|---------|-------|--------|
-| **Accounts** | All bill + savings history merged | AccountHistory entries |
-| **Paycheck** | Income transactions | Transactions where type=income |
-| **Spending** | Spending + Rollovers | Transactions where type=spending OR type=rollover |
-| **Transfers** | All transfers (Week<->Account, Account<->Account) | Transactions where type=saving |
-
-Note: Rollovers stay in Spending tab (user wants to see them together).
-
-### 3. Sign Display
-**Phase 1 (Current Task):** Show all amounts as positive (database raw values)
-- This keeps things simple and truthful
-- User can see transaction_type to understand direction
-- We can add smart signs later if needed
-
-### 4. Columns to Add
-- `ID` - Transaction ID (for debugging, may remove later)
-- `Type` - Transaction type (spending, saving, income, etc.)
-- `Week` - Week number (always has a value)
-
-### 5. Transfers Tab Display
-Use From/To columns with positive amount:
-- `Amount`: Always positive (e.g., "$100.00")
-- `From`: Source ("Week 5", "Safety Saving", "Rent")
-- `To`: Destination ("Vacation", "Week 7", "Safety Saving")
-
-For Account<->Account transfers (2 transactions), we need to:
-- Detect pairs by matching: same date, same absolute amount, opposite signs, notes reference each other
-- Display as single row with From/To filled in
-- OR display both rows but make it clear they're linked
+**Transfers:** `[ID][Date][Amount][From][To][Week][Locked][Manual Notes][Auto Notes]`
 
 ---
 
-## Implementation Steps
+## Implementation Details
 
-### Step 1: Fix Locking Logic ✅ DONE
-File: `transactions_view.py`
-Function: `is_transaction_locked()`
+### Key Editing Principles
 
-Updated to only lock:
-- `type=rollover` (all)
-- `type=saving` with "end-of-period" in description
+1. **Row-level locking**: If a row is locked (shows 🔒), NO fields in that row can be edited. Lock overrides everything.
+2. **Column consistency**: All non-locked rows treat each column the same way (Amount in row 1 behaves like Amount in row 6).
+3. **Type is derived**: Type auto-updates based on account type (bill -> bill_pay, savings -> saving).
+4. **Admin-level access**: Major changes allowed (swapping accounts, changing amounts) as long as they're safe.
+5. **Partial saves**: If one field fails validation, other valid fields still save.
 
-### Step 2: Add New Columns ✅ DONE
-Added to all tabs:
-- "ID" column (transaction.id)
-- "Type" column (transaction.transaction_type)
-- "Week" column (transaction.week_number)
+### Editable Fields by Tab (non-locked rows only)
 
-### Step 3: Restructure Tabs ✅ DONE
-- Renamed "Bills" tab to "Accounts"
-- Merged Bills + Savings into `load_accounts_data()`
-- Added "Acct Type" column (Bill/Savings)
-- Removed old `load_bills_data()` and `load_savings_data()`
+| Tab | Editable | Auto-calculated (cannot edit directly) |
+|-----|----------|----------------------------------------|
+| **Accounts** | Date, Account, Movement, Amount, Manual Notes | ID, Locked, Type, Week, Auto Notes |
+| **Paycheck** | Earned Date, Start Date, Amount, Manual Notes | ID, Locked, Type, Week, Auto Notes |
+| **Spending** | Date, Amount, Category, Abnormal, Manual Notes | ID, Locked, Type, Paycheck, Week, Auto Notes |
+| **Transfers** | Date, Amount, From, To, Manual Notes | ID, Locked, Week, Auto Notes |
 
-### Step 4: Create Transfers Tab ✅ DONE
-- Created `load_transfers_data()` function
-- Filters `type=saving` excluding "end-of-period"
-- Shows From/To columns with positive amounts
-- Determines direction from amount sign
+### Amount Sign Convention
 
-### Step 5: Fix Save Logic
-TODO: When editing transactions:
-1. Save the updated values
-2. Call `paycheck_processor.recalculate_period_rollovers(week_number)`
-3. Refresh the view
+**UI Layer (Display + Input):**
+- All amounts DISPLAYED as **positive** to the user
+- Movement column (Deposit/Withdrawal/Payment) or From/To indicates direction
+- User enters **positive** values only
+- If user enters negative, code takes `abs()` of the value
 
-### Step 6: Handle Paycheck Edits
-TODO: Special case for income transactions:
-1. Update the transaction amount
-2. Recalculate percentage-based auto-saves (if any)
-3. Recalculate week allocations
-4. Call rollover recalculation
+**Database Layer (Storage):**
+- Amount can be **positive or negative** depending on transaction type
+- Sign is determined by Movement type, not user input
+
+| Scenario | Type | User Enters | DB Stores | get_change_amount_for_account() |
+|----------|------|-------------|-----------|----------------------------------|
+| Deposit INTO savings | SAVING | $100 | +$100 | +$100 (money into account) |
+| Withdrawal FROM savings | SAVING | $100 | -$100 | -$100 (money out of account) |
+| Bill payment | BILL_PAY | $500 | +$500 | -$500 (inverted - money out) |
+| Transfer source | SAVING | $200 | -$200 | -$200 (money out) |
+| Transfer destination | SAVING | $200 | +$200 | +$200 (money in) |
+| Rollover deficit | ROLLOVER | N/A | -$50 | N/A (week overspent) |
+
+### Validation Rules
+
+| Field | Validation | Error Handling |
+|-------|------------|----------------|
+| **Amount** | Always display positive, sign from Movement/From-To | Warning in testing mode if user enters negative |
+| **Account/From/To** | Must match existing bill or savings account name | Error if not found |
+| **Category** | Can be new value (creates new category) | Always valid |
+| **Date** | Valid MM/DD/YYYY format | Error if invalid format |
+| **Movement** | Must be: Deposit, Withdrawal, or Payment | Error if invalid |
+| **From/To same** | From and To cannot be the same account | Error on both fields |
+
+### Dropdown Types
+
+| Field | Dropdown Type | Behavior |
+|-------|---------------|----------|
+| **Movement** | Fixed | Only 3 options: Deposit, Withdrawal, Payment |
+| **Account** | Editable | Shows existing accounts, can type new (but must exist on save) |
+| **Category** | Editable | Shows existing categories, can type new (auto-creates) |
+| **From/To** | Editable | Shows existing accounts, can type new (but must exist on save) |
 
 ---
 
-## Concerns / Unknowns
+## Special Handling by Tab
 
-### 1. Account-to-Account Transfer Detection
-How to reliably detect that two transactions are a pair?
-- Same date
-- Same absolute amount
-- Opposite signs
-- Both are type=saving
-- Notes reference each other ("to X" / "from X")
+### Accounts Tab (`_validate_accounts_row`)
 
-May need to show both rows with a visual indicator they're linked.
+**Movement determines database values:**
+- **Deposit**: `amount = +value`, `type = SAVING`
+- **Withdrawal**: `amount = -value`, `type = SAVING`
+- **Payment**: `amount = +value`, `type = BILL_PAY`
 
-### 2. Paycheck Edit Consequences
-When editing income amount:
-- Do we need to recalculate week.running_total? (This is set by paycheck processor)
-- Do we need to recalculate auto-save amounts?
-- Current plan: Call existing recalculation functions and hope they handle it
+**Account lookup:**
+- Checks savings accounts first, then bills
+- Sets `account_id` OR `bill_id` (not both)
 
-### 3. Rollover Duplication Check
-Need to verify rollovers don't appear in Accounts tab.
-- Accounts tab shows AccountHistory entries
-- Week 2 -> Savings rollovers create AccountHistory entries for the savings account
-- These SHOULD appear in Accounts tab (they're real deposits to the account)
-- They should NOT appear in Transfers tab (they're not user-created transfers)
+### Spending Tab (`_validate_spending_row`)
 
-How to distinguish:
-- Transfers: `type=saving`, no "end-of-period" in description
-- Auto-rollovers: `type=saving`, "end-of-period" in description
+- Category can be any string (creates new if doesn't exist)
+- Abnormal checkbox: `include_in_analytics = NOT checked`
+- Amount always stored positive (spending is always an outflow)
+
+### Paycheck Tab (`_validate_paycheck_row` + `_apply_paycheck_recalculation`)
+
+**Simple edits:**
+- Earned Date: Just updates transaction date, no recalculation
+
+**Complex edits (Start Date or Amount changed):**
+
+1. **Validate Start Date is Monday**
+2. **Check for week overlap** with other paychecks
+3. **Check for orphaned spending** - reject if any spending transactions would fall outside new date range
+4. **Delete auto-generated transactions:**
+   - Rollovers (type = ROLLOVER)
+   - Auto-saves with descriptions containing "allocation for", "auto-", "end-of-period"
+5. **Update week dates** for both weeks of the paycheck period
+6. **Trigger rollover recalculation** via `transaction_manager.trigger_rollover_recalculation()`
+7. **Recalculate percentage-based auto-saves** (if Amount changed) - e.g., if tax is 30% of income, recalculate tax allocation
+   - ✅ IMPLEMENTED: `_recalculate_percentage_auto_saves()` finds transactions with "% of paycheck" in description
+   - Extracts percentage from description, recalculates: `new_amount = percentage * new_paycheck_amount`
+   - Fixed-amount auto-saves are unchanged (only percentage-based ones are updated)
+
+**TRICKY BITS:**
+- Must check BOTH week 1 and week 2 for overlaps
+- Orphan check compares spending transaction dates against NEW date range
+- Auto-save detection uses description pattern matching (may miss edge cases)
+- Percentage-based auto-saves identified by "% of paycheck" in description
+
+### Transfers Tab (`_validate_transfers_row`)
+
+- **From/To must be different accounts** - error if same
+- Updates TWO transactions for each row:
+  - Source: negative amount, From account
+  - Destination: positive amount, To account
+- Both transactions share the same `transfer_group_id`
+
+---
+
+## Files Modified
+
+**views/transactions_view.py:**
+- `on_save_clicked()` - Routes to tab-specific handlers
+- `_validate_accounts_row()` - Movement -> sign conversion
+- `_validate_spending_row()` - Category can be new
+- `_validate_paycheck_row()` - Marks for recalculation
+- `_apply_paycheck_recalculation()` - Complex paycheck update logic
+- `_validate_transfers_row()` - From/To same-account check
+- `_build_transfer_source_updates()` - Negative amount for source
+- `_build_transfer_dest_updates()` - Positive amount for dest
+- `load_accounts_data()` - Editable dropdown for Account
+- `load_spending_data()` - Editable dropdown for Category
+- `load_transfers_data()` - Editable dropdowns for From/To
+
+**views/transactions_table_widget.py:**
+- `editable_dropdown_columns` - New tracking dict
+- `set_columns()` - Accepts editable_dropdown_columns parameter
+- `refresh_display()` - Renders editable comboboxes
+- `get_row_data()` - Reads from editable comboboxes
 
 ---
 
 ## Testing Checklist
 
-After implementation:
-- [ ] Bills/Accounts tab shows all account history entries
-- [ ] Paycheck tab shows all income, is editable
-- [ ] Spending tab shows spending + rollovers, rollovers locked
-- [ ] Transfers tab shows Week<->Account and Account<->Account transfers
-- [ ] Editing spending triggers rollover recalculation
-- [ ] Editing income triggers proper recalculation
-- [ ] No duplicate entries across tabs
-- [ ] All amounts display as positive (Phase 1)
-- [ ] ID, Type, Week columns visible
+### Accounts Tab
+- [ ] Edit Date -> Week auto-updates
+- [ ] Edit Account -> Type auto-updates, validates name exists
+- [ ] Edit Movement -> Amount sign updates correctly (Deposit=+, Withdrawal=-, Payment=+/BILL_PAY)
+- [ ] Edit Amount -> Positive display, correct sign in DB based on Movement
+- [ ] Invalid account name shows error, other fields still save
+- [ ] Editable dropdown shows existing accounts
 
----
+### Spending Tab
+- [ ] Edit Date -> Week auto-updates
+- [ ] Edit Amount -> Stored as positive
+- [ ] Edit Category -> New category creates automatically
+- [ ] Abnormal checkbox toggles `include_in_analytics`
+- [ ] Locked rows (rollovers) cannot be edited
+- [ ] Editable dropdown shows existing categories
 
-## File Locations
+### Paycheck Tab
+- [ ] Edit Earned Date -> Just updates date, no recalculation
+- [ ] Edit Amount -> Triggers rollover recalculation
+- [ ] Edit Start Date -> Must be Monday (error if not)
+- [ ] Edit Start Date -> Validates no overlap with other paychecks
+- [ ] Edit Start Date -> Rejects if would orphan spending transactions
+- [ ] Edit Start Date -> Deletes auto-saves and rollovers, recreates them
 
-Main file to edit:
-`c:\Users\arrow\OneDrive\Documents\GitHub\BudgetApp\views\transactions_view.py`
+### Transfers Tab
+- [ ] Edit updates BOTH linked transactions
+- [ ] Edit Amount -> Source gets negative, dest gets positive
+- [ ] Edit From/To -> Must be different accounts (error if same)
+- [ ] From/To validation errors shown in testing mode only
+- [ ] Editable dropdowns show existing accounts
 
-Table widget (may need minor updates):
-`c:\Users\arrow\OneDrive\Documents\GitHub\BudgetApp\views\transactions_table_widget.py`
-
-Reference files (DO NOT EDIT):
-- `models/transactions.py` - Transaction model
-- `models/account_history.py` - AccountHistory model
-- `services/paycheck_processor.py` - Rollover logic
-- `views/dialogs/transfer_dialog.py` - How transfers are created
+### General
+- [ ] Locked rows cannot be edited (UI enforces)
+- [ ] Delete works for non-locked rows
+- [ ] Partial saves: invalid field errors don't block valid fields
+- [ ] Results dialog only shows in testing mode
+- [ ] Refresh after save shows updated data
