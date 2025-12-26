@@ -626,7 +626,7 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 
 | Category | Issue | Priority | Status |
 |----------|-------|----------|--------|
-| 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | 🔄 In Progress |
+| 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | ✅ Complete |
 | 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | ✅ Complete |
 | 🐛 **Critical Bugs** | Transactions tab - Sign display incorrect | 🔴 High | ✅ Refactored |
 | ✨ **Refactoring** | Transactions tab - Sub-tab restructure | 🔴 High | ✅ Complete |
@@ -650,21 +650,16 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 <summary><h3>🐛 Critical Bug Fixes</h3></summary>
 
 #### 🔴 **Bug 4.1: Transactions Tab - Editing Not Persisting**
-**Status:** 🔄 In Progress | **Priority:** 🔴 High
+**Status:** ✅ Complete (December 2024) | **Priority:** 🔴 High
 
-**Issue:**
-- Edits to transactions not always saving
-- Need to implement save logic for all 4 sub-tabs
-
-**Progress (December 2024):**
+**Resolution:**
 - ✅ Sub-tabs restructured: Bills+Savings merged → Accounts, Transfers tab added
-- ✅ All 4 tabs now query Transaction table directly (consistent pattern)
-- ✅ Transaction IDs tracked for each row (ready for save logic)
-- ✅ Transfers tab stores tuple `(source_id, dest_id)` for paired transactions
-- ✅ Info button added with field descriptions for each sub-tab
-- 📋 Next: Implement save handlers for each sub-tab
-
-**See:** `TRANSACTIONS_TAB_ROADMAP.md` for detailed editing rules and implementation steps
+- ✅ All 4 tabs query Transaction table directly (consistent pattern)
+- ✅ Save handlers implemented for all 4 sub-tabs (Accounts, Paycheck, Spending, Transfers)
+- ✅ Cell-level warning highlighting for unsaved edits (theme-aware)
+- ✅ Editable dropdowns for Account, Category, From/To fields
+- ✅ Fixed dropdowns for Movement (Deposit/Withdrawal/Payment)
+- ✅ Partial saves supported (valid fields save even if one fails)
 
 ---
 

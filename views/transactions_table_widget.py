@@ -31,7 +31,9 @@ class TransactionTableWidget(QTableWidget):
         self.filtered_rows = []  # Currently visible rows after filtering
         self.deleted_rows = set()  # Set of row indices marked for deletion
         self.locked_rows = set()  # Set of row indices that are locked
-        self.edited_rows = set()  # Set of row indices that have been edited
+        self.edited_rows = set()  # Set of row indices that have been edited (for get_edited_rows())
+        self.edited_cells = set()  # Set of (row_idx, col_idx) tuples for cell-level warning styling
+        self.original_values = {}  # Map (row_idx, col_idx) -> original value for change detection
         self.transaction_ids = {}  # Map row index -> transaction ID
         self.current_sort_column = 0  # Column currently sorted by
         self.current_sort_order = Qt.SortOrder.AscendingOrder  # Current sort direction
@@ -142,6 +144,8 @@ class TransactionTableWidget(QTableWidget):
         self.filtered_rows = list(range(len(rows_data)))  # Initially show all rows
         self.deleted_rows = set()
         self.edited_rows = set()
+        self.edited_cells = set()
+        self.original_values = {}  # Will be populated during refresh_display
         self.locked_rows = locked_row_indices if locked_row_indices else set()
         self.transaction_ids = transaction_ids if transaction_ids else {}
 
@@ -194,8 +198,22 @@ class TransactionTableWidget(QTableWidget):
                     checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
                     checkbox = QCheckBox()
-                    checkbox.setChecked(str(value) == "☑")
+                    original_checked = str(value) == "☑"
+                    checkbox.setChecked(original_checked)
                     checkbox.setEnabled(not is_locked and not is_deleted)  # Disable if locked/deleted
+
+                    # Store original value for change detection
+                    cell_key = (data_row_idx, col_idx)
+                    if cell_key not in self.original_values:
+                        self.original_values[cell_key] = original_checked
+
+                    # Track checkbox changes as edits (pass original value for comparison)
+                    checkbox.stateChanged.connect(lambda state, r=data_row_idx, c=col_idx: self._on_checkbox_changed(r, c))
+
+                    # Apply warning background if THIS CELL is edited (but not deleted or locked)
+                    is_cell_edited = (data_row_idx, col_idx) in self.edited_cells
+                    if is_cell_edited and not is_deleted and not is_locked:
+                        checkbox_widget.setStyleSheet(f"background-color: {colors['warning']};")
 
                     checkbox_layout.addWidget(checkbox)
                     self.setCellWidget(display_row_idx, col_idx, checkbox_widget)
@@ -212,9 +230,20 @@ class TransactionTableWidget(QTableWidget):
                         combo.setCurrentIndex(index)
                     else:
                         combo.setCurrentText(current_text)
+
+                    # Store original value for change detection
+                    cell_key = (data_row_idx, col_idx)
+                    if cell_key not in self.original_values:
+                        self.original_values[cell_key] = current_text
+
                     # Store data row index for change tracking
                     combo.setProperty("data_row_idx", data_row_idx)
-                    combo.currentTextChanged.connect(lambda text, r=data_row_idx: self._on_dropdown_changed(r))
+                    combo.setProperty("col_idx", col_idx)
+                    combo.currentTextChanged.connect(lambda text, r=data_row_idx, c=col_idx: self._on_dropdown_changed(r, c, text))
+                    # Apply warning background if THIS CELL is edited
+                    is_cell_edited = (data_row_idx, col_idx) in self.edited_cells
+                    if is_cell_edited:
+                        combo.setStyleSheet(f"QComboBox {{ background-color: {colors['warning']}; }}")
                     self.setCellWidget(display_row_idx, col_idx, combo)
 
                 elif col_idx in self.editable_dropdown_columns and not is_locked and not is_deleted:
@@ -226,11 +255,22 @@ class TransactionTableWidget(QTableWidget):
                     # Set current value
                     current_text = str(value)
                     combo.setCurrentText(current_text)
+
+                    # Store original value for change detection
+                    cell_key = (data_row_idx, col_idx)
+                    if cell_key not in self.original_values:
+                        self.original_values[cell_key] = current_text
+
                     # Store data row index for change tracking
                     combo.setProperty("data_row_idx", data_row_idx)
-                    combo.currentTextChanged.connect(lambda text, r=data_row_idx: self._on_dropdown_changed(r))
-                    # Also track when user finishes editing (for typed values)
-                    combo.lineEdit().editingFinished.connect(lambda r=data_row_idx: self._on_dropdown_changed(r))
+                    combo.setProperty("col_idx", col_idx)
+                    combo.currentTextChanged.connect(lambda text, r=data_row_idx, c=col_idx: self._on_dropdown_changed(r, c, text))
+                    # Also track when user finishes editing (for typed values) - get current text from combo
+                    combo.lineEdit().editingFinished.connect(lambda r=data_row_idx, c=col_idx, cb=combo: self._on_dropdown_changed(r, c, cb.currentText()))
+                    # Apply warning background if THIS CELL is edited
+                    is_cell_edited = (data_row_idx, col_idx) in self.edited_cells
+                    if is_cell_edited:
+                        combo.setStyleSheet(f"QComboBox {{ background-color: {colors['warning']}; }} QComboBox QLineEdit {{ background-color: {colors['warning']}; }}")
                     self.setCellWidget(display_row_idx, col_idx, combo)
 
                 else:
@@ -238,8 +278,14 @@ class TransactionTableWidget(QTableWidget):
                     item = QTableWidgetItem(str(value))
                     item.setData(Qt.ItemDataRole.UserRole, data_row_idx)
 
+                    # Store original value for change detection
+                    cell_key = (data_row_idx, col_idx)
+                    if cell_key not in self.original_values:
+                        self.original_values[cell_key] = str(value)
+
                     # Check if column is non-editable
                     is_non_editable_column = col_idx in self.non_editable_columns
+                    is_cell_edited = (data_row_idx, col_idx) in self.edited_cells
 
                     if is_locked or is_non_editable_column:
                         # Locked rows or non-editable columns: grayed out and non-editable
@@ -251,11 +297,14 @@ class TransactionTableWidget(QTableWidget):
                             item.setFont(font)
 
                     if is_deleted:
-                        # Deleted rows: red text
+                        # Deleted rows: red text (deleted overrides edited state)
                         item.setForeground(QColor(colors['error']))  # Use theme error color
                         font = item.font()
                         font.setStrikeOut(True)
                         item.setFont(font)
+                    elif is_cell_edited and not is_locked:
+                        # Edited cell: warning background color (but not if locked or deleted)
+                        item.setBackground(QColor(colors['warning']))
 
                     self.setItem(display_row_idx, col_idx, item)
 
@@ -385,6 +434,8 @@ class TransactionTableWidget(QTableWidget):
     def clear_change_tracking(self):
         """Clear all change tracking (called when switching tabs)"""
         self.edited_rows = set()
+        self.edited_cells = set()
+        self.original_values = {}
         self.deleted_rows = set()
 
     def get_row_data(self, row_index):
@@ -433,31 +484,160 @@ class TransactionTableWidget(QTableWidget):
 
         return row_data
 
-    def _on_dropdown_changed(self, data_row_idx):
+    def _apply_warning_to_cell(self, data_row_idx, col_idx):
+        """Apply warning background color to a specific cell"""
+        # Find display row index for this data row
+        try:
+            display_row = self.filtered_rows.index(data_row_idx)
+        except ValueError:
+            return  # Row not visible
+
+        colors = theme_manager.get_colors()
+        warning_color = colors['warning']
+
+        # Check if cell has a widget (dropdown/checkbox)
+        widget = self.cellWidget(display_row, col_idx)
+        if widget:
+            from PyQt6.QtWidgets import QComboBox
+            if isinstance(widget, QComboBox):
+                # Apply to combobox
+                if widget.isEditable():
+                    widget.setStyleSheet(f"QComboBox {{ background-color: {warning_color}; }} QComboBox QLineEdit {{ background-color: {warning_color}; }}")
+                else:
+                    widget.setStyleSheet(f"QComboBox {{ background-color: {warning_color}; }}")
+            else:
+                # Checkbox widget container
+                widget.setStyleSheet(f"background-color: {warning_color};")
+        else:
+            # Regular table item
+            item = self.item(display_row, col_idx)
+            if item:
+                # Don't override locked rows styling
+                if data_row_idx not in self.locked_rows:
+                    item.setBackground(QColor(warning_color))
+
+    def _remove_warning_from_cell(self, data_row_idx, col_idx):
+        """Remove warning background color from a specific cell (when value reverted to original)"""
+        # Find display row index for this data row
+        try:
+            display_row = self.filtered_rows.index(data_row_idx)
+        except ValueError:
+            return  # Row not visible
+
+        colors = theme_manager.get_colors()
+
+        # Check if cell has a widget (dropdown/checkbox)
+        widget = self.cellWidget(display_row, col_idx)
+        if widget:
+            # Clear stylesheet to remove warning color
+            widget.setStyleSheet("")
+        else:
+            # Regular table item - reset to default background
+            item = self.item(display_row, col_idx)
+            if item:
+                item.setBackground(QColor(colors['surface']))
+
+    def _on_dropdown_changed(self, data_row_idx, col_idx, new_value):
         """Handle when a dropdown value is changed"""
         if data_row_idx not in self.locked_rows and data_row_idx not in self.deleted_rows:
-            self.edited_rows.add(data_row_idx)
-            self.row_edited.emit(data_row_idx)
+            cell_key = (data_row_idx, col_idx)
+            original_value = self.original_values.get(cell_key, "")
+
+            # Only mark as edited if value actually changed from original
+            if new_value != original_value:
+                if cell_key not in self.edited_cells:
+                    self.edited_rows.add(data_row_idx)
+                    self.edited_cells.add(cell_key)
+                    self.row_edited.emit(data_row_idx)
+                    self._apply_warning_to_cell(data_row_idx, col_idx)
+            else:
+                # Value changed back to original - remove edited state
+                if cell_key in self.edited_cells:
+                    self.edited_cells.discard(cell_key)
+                    self._remove_warning_from_cell(data_row_idx, col_idx)
+                    # Check if any cells in this row are still edited
+                    if not any(r == data_row_idx for r, c in self.edited_cells):
+                        self.edited_rows.discard(data_row_idx)
+
+    def _on_checkbox_changed(self, data_row_idx, col_idx):
+        """Handle when a checkbox (abnormal) is changed"""
+        if data_row_idx not in self.locked_rows and data_row_idx not in self.deleted_rows:
+            cell_key = (data_row_idx, col_idx)
+            original_value = self.original_values.get(cell_key, False)
+
+            # Get current checkbox value
+            try:
+                display_row = self.filtered_rows.index(data_row_idx)
+                widget = self.cellWidget(display_row, col_idx)
+                if widget:
+                    checkbox = widget.findChild(QCheckBox)
+                    new_value = checkbox.isChecked() if checkbox else False
+                else:
+                    return
+            except ValueError:
+                return
+
+            # Only mark as edited if value actually changed from original
+            if new_value != original_value:
+                if cell_key not in self.edited_cells:
+                    self.edited_rows.add(data_row_idx)
+                    self.edited_cells.add(cell_key)
+                    self.row_edited.emit(data_row_idx)
+                    self._apply_warning_to_cell(data_row_idx, col_idx)
+            else:
+                # Value changed back to original - remove edited state
+                if cell_key in self.edited_cells:
+                    self.edited_cells.discard(cell_key)
+                    self._remove_warning_from_cell(data_row_idx, col_idx)
+                    # Check if any cells in this row are still edited
+                    if not any(r == data_row_idx for r, c in self.edited_cells):
+                        self.edited_rows.discard(data_row_idx)
 
     def on_item_changed(self, item):
         """Handle when an item is edited"""
         # Get original data row index
         data_row_idx = item.data(Qt.ItemDataRole.UserRole)
 
+        # data_row_idx might be None if UserRole wasn't set
+        if data_row_idx is None:
+            return
+
         # Don't allow editing locked or deleted rows
         if data_row_idx in self.locked_rows or data_row_idx in self.deleted_rows:
             return
 
-        # Mark row as edited
-        self.edited_rows.add(data_row_idx)
+        # Get column index and new value
+        col_idx = item.column()
+        cell_key = (data_row_idx, col_idx)
+        new_value = item.text()
+        original_value = self.original_values.get(cell_key, "")
 
-        # Emit signal
-        self.row_edited.emit(data_row_idx)
+        colors = theme_manager.get_colors()
+
+        # Only mark as edited if value actually changed from original
+        if new_value != original_value:
+            # Add to edited tracking
+            self.edited_rows.add(data_row_idx)
+            self.edited_cells.add(cell_key)
+            self.row_edited.emit(data_row_idx)
+            # Apply warning directly to the item being edited
+            item.setBackground(QColor(colors['warning']))
+        else:
+            # Value changed back to original - remove edited state
+            if cell_key in self.edited_cells:
+                self.edited_cells.discard(cell_key)
+                # Reset background to default
+                item.setBackground(QColor(colors['surface']))
+                # Check if any cells in this row are still edited
+                if not any(r == data_row_idx for r, c in self.edited_cells):
+                    self.edited_rows.discard(data_row_idx)
 
     def apply_theme(self):
         """Apply current theme colors to table"""
         colors = theme_manager.get_colors()
 
+        # Note: Do NOT set background-color on QTableWidget::item - it overrides
+        # programmatic item.setBackground() calls needed for warning highlighting
         self.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {colors['surface']};
@@ -468,7 +648,6 @@ class TransactionTableWidget(QTableWidget):
             }}
             QTableWidget::item {{
                 padding: 4px;
-                background-color: {colors['surface']};
             }}
             QTableWidget::item:selected {{
                 background-color: {colors['primary']};
