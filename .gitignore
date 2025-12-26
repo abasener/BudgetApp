@@ -150,4 +150,5 @@ Thumbs.db
 
 # Personal application settings and data
 app_settings.json
+scratch_pad_workspace.json
 TestData/

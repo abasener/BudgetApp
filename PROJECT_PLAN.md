@@ -26,22 +26,22 @@ Improve core UI organization and implement essential transfer functionality.
 
 | Feature | Status | Completion Date |
 |---------|--------|-----------------|
-| **Transfer Money Dialog** | ✅ Complete | Oct 25, 2024 |
-| ├─ Week ↔ Account transfers | ✅ | Oct 25, 2024 |
-| ├─ Account ↔ Account transfers | ✅ | Oct 25, 2024 |
-| ├─ Real-time balance validation | ✅ | Oct 25, 2024 |
-| └─ Auto-updating transaction notes | ✅ | Oct 25, 2024 |
-| **Tab-Local Toolbars** | ✅ Complete | Oct 28, 2024 |
-| ├─ Bills tab: + Bill button | ✅ | Oct 28, 2024 |
-| └─ Savings tab: + Savings button | ✅ | Oct 28, 2024 |
-| **Menubar Reorganization** | ✅ Complete | Oct 28, 2024 |
-| ├─ File menu (Import/Export/Reset) | ✅ | Oct 28, 2024 |
-| ├─ Edit menu (All data modifications) | ✅ | Oct 28, 2024 |
-| ├─ View menu (Navigation) | ✅ | Oct 28, 2024 |
-| ├─ Tools menu (Hour Calculator) | ✅ | Oct 28, 2024 |
-| └─ Help menu (About/Guide/FAQ/Bug) | ✅ | Oct 28, 2024 |
-| **Category Color Consistency** | ✅ Complete | Oct 26, 2024 |
-| └─ Alphabetical ordering system | ✅ | Oct 26, 2024 |
+| **Transfer Money Dialog** | ✅ Complete | Oct 25, 2025 |
+| ├─ Week ↔ Account transfers | ✅ | Oct 25, 2025 |
+| ├─ Account ↔ Account transfers | ✅ | Oct 25, 2025 |
+| ├─ Real-time balance validation | ✅ | Oct 25, 2025 |
+| └─ Auto-updating transaction notes | ✅ | Oct 25, 2025 |
+| **Tab-Local Toolbars** | ✅ Complete | Oct 28, 2025 |
+| ├─ Bills tab: + Bill button | ✅ | Oct 28, 2025 |
+| └─ Savings tab: + Savings button | ✅ | Oct 28, 2025 |
+| **Menubar Reorganization** | ✅ Complete | Oct 28, 2025 |
+| ├─ File menu (Import/Export/Reset) | ✅ | Oct 28, 2025 |
+| ├─ Edit menu (All data modifications) | ✅ | Oct 28, 2025 |
+| ├─ View menu (Navigation) | ✅ | Oct 28, 2025 |
+| ├─ Tools menu (Hour Calculator) | ✅ | Oct 28, 2025 |
+| └─ Help menu (About/Guide/FAQ/Bug) | ✅ | Oct 28, 2025 |
+| **Category Color Consistency** | ✅ Complete | Oct 26, 2025 |
+| └─ Alphabetical ordering system | ✅ | Oct 26, 2025 |
 
 ### 🎓 Key Learnings
 - Transfer system uses existing SAVING transaction type with positive/negative amounts
@@ -68,51 +68,51 @@ Create advanced transaction inspection and debugging interface with 4 sub-tabs.
 
 | Phase | Feature | Status | Completion Date |
 |-------|---------|--------|-----------------|
-| **Phase 1** | Settings Toggle | ✅ Complete | Oct 28, 2024 |
-| **Phase 2** | Main Tab Structure | ✅ Complete | Oct 28, 2024 |
-| ├─ Sub-tabs (Bills/Savings/Paycheck/Spending) | ✅ | Oct 28, 2024 |
-| ├─ Search bars for each tab | ✅ | Oct 28, 2024 |
-| └─ Delete/Save buttons | ✅ | Oct 28, 2024 |
-| **Phase 3** | Table Widget Base | ✅ Complete | Oct 28, 2024 |
-| ├─ Sortable columns (▲/▼ indicators) | ✅ | Oct 28, 2024 |
-| ├─ Search filtering (real-time) | ✅ | Oct 28, 2024 |
-| ├─ Row selection (single + Ctrl multi-select) | ✅ | Oct 28, 2024 |
-| ├─ Delete marking (red + strikethrough) | ✅ | Oct 28, 2024 |
-| ├─ Locked row styling (gray + 🔒) | ✅ | Oct 28, 2024 |
-| ├─ Abnormal checkbox widget | ✅ | Oct 28, 2024 |
-| └─ Editable column (fixed width, non-editable) | ✅ | Oct 28, 2024 |
-| **Phase 4** | Bills Table (Real Data) | ✅ Complete | Oct 28, 2024 |
-| ├─ Load BILL_PAY transactions | ✅ | Oct 28, 2024 |
-| ├─ Load SAVING(bill_id) transactions | ✅ | Oct 28, 2024 |
-| ├─ Auto-notes generation | ✅ | Oct 28, 2024 |
-| └─ Locked row detection | ✅ | Oct 28, 2024 |
-| **Phase 5** | Savings Table (Real Data) | ✅ Complete | Nov 1, 2024 |
-| ├─ Load SAVING(account_id) via AccountHistory | ✅ | Nov 1, 2024 |
-| ├─ Handle deposits & withdrawals | ✅ | Nov 1, 2024 |
-| ├─ Auto-notes with payweek info | ✅ | Nov 1, 2024 |
-| └─ Locked rollover transactions | ✅ | Nov 1, 2024 |
-| **Phase 6** | Paycheck Table (Real Data) | ✅ Complete | Nov 1, 2024 |
-| ├─ Load INCOME transactions | ✅ | Nov 1, 2024 |
-| ├─ Display earned & start dates | ✅ | Nov 1, 2024 |
-| ├─ Auto-notes with date ranges | ✅ | Nov 1, 2024 |
-| └─ All rows locked | ✅ | Nov 1, 2024 |
-| **Phase 7** | Spending Table (Real Data) | ✅ Complete | Nov 1, 2024 |
-| ├─ Load SPENDING & ROLLOVER | ✅ | Nov 1, 2024 |
-| ├─ Include week ↔ account transfers | ✅ | Nov 1, 2024 |
-| ├─ Auto-notes with category & day | ✅ | Nov 1, 2024 |
-| └─ Transfer notes with destinations | ✅ | Nov 1, 2024 |
-| **Phase 8** | Save Logic | ✅ Complete | Nov 2, 2024 |
-| ├─ Transaction ID tracking | ✅ | Nov 2, 2024 |
-| ├─ Edit & delete tracking | ✅ | Nov 2, 2024 |
-| ├─ Data validation (dates, amounts) | ✅ | Nov 2, 2024 |
-| ├─ Database commit logic | ✅ | Nov 2, 2024 |
-| └─ Success/failure dialog | ✅ | Nov 2, 2024 |
-| **Phase 9** | Bug Fixes & Polish | ✅ Complete | Nov 3, 2024 |
-| ├─ Fixed AccountHistory running_total corruption | ✅ | Nov 3, 2024 |
-| ├─ Fixed negative sign flipping for bills | ✅ | Nov 3, 2024 |
-| ├─ Added automatic tab refresh on switch | ✅ | Nov 3, 2024 |
-| ├─ Theme integration (all colors from theme) | ✅ | Nov 3, 2024 |
-| └─ Database recalculation script | ✅ | Nov 3, 2024 |
+| **Phase 1** | Settings Toggle | ✅ Complete | Oct 28, 2025 |
+| **Phase 2** | Main Tab Structure | ✅ Complete | Oct 28, 2025 |
+| ├─ Sub-tabs (Bills/Savings/Paycheck/Spending) | ✅ | Oct 28, 2025 |
+| ├─ Search bars for each tab | ✅ | Oct 28, 2025 |
+| └─ Delete/Save buttons | ✅ | Oct 28, 2025 |
+| **Phase 3** | Table Widget Base | ✅ Complete | Oct 28, 2025 |
+| ├─ Sortable columns (▲/▼ indicators) | ✅ | Oct 28, 2025 |
+| ├─ Search filtering (real-time) | ✅ | Oct 28, 2025 |
+| ├─ Row selection (single + Ctrl multi-select) | ✅ | Oct 28, 2025 |
+| ├─ Delete marking (red + strikethrough) | ✅ | Oct 28, 2025 |
+| ├─ Locked row styling (gray + 🔒) | ✅ | Oct 28, 2025 |
+| ├─ Abnormal checkbox widget | ✅ | Oct 28, 2025 |
+| └─ Editable column (fixed width, non-editable) | ✅ | Oct 28, 2025 |
+| **Phase 4** | Bills Table (Real Data) | ✅ Complete | Oct 28, 2025 |
+| ├─ Load BILL_PAY transactions | ✅ | Oct 28, 2025 |
+| ├─ Load SAVING(bill_id) transactions | ✅ | Oct 28, 2025 |
+| ├─ Auto-notes generation | ✅ | Oct 28, 2025 |
+| └─ Locked row detection | ✅ | Oct 28, 2025 |
+| **Phase 5** | Savings Table (Real Data) | ✅ Complete | Nov 1, 2025 |
+| ├─ Load SAVING(account_id) via AccountHistory | ✅ | Nov 1, 2025 |
+| ├─ Handle deposits & withdrawals | ✅ | Nov 1, 2025 |
+| ├─ Auto-notes with payweek info | ✅ | Nov 1, 2025 |
+| └─ Locked rollover transactions | ✅ | Nov 1, 2025 |
+| **Phase 6** | Paycheck Table (Real Data) | ✅ Complete | Nov 1, 2025 |
+| ├─ Load INCOME transactions | ✅ | Nov 1, 2025 |
+| ├─ Display earned & start dates | ✅ | Nov 1, 2025 |
+| ├─ Auto-notes with date ranges | ✅ | Nov 1, 2025 |
+| └─ All rows locked | ✅ | Nov 1, 2025 |
+| **Phase 7** | Spending Table (Real Data) | ✅ Complete | Nov 1, 2025 |
+| ├─ Load SPENDING & ROLLOVER | ✅ | Nov 1, 2025 |
+| ├─ Include week ↔ account transfers | ✅ | Nov 1, 2025 |
+| ├─ Auto-notes with category & day | ✅ | Nov 1, 2025 |
+| └─ Transfer notes with destinations | ✅ | Nov 1, 2025 |
+| **Phase 8** | Save Logic | ✅ Complete | Nov 2, 2025 |
+| ├─ Transaction ID tracking | ✅ | Nov 2, 2025 |
+| ├─ Edit & delete tracking | ✅ | Nov 2, 2025 |
+| ├─ Data validation (dates, amounts) | ✅ | Nov 2, 2025 |
+| ├─ Database commit logic | ✅ | Nov 2, 2025 |
+| └─ Success/failure dialog | ✅ | Nov 2, 2025 |
+| **Phase 9** | Bug Fixes & Polish | ✅ Complete | Nov 3, 2025 |
+| ├─ Fixed AccountHistory running_total corruption | ✅ | Nov 3, 2025 |
+| ├─ Fixed negative sign flipping for bills | ✅ | Nov 3, 2025 |
+| ├─ Added automatic tab refresh on switch | ✅ | Nov 3, 2025 |
+| ├─ Theme integration (all colors from theme) | ✅ | Nov 3, 2025 |
+| └─ Database recalculation script | ✅ | Nov 3, 2025 |
 
 ### 🎓 Key Implementation Details
 
@@ -137,7 +137,7 @@ filtered = [t for t in transactions if condition]
 ```
 
 **Auto-Notes Format:**
-- Paychecks: `"Manual: Paycheck 30 for 10/21/2024 to 11/03/2024"`
+- Paychecks: `"Manual: Paycheck 30 for 10/21/2025 to 11/03/2025"`
 - Spending: `"Manual: Paycheck 30 bought Groceries on Monday"`
 - Transfers: `"Manual: Transfer to Emergency Fund"`
 - Rollovers: `"Generated: Rollover from payweek 30"`
@@ -209,7 +209,7 @@ is_active_history = [1, 1, 1, 1, 0, 0]         # History of active states
 # Account model
 auto_save_amounts = [100, 100, 1000, 0]
 is_active_history = [1, 1, 1, 0]
-history_dates = ["2024-01-01", "2024-03-01", ...]
+history_dates = ["2025-01-01", "2025-03-01", ...]
 ```
 
 **Pros:**
@@ -231,9 +231,9 @@ activation_history = Column(JSON)
 
 # History format:
 [
-  {"date": "2024-01-01", "active": true, "auto_save": 100},
-  {"date": "2024-03-01", "active": true, "auto_save": 1000},
-  {"date": "2024-06-01", "active": false, "auto_save": 0}
+  {"date": "2025-01-01", "active": true, "auto_save": 100},
+  {"date": "2025-03-01", "active": true, "auto_save": 1000},
+  {"date": "2025-06-01", "active": false, "auto_save": 0}
 ]
 ```
 
@@ -305,9 +305,9 @@ class Account(Base):
 │ Auto-save: $_____ per paycheck      │
 │                                     │
 │ 📜 History:                         │
-│ ├─ 2024-01-01: Active ($200)       │
-│ ├─ 2024-06-01: Inactive ($0)       │
-│ └─ 2024-07-01: Active ($100)       │
+│ ├─ 2025-01-01: Active ($200)       │
+│ ├─ 2025-06-01: Inactive ($0)       │
+│ └─ 2025-07-01: Active ($100)       │
 └─────────────────────────────────────┘
 ```
 
@@ -630,7 +630,7 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 | 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | ✅ Complete |
 | 🐛 **Critical Bugs** | Transactions tab - Sign display incorrect | 🔴 High | ✅ Refactored |
 | ✨ **Refactoring** | Transactions tab - Sub-tab restructure | 🔴 High | ✅ Complete |
-| 🐛 **Critical Bugs** | Scratch Pad - Refresh removes formatting | 🔴 High | 📋 Todo |
+| 🐛 **Critical Bugs** | Scratch Pad - Refresh removes formatting | 🔴 High | ✅ Complete |
 | 🐛 **Display Issues** | Week tab - Starting/ending amounts display same | 🟡 Medium | 📋 Todo |
 | 🎨 **Theme System** | Theme colors/fonts not updating consistently | 🟡 Medium | 📋 Todo |
 | ✨ **Feature Polish** | Categories tab - Include Abnormal checkbox | 🟡 Medium | ✅ Complete |
@@ -650,7 +650,7 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 <summary><h3>🐛 Critical Bug Fixes</h3></summary>
 
 #### 🔴 **Bug 4.1: Transactions Tab - Editing Not Persisting**
-**Status:** ✅ Complete (December 2024) | **Priority:** 🔴 High
+**Status:** ✅ Complete (December 2025) | **Priority:** 🔴 High
 
 **Resolution:**
 - ✅ Sub-tabs restructured: Bills+Savings merged → Accounts, Transfers tab added
@@ -664,7 +664,7 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 ---
 
 #### 🔴 **Bug 4.2: Transactions Tab - Sign Display**
-**Status:** ✅ Refactored (December 2024) | **Priority:** 🔴 High
+**Status:** ✅ Refactored (December 2025) | **Priority:** 🔴 High
 
 **Original Issue:**
 - Sign display was confusing - sometimes showing raw values, sometimes absolute
@@ -695,7 +695,7 @@ Rather than showing raw database signs (which confused users), we implemented a 
 ---
 
 #### ✨ **Refactoring 4.2.1: Transactions Tab Sub-Tab Restructure**
-**Status:** ✅ Complete (December 2024) | **Priority:** 🔴 High
+**Status:** ✅ Complete (December 2025) | **Priority:** 🔴 High
 
 **Changes Made:**
 
@@ -751,32 +751,11 @@ Rather than showing raw database signs (which confused users), we implemented a 
 ---
 
 #### 🔴 **Bug 4.4: Scratch Pad - Refresh Removes All Formatting**
-**Status:** 📋 Todo | **Priority:** 🔴 High
+**Status:** ✅ Complete (December 2025) | **Priority:** 🔴 High
 
-**Issue:**
-- When refresh button is pressed on Scratch Pad tab, all formatting is lost
-- Headers, notes, and other user-added formatting disappear
-- Only raw cell values/formulas remain
-
-**Root Cause:**
-- Refresh likely reloads from data storage without preserving formatting metadata
-- May be treating Scratch Pad as pure data grid instead of rich text/formatted document
-- Formatting might not be persisted to storage, only in-memory
-
-**Expected Behavior:**
-- Refresh should reload data WITHOUT removing user formatting
-- Headers should remain headers
-- Notes/text should remain styled
-- Only recalculate formulas/values, preserve all visual formatting
-
-**Next Steps:**
-1. Check how formatting is stored (in-memory vs persisted)
-2. Ensure refresh method preserves formatting metadata
-3. If formatting not persisted, add to save/load logic
-
-**Files to Check:**
-- `views/scratch_pad_view.py` - Refresh logic
-- Scratch Pad data model/storage
+**Resolution:**
+- `recalculate_all()` in `workspace_calculator.py` wasn't passing existing format when recalculating cells
+- One-line fix: pass `format_type` to `set_cell_formula()` to preserve H1/H2/Notes formatting
 
 ---
 
@@ -993,14 +972,14 @@ Visual indicator for current week in navigation dropdowns.
 - ✅ Added ⭐ to right side of current pay period
 - ✅ Determined by checking if today's date falls within period date range
 - ✅ Star is right-aligned with spaces for visual separation
-- ✅ Example: `"Pay Period 30          ⭐\n11/18/2024"`
+- ✅ Example: `"Pay Period 30          ⭐\n11/18/2025"`
 
 **2. Week 1/Week 2 Sub-section Headers:**
 - ✅ Added ⭐ to right side of current week header
 - ✅ All week headers remain bold (original styling preserved)
 - ✅ Determined by checking if today falls within week's date range
 - ✅ Star is right-aligned with spaces for visual separation
-- ✅ Example: `Week 1: 11/18/2024 - 11/24/2024          ⭐` vs `Week 2: 11/25/2024 - 12/01/2024`
+- ✅ Example: `Week 1: 11/18/2025 - 11/24/2025          ⭐` vs `Week 2: 11/25/2025 - 12/01/2025`
 
 **Date Detection Logic:**
 - Uses `week.start_date <= today <= week.end_date` check
@@ -1430,7 +1409,7 @@ class TransactionType(Enum):
 <details>
 <summary><h3>🗄️ Database Migrations</h3></summary>
 
-#### **Migration: add_transfer_group_id (December 2024)**
+#### **Migration: add_transfer_group_id (December 2025)**
 
 **Purpose:** Links paired Account-to-Account transfer transactions so they can be edited together.
 
@@ -1556,7 +1535,7 @@ What if I buy a $500 TV this week?
 **Priority:** 🟡 Medium | **Status:** 💭 Observation/Future Work
 
 **Context:**
-Currently, tabs refresh on every switch (implemented Nov 2024). This ensures data consistency across tabs, but can be slow for tabs with heavy data/charts.
+Currently, tabs refresh on every switch (implemented Nov 2025). This ensures data consistency across tabs, but can be slow for tabs with heavy data/charts.
 
 **Observed Bottlenecks:**
 1. **Database Queries**: Loading AccountHistory entries (can be 50-200+ per account/bill)

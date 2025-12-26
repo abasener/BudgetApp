@@ -494,4 +494,5 @@ class WorkspaceCalculator:
 
         for cell_ref in list(self.cells.keys()):
             formula = self.cells[cell_ref]["formula"]
-            self.set_cell_formula(cell_ref, formula)
+            format_type = self.cells[cell_ref].get("format", "P")  # Preserve existing format
+            self.set_cell_formula(cell_ref, formula, format_type)
