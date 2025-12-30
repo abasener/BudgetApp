@@ -890,9 +890,15 @@ class ScratchPadView(QWidget):
             if key in navigation_keys:
                 return False  # Let table handle navigation
 
-            # Handle Copy (Ctrl+C)
+            # Handle Copy (Ctrl+C) - copies formulas to clipboard, stores values for Ctrl+Shift+V
             if key == QtCore.Key.Key_C and key_event.modifiers() == QtCore.KeyboardModifier.ControlModifier:
                 self.copy_selection()
+                return True
+
+            # Handle Paste Values (Ctrl+Shift+V) - paste as plain values, not formulas
+            # Note: This must come BEFORE regular Ctrl+V check
+            if key == QtCore.Key.Key_V and key_event.modifiers() == (QtCore.KeyboardModifier.ControlModifier | QtCore.KeyboardModifier.ShiftModifier):
+                self.paste_selection_values()
                 return True
 
             # Handle Paste (Ctrl+V)
@@ -948,7 +954,10 @@ class ScratchPadView(QWidget):
         return super().eventFilter(source, event)
 
     def copy_selection(self):
-        """Copy selected cells to clipboard (formulas)"""
+        """Copy selected cells to clipboard (formulas).
+
+        Also stores the displayed values internally for Ctrl+Shift+V paste.
+        """
         selected_ranges = self.table.selectedRanges()
         if not selected_ranges:
             return
@@ -956,23 +965,51 @@ class ScratchPadView(QWidget):
         sel_range = selected_ranges[0]
 
         # Build clipboard data as tab-separated formulas
+        # Also build values data for paste-as-values (Ctrl+Shift+V)
         clipboard_data = []
+        values_data = []
         for row in range(sel_range.topRow(), sel_range.bottomRow() + 1):
-            row_data = []
+            row_formulas = []
+            row_values = []
             for col in range(sel_range.leftColumn(), sel_range.rightColumn() + 1):
                 cell_ref = self.get_cell_ref(row, col)
                 if cell_ref in self.calculator.cells:
+                    cell_data = self.calculator.cells[cell_ref]
                     # Copy the formula
-                    formula = self.calculator.cells[cell_ref]["formula"]
-                    row_data.append(formula)
-                else:
-                    row_data.append("")
-            clipboard_data.append("\t".join(row_data))
+                    formula = cell_data.get("formula", "")
+                    row_formulas.append(formula)
 
-        # Store to clipboard
+                    # Also capture the displayed value for paste-as-values
+                    value = cell_data.get("value", "")
+                    format_type = cell_data.get("format", "P")
+                    if value is None or value == "":
+                        row_values.append("")
+                    elif isinstance(value, (int, float)):
+                        if format_type == "$":
+                            row_values.append(f"${value:,.2f}")
+                        elif format_type == "%":
+                            row_values.append(f"{value * 100:.1f}%")
+                        else:
+                            # Plain number - keep reasonable precision
+                            if isinstance(value, float) and value != int(value):
+                                row_values.append(f"{value:.4f}".rstrip('0').rstrip('.'))
+                            else:
+                                row_values.append(str(int(value) if isinstance(value, float) and value == int(value) else value))
+                    else:
+                        row_values.append(str(value))
+                else:
+                    row_formulas.append("")
+                    row_values.append("")
+            clipboard_data.append("\t".join(row_formulas))
+            values_data.append("\t".join(row_values))
+
+        # Store formulas to clipboard (for Ctrl+V)
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
         clipboard.setText("\n".join(clipboard_data))
+
+        # Store values internally for paste-as-values (Ctrl+Shift+V)
+        self._copied_values = "\n".join(values_data)
 
     def paste_selection(self):
         """Paste clipboard data to selected cells"""
@@ -998,6 +1035,52 @@ class ScratchPadView(QWidget):
             return
 
         # Parse clipboard data (tab-separated, newline-separated)
+        rows = text.split("\n")
+        for row_offset, row_text in enumerate(rows):
+            if not row_text:
+                continue
+            cells = row_text.split("\t")
+            for col_offset, cell_text in enumerate(cells):
+                target_row = start_row + row_offset
+                target_col = start_col + col_offset
+
+                # Check bounds
+                if target_row >= self.num_rows or target_col >= self.num_cols:
+                    continue
+
+                target_ref = self.get_cell_ref(target_row, target_col)
+                self.set_cell_formula(target_ref, cell_text)
+
+    def paste_selection_values(self):
+        """Paste the displayed values (not formulas) from the last copy operation.
+
+        When you copy cells with Ctrl+C, both formulas and displayed values are captured.
+        - Ctrl+V pastes the formulas (e.g., =A1+B2)
+        - Ctrl+Shift+V pastes the displayed values (e.g., 24)
+
+        This is useful when you want to "freeze" calculated results without
+        maintaining the formula dependencies.
+        """
+        # Use the stored values from the last copy operation
+        if not hasattr(self, '_copied_values') or not self._copied_values:
+            return
+
+        text = self._copied_values
+
+        # Get starting cell (top-left of selection or current cell)
+        selected_ranges = self.table.selectedRanges()
+        if selected_ranges:
+            start_row = selected_ranges[0].topRow()
+            start_col = selected_ranges[0].leftColumn()
+        elif self.current_cell:
+            pos = self.calculator.parse_cell_reference(self.current_cell)
+            if not pos:
+                return
+            start_row, start_col = pos
+        else:
+            return
+
+        # Parse values data (tab-separated, newline-separated)
         rows = text.split("\n")
         for row_offset, row_text in enumerate(rows):
             if not row_text:

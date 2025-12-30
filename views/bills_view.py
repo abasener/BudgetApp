@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import BillRowWidget
-from views.dialogs.settings_dialog import get_setting
+from views.dialogs.settings_dialog import get_setting, save_setting
 
 
 class BillsView(QWidget):
@@ -237,7 +237,7 @@ class BillsView(QWidget):
     def on_sort_changed(self, sort_option):
         """Handle sort option change"""
         self.current_sort = sort_option
-        print(f"Bills sort changed to: {sort_option}")
+        save_setting("bills_sort_order", sort_option)
         self.refresh()  # Refresh with new sort
     
     

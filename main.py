@@ -119,31 +119,66 @@ class BudgetApp(QMainWindow):
             transaction_manager=self.transaction_manager
         )
 
-        # Add tabs
-        self.tabs.addTab(self.dashboard, "Dashboard")
-        self.tabs.addTab(self.bills_view, "Bills")
-        self.tabs.addTab(self.savings_view, "Savings")
-        self.tabs.addTab(self.weekly_view, "Weekly")
-        self.tabs.addTab(self.categories_view, "Categories")
-        self.tabs.addTab(self.year_overview_view, "Yearly")
+        # Build tab mapping: tab_id -> (widget, display_name)
+        self.tab_widgets = {
+            "dashboard": (self.dashboard, "Dashboard"),
+            "bills": (self.bills_view, "Bills"),
+            "savings": (self.savings_view, "Savings"),
+            "weekly": (self.weekly_view, "Weekly"),
+            "categories": (self.categories_view, "Categories"),
+            "yearly": (self.year_overview_view, "Yearly"),
+            "reimbursements": (self.reimbursements_view, "Reimbursements"),
+            "scratch_pad": (self.scratch_pad_view, "Scratch Pad"),
+            "transactions": (self.transactions_view, "Transactions"),
+        }
 
-        # Add Reimbursements tab (always visible for now)
-        self.reimbursements_tab_index = self.tabs.addTab(self.reimbursements_view, "Reimbursements")
+        # Add taxes if module available
+        if TAX_MODULE_AVAILABLE and self.taxes_view:
+            self.tab_widgets["taxes"] = (self.taxes_view, "Taxes")
 
-        # Add Scratch Pad tab (always visible)
-        self.scratch_pad_tab_index = self.tabs.addTab(self.scratch_pad_view, "Scratch Pad")
+        # Get tab order and hidden tabs from settings
+        from views.dialogs.settings_dialog import DEFAULT_TAB_ORDER, DEFAULT_HIDDEN_TABS
+        tab_order = self.app_settings.get("tab_order", DEFAULT_TAB_ORDER)
+        hidden_tabs = self.app_settings.get("hidden_tabs", DEFAULT_HIDDEN_TABS)
 
-        # Add Transactions tab if enabled in settings
-        if self.app_settings.get("enable_transactions_tab", False):
-            self.transactions_tab_index = self.tabs.addTab(self.transactions_view, "Transactions")
-        else:
-            self.transactions_tab_index = -1
+        # Track tab indices for special tabs
+        self.transactions_tab_index = -1
+        self.taxes_tab_index = -1
+        self.reimbursements_tab_index = -1
+        self.scratch_pad_tab_index = -1
 
-        # Add Taxes tab if enabled in settings and module available
-        if TAX_MODULE_AVAILABLE and self.app_settings.get("enable_tax_features", False):
-            self.taxes_tab_index = self.tabs.addTab(self.taxes_view, "Taxes")
-        else:
-            self.taxes_tab_index = -1
+        # Add tabs in order, skipping hidden ones
+        for tab_id in tab_order:
+            if tab_id in hidden_tabs:
+                continue
+            if tab_id not in self.tab_widgets:
+                continue
+
+            widget, display_name = self.tab_widgets[tab_id]
+            idx = self.tabs.addTab(widget, display_name)
+
+            # Track special tab indices
+            if tab_id == "transactions":
+                self.transactions_tab_index = idx
+            elif tab_id == "taxes":
+                self.taxes_tab_index = idx
+            elif tab_id == "reimbursements":
+                self.reimbursements_tab_index = idx
+            elif tab_id == "scratch_pad":
+                self.scratch_pad_tab_index = idx
+
+        # Add any tabs not in order (new tabs) at the end, if not hidden
+        for tab_id, (widget, display_name) in self.tab_widgets.items():
+            if tab_id not in tab_order and tab_id not in hidden_tabs:
+                idx = self.tabs.addTab(widget, display_name)
+                if tab_id == "transactions":
+                    self.transactions_tab_index = idx
+                elif tab_id == "taxes":
+                    self.taxes_tab_index = idx
+                elif tab_id == "reimbursements":
+                    self.reimbursements_tab_index = idx
+                elif tab_id == "scratch_pad":
+                    self.scratch_pad_tab_index = idx
         
         # Layout
         layout = QVBoxLayout()
@@ -557,36 +592,73 @@ class BudgetApp(QMainWindow):
     def on_settings_saved(self):
         """Handle when settings are saved"""
         # Reload settings
-        old_tax_enabled = self.taxes_tab_index >= 0
-        old_transactions_enabled = self.transactions_tab_index >= 0
         self.app_settings = load_app_settings()
-        new_tax_enabled = self.app_settings.get("enable_tax_features", False) and TAX_MODULE_AVAILABLE
-        new_transactions_enabled = self.app_settings.get("enable_transactions_tab", False)
 
-        # Update transactions tab visibility if it changed
-        if old_transactions_enabled != new_transactions_enabled:
-            if new_transactions_enabled and self.transactions_view:
-                # Add the Transactions tab (before Taxes if it exists)
-                self.transactions_tab_index = self.tabs.addTab(self.transactions_view, "Transactions")
-            else:
-                # Remove the Transactions tab
-                if self.transactions_tab_index >= 0:
-                    self.tabs.removeTab(self.transactions_tab_index)
-                    self.transactions_tab_index = -1
-
-        # Update tax tab visibility if it changed
-        if old_tax_enabled != new_tax_enabled:
-            if new_tax_enabled and self.taxes_view:
-                # Add the Taxes tab at the end
-                self.taxes_tab_index = self.tabs.addTab(self.taxes_view, "Taxes")
-            else:
-                # Remove the Taxes tab
-                if self.taxes_tab_index >= 0:
-                    self.tabs.removeTab(self.taxes_tab_index)
-                    self.taxes_tab_index = -1
+        # Rebuild tabs based on new order/visibility settings
+        self.rebuild_tabs()
 
         # Refresh all views to apply new sorting settings
         self.refresh_all_views()
+
+    def rebuild_tabs(self):
+        """Rebuild all tabs based on current settings (order and visibility)"""
+        from views.dialogs.settings_dialog import DEFAULT_TAB_ORDER, DEFAULT_HIDDEN_TABS
+
+        # Remember current tab if possible
+        current_widget = self.tabs.currentWidget()
+
+        # Clear all tabs (but don't destroy widgets)
+        while self.tabs.count() > 0:
+            self.tabs.removeTab(0)
+
+        # Reset indices
+        self.transactions_tab_index = -1
+        self.taxes_tab_index = -1
+        self.reimbursements_tab_index = -1
+        self.scratch_pad_tab_index = -1
+
+        # Get tab order and hidden tabs from settings
+        tab_order = self.app_settings.get("tab_order", DEFAULT_TAB_ORDER)
+        hidden_tabs = self.app_settings.get("hidden_tabs", DEFAULT_HIDDEN_TABS)
+
+        # Add tabs in order, skipping hidden ones
+        for tab_id in tab_order:
+            if tab_id in hidden_tabs:
+                continue
+            if tab_id not in self.tab_widgets:
+                continue
+
+            widget, display_name = self.tab_widgets[tab_id]
+            idx = self.tabs.addTab(widget, display_name)
+
+            # Track special tab indices
+            if tab_id == "transactions":
+                self.transactions_tab_index = idx
+            elif tab_id == "taxes":
+                self.taxes_tab_index = idx
+            elif tab_id == "reimbursements":
+                self.reimbursements_tab_index = idx
+            elif tab_id == "scratch_pad":
+                self.scratch_pad_tab_index = idx
+
+        # Add any tabs not in order (new tabs) at the end, if not hidden
+        for tab_id, (widget, display_name) in self.tab_widgets.items():
+            if tab_id not in tab_order and tab_id not in hidden_tabs:
+                idx = self.tabs.addTab(widget, display_name)
+                if tab_id == "transactions":
+                    self.transactions_tab_index = idx
+                elif tab_id == "taxes":
+                    self.taxes_tab_index = idx
+                elif tab_id == "reimbursements":
+                    self.reimbursements_tab_index = idx
+                elif tab_id == "scratch_pad":
+                    self.scratch_pad_tab_index = idx
+
+        # Restore current tab if it still exists
+        if current_widget:
+            idx = self.tabs.indexOf(current_widget)
+            if idx >= 0:
+                self.tabs.setCurrentIndex(idx)
 
     # ============================================================
     # FILE MENU HANDLERS

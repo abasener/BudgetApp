@@ -220,6 +220,9 @@ class WorkspaceCalculator:
 
     def evaluate_formula(self, formula: str, cell_ref: str, visited: Set[str] = None) -> Any:
         """Evaluate a formula and return the result"""
+        # Normalize cell reference to uppercase
+        cell_ref = cell_ref.upper()
+
         if visited is None:
             visited = set()
 
@@ -314,10 +317,10 @@ class WorkspaceCalculator:
 
             # Check if it's a range (A1:A10)
             if ':' in range_or_cells:
-                cells = self.parse_range(range_or_cells)
+                cells = self.parse_range(range_or_cells)  # Already returns uppercase
             else:
-                # Individual cells separated by comma
-                cells = [c.strip() for c in range_or_cells.split(',')]
+                # Individual cells separated by comma - normalize to uppercase
+                cells = [c.strip().upper() for c in range_or_cells.split(',')]
 
             # Get values and sum
             total = 0
@@ -335,10 +338,10 @@ class WorkspaceCalculator:
 
             # Check if it's a range (A1:A10)
             if ':' in range_or_cells:
-                cells = self.parse_range(range_or_cells)
+                cells = self.parse_range(range_or_cells)  # Already returns uppercase
             else:
-                # Individual cells separated by comma
-                cells = [c.strip() for c in range_or_cells.split(',')]
+                # Individual cells separated by comma - normalize to uppercase
+                cells = [c.strip().upper() for c in range_or_cells.split(',')]
 
             # Get values and average
             values = []
@@ -351,21 +354,22 @@ class WorkspaceCalculator:
             avg = sum(values) / len(values) if values else 0
             expr = expr.replace(match.group(0), str(avg))
 
-        # Replace individual cell references
-        cell_pattern = r'\b([A-Z]+\d+)\b'
+        # Replace individual cell references (case-insensitive)
+        cell_pattern = r'\b([A-Za-z]+\d+)\b'
         for match in re.finditer(cell_pattern, expr):
-            cell = match.group(1)
+            cell = match.group(1).upper()  # Normalize to uppercase
+            original_match = match.group(1)  # Keep original for replacement
             if self.parse_cell_reference(cell):  # Validate it's a real cell
                 self.dependencies[cell_ref].add(cell)
                 cell_value = self.get_cell_value(cell, visited.copy())
 
-                # Replace with value
+                # Replace with value (use original match text to ensure correct replacement)
                 if isinstance(cell_value, (int, float)):
-                    expr = expr.replace(cell, str(cell_value), 1)
+                    expr = expr.replace(original_match, str(cell_value), 1)
                 elif isinstance(cell_value, date):
                     # Convert date to days since epoch for calculations
                     days = (cell_value - date(1970, 1, 1)).days
-                    expr = expr.replace(cell, str(days), 1)
+                    expr = expr.replace(original_match, str(days), 1)
 
         # Evaluate the expression
         try:
@@ -398,6 +402,9 @@ class WorkspaceCalculator:
 
     def get_cell_value(self, cell_ref: str, visited: Set[str] = None) -> Any:
         """Get the evaluated value of a cell"""
+        # Normalize cell reference to uppercase for consistent lookups
+        cell_ref = cell_ref.upper()
+
         if cell_ref not in self.cells:
             return 0  # Empty cell = 0
 
@@ -419,6 +426,9 @@ class WorkspaceCalculator:
             formula: The formula or value
             format_type: Format type - "H1", "H2", "P" (default), or "n"
         """
+        # Normalize cell reference to uppercase for consistent storage
+        cell_ref = cell_ref.upper()
+
         # Evaluate the formula
         try:
             value = self.evaluate_formula(formula, cell_ref)
@@ -468,6 +478,9 @@ class WorkspaceCalculator:
 
     def get_dependent_cells(self, cell_ref: str) -> Set[str]:
         """Get all cells that depend on this cell"""
+        # Normalize cell reference to uppercase
+        cell_ref = cell_ref.upper()
+
         dependents = set()
         for cell, deps in self.dependencies.items():
             if cell_ref in deps:
@@ -476,6 +489,9 @@ class WorkspaceCalculator:
 
     def recalculate_cell(self, cell_ref: str):
         """Recalculate a cell and all cells that depend on it"""
+        # Normalize cell reference to uppercase
+        cell_ref = cell_ref.upper()
+
         if cell_ref not in self.cells:
             return
 

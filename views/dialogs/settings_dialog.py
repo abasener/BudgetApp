@@ -5,9 +5,229 @@ Settings Dialog - Configure persistent application settings
 import json
 import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
-                             QComboBox, QPushButton, QLabel, QGroupBox, QMessageBox, QDoubleSpinBox, QCheckBox)
+                             QComboBox, QPushButton, QLabel, QGroupBox, QMessageBox, QDoubleSpinBox, QCheckBox, QWidget,
+                             QListWidget, QListWidgetItem, QAbstractItemView, QFrame)
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 from themes import theme_manager
+
+
+# All available tabs with their properties
+# Format: (internal_id, display_name, is_required)
+ALL_TABS = [
+    ("dashboard", "Dashboard", False),
+    ("bills", "Bills", True),  # Required
+    ("savings", "Savings", True),  # Required (called "Accounts" in some docs)
+    ("weekly", "Weekly", True),  # Required (called "Week" in some docs)
+    ("categories", "Categories", False),
+    ("yearly", "Yearly", False),
+    ("reimbursements", "Reimbursements", False),
+    ("scratch_pad", "Scratch Pad", False),
+    ("transactions", "Transactions", False),  # Settings-controlled
+    ("taxes", "Taxes", False),  # Settings-controlled
+]
+
+# Default tab order (all visible)
+DEFAULT_TAB_ORDER = [tab[0] for tab in ALL_TABS]
+DEFAULT_HIDDEN_TABS = []
+
+
+class TabOrderWidget(QWidget):
+    """Widget for reordering tabs via drag-and-drop with visibility toggle"""
+
+    order_changed = pyqtSignal()  # Emitted when order or visibility changes
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+        self.apply_theme()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        # Visible tabs section
+        visible_label = QLabel("Visible Tabs (drag to reorder):")
+        visible_label.setFont(QFont(visible_label.font().family(), -1, QFont.Weight.Bold))
+        layout.addWidget(visible_label)
+
+        self.visible_list = QListWidget()
+        self.visible_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.visible_list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.visible_list.setMinimumHeight(120)
+        self.visible_list.model().rowsMoved.connect(self._on_order_changed)
+        layout.addWidget(self.visible_list)
+
+        # Buttons to move between lists
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
+        self.hide_btn = QPushButton("Hide ▼")
+        self.hide_btn.setToolTip("Move selected tab to hidden")
+        self.hide_btn.clicked.connect(self._hide_selected)
+        btn_layout.addWidget(self.hide_btn)
+
+        self.show_btn = QPushButton("Show ▲")
+        self.show_btn.setToolTip("Move selected tab to visible")
+        self.show_btn.clicked.connect(self._show_selected)
+        btn_layout.addWidget(self.show_btn)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        # Hidden tabs section
+        hidden_label = QLabel("Hidden Tabs:")
+        hidden_label.setFont(QFont(hidden_label.font().family(), -1, QFont.Weight.Bold))
+        layout.addWidget(hidden_label)
+
+        self.hidden_list = QListWidget()
+        self.hidden_list.setMinimumHeight(60)
+        self.hidden_list.setMaximumHeight(80)
+        layout.addWidget(self.hidden_list)
+
+        # Info label
+        info_label = QLabel("🔒 = Required (cannot hide)")
+        info_label.setStyleSheet("color: gray; font-style: italic; font-size: 11px;")
+        layout.addWidget(info_label)
+
+    def load_tab_settings(self, tab_order: list, hidden_tabs: list):
+        """Load tab order and visibility from settings"""
+        self.visible_list.clear()
+        self.hidden_list.clear()
+
+        # Build lookup for tab info
+        tab_info = {tab[0]: (tab[1], tab[2]) for tab in ALL_TABS}
+
+        # Add visible tabs in order
+        for tab_id in tab_order:
+            if tab_id in tab_info and tab_id not in hidden_tabs:
+                display_name, is_required = tab_info[tab_id]
+                self._add_tab_item(self.visible_list, tab_id, display_name, is_required)
+
+        # Add any tabs not in order (new tabs) to visible list
+        for tab_id, display_name, is_required in ALL_TABS:
+            if tab_id not in tab_order and tab_id not in hidden_tabs:
+                self._add_tab_item(self.visible_list, tab_id, display_name, is_required)
+
+        # Add hidden tabs
+        for tab_id in hidden_tabs:
+            if tab_id in tab_info:
+                display_name, is_required = tab_info[tab_id]
+                # Required tabs can't be hidden - move to visible
+                if is_required:
+                    self._add_tab_item(self.visible_list, tab_id, display_name, is_required)
+                else:
+                    self._add_tab_item(self.hidden_list, tab_id, display_name, is_required)
+
+    def _add_tab_item(self, list_widget: QListWidget, tab_id: str, display_name: str, is_required: bool):
+        """Add a tab item to a list widget"""
+        # Show lock icon for required tabs
+        text = f"🔒 {display_name}" if is_required else display_name
+        item = QListWidgetItem(text)
+        item.setData(Qt.ItemDataRole.UserRole, tab_id)
+        item.setData(Qt.ItemDataRole.UserRole + 1, is_required)
+
+        # Make required tabs not draggable to hidden
+        if is_required:
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+
+        list_widget.addItem(item)
+
+    def _hide_selected(self):
+        """Move selected visible tab to hidden"""
+        current = self.visible_list.currentItem()
+        if not current:
+            return
+
+        is_required = current.data(Qt.ItemDataRole.UserRole + 1)
+        if is_required:
+            QMessageBox.information(self, "Required Tab",
+                "This tab is required and cannot be hidden.")
+            return
+
+        tab_id = current.data(Qt.ItemDataRole.UserRole)
+        display_name = current.text()
+
+        # Remove from visible, add to hidden
+        row = self.visible_list.row(current)
+        self.visible_list.takeItem(row)
+
+        item = QListWidgetItem(display_name)
+        item.setData(Qt.ItemDataRole.UserRole, tab_id)
+        item.setData(Qt.ItemDataRole.UserRole + 1, False)
+        self.hidden_list.addItem(item)
+
+        self.order_changed.emit()
+
+    def _show_selected(self):
+        """Move selected hidden tab to visible"""
+        current = self.hidden_list.currentItem()
+        if not current:
+            return
+
+        tab_id = current.data(Qt.ItemDataRole.UserRole)
+        display_name = current.text()
+
+        # Remove from hidden, add to visible at end
+        row = self.hidden_list.row(current)
+        self.hidden_list.takeItem(row)
+
+        item = QListWidgetItem(display_name)
+        item.setData(Qt.ItemDataRole.UserRole, tab_id)
+        item.setData(Qt.ItemDataRole.UserRole + 1, False)
+        self.visible_list.addItem(item)
+
+        self.order_changed.emit()
+
+    def _on_order_changed(self):
+        """Handle when tab order changes via drag-drop"""
+        self.order_changed.emit()
+
+    def get_tab_order(self) -> list:
+        """Get current tab order (visible tabs only)"""
+        order = []
+        for i in range(self.visible_list.count()):
+            item = self.visible_list.item(i)
+            order.append(item.data(Qt.ItemDataRole.UserRole))
+        return order
+
+    def get_hidden_tabs(self) -> list:
+        """Get list of hidden tab IDs"""
+        hidden = []
+        for i in range(self.hidden_list.count()):
+            item = self.hidden_list.item(i)
+            hidden.append(item.data(Qt.ItemDataRole.UserRole))
+        return hidden
+
+    def apply_theme(self):
+        """Apply current theme to the widget"""
+        colors = theme_manager.get_colors()
+
+        list_style = f"""
+            QListWidget {{
+                background-color: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+                padding: 4px;
+                color: {colors['text_primary']};
+            }}
+            QListWidget::item {{
+                padding: 6px 8px;
+                border-radius: 3px;
+                margin: 2px 0;
+            }}
+            QListWidget::item:selected {{
+                background-color: {colors['primary']};
+                color: {colors['background']};
+            }}
+            QListWidget::item:hover {{
+                background-color: {colors['hover']};
+            }}
+        """
+
+        self.visible_list.setStyleSheet(list_style)
+        self.hidden_list.setStyleSheet(list_style)
 
 
 class SettingsDialog(QDialog):
@@ -36,11 +256,15 @@ class SettingsDialog(QDialog):
         main_layout.setSpacing(15)
 
         # Header
-        header_label = QLabel("Application Settings")
+        header_label = QLabel("Budget Settings")
         header_label.setFont(theme_manager.get_font("title"))
         main_layout.addWidget(header_label)
 
-        # Create 2-column layout for settings groups
+        # ============================================
+        # TOP SECTION: 2-column layout
+        # Left: Graph and Data + Appearance (stacked)
+        # Right: Tab Selection/Sort (spans full height)
+        # ============================================
         columns_layout = QHBoxLayout()
         columns_layout.setSpacing(20)
 
@@ -48,32 +272,15 @@ class SettingsDialog(QDialog):
         left_column = QVBoxLayout()
         left_column.setSpacing(15)
 
-        # Sorting settings group (LEFT)
-        sorting_group = QGroupBox("Sorting Settings")
-        sorting_layout = QFormLayout()
+        # --- Graph and Data Group ---
+        graph_data_group = QGroupBox("Graph and Data")
+        graph_data_layout = QFormLayout()
 
-        # Bills sorting order
-        self.bills_sort_combo = QComboBox()
-        self.bills_sort_combo.addItems(["Alphabetical", "Amount (High to Low)", "Amount (Low to High)", "Due Date"])
-        sorting_layout.addRow("Bills Sort Order:", self.bills_sort_combo)
-
-        # Savings sorting order
-        self.savings_sort_combo = QComboBox()
-        self.savings_sort_combo.addItems(["Alphabetical", "Balance (High to Low)", "Balance (Low to High)", "Goal Progress"])
-        sorting_layout.addRow("Savings Sort Order:", self.savings_sort_combo)
-
-        sorting_group.setLayout(sorting_layout)
-        left_column.addWidget(sorting_group)
-
-        # Graph Filtering settings group (LEFT)
-        filtering_group = QGroupBox("Graph Filtering Settings")
-        filtering_layout = QFormLayout()
-
-        # Default "Normal Spending Only" checkbox state
-        self.default_analytics_checkbox = QCheckBox("Default to Normal Spending Only")
-        self.default_analytics_checkbox.setChecked(True)  # Default to true
-        self.default_analytics_checkbox.setToolTip("When enabled, the dashboard will start with 'Normal Spending Only' checked")
-        filtering_layout.addRow("", self.default_analytics_checkbox)
+        # Normal only checkbox (Label [checkbox])
+        self.default_analytics_checkbox = QCheckBox()
+        self.default_analytics_checkbox.setChecked(True)
+        self.default_analytics_checkbox.setToolTip("When enabled, charts will filter out abnormal spending by default")
+        graph_data_layout.addRow("Normal Only:", self.default_analytics_checkbox)
 
         # Time frame filtering dropdown
         self.time_frame_combo = QComboBox()
@@ -84,141 +291,151 @@ class SettingsDialog(QDialog):
             "Last 20 Entries"
         ])
         self.time_frame_combo.setToolTip("Filter charts and plots to show only recent data")
-        filtering_layout.addRow("Time Frame Filter:", self.time_frame_combo)
+        graph_data_layout.addRow("Time Frame Filter:", self.time_frame_combo)
 
-        # Dashboard chart account fields (moved from dashboard group)
+        # Dashboard charts - both dropdowns on same row
+        charts_widget = QWidget()
+        charts_layout = QHBoxLayout(charts_widget)
+        charts_layout.setContentsMargins(0, 0, 0, 0)
+        charts_layout.setSpacing(10)
+
         self.chart1_account_combo = QComboBox()
         self.populate_account_combo(self.chart1_account_combo)
-        filtering_layout.addRow("First Chart Account:", self.chart1_account_combo)
+        charts_layout.addWidget(self.chart1_account_combo)
 
         self.chart2_account_combo = QComboBox()
         self.populate_account_combo(self.chart2_account_combo)
-        filtering_layout.addRow("Second Chart Account:", self.chart2_account_combo)
+        charts_layout.addWidget(self.chart2_account_combo)
 
-        filtering_group.setLayout(filtering_layout)
-        left_column.addWidget(filtering_group)
+        graph_data_layout.addRow("Dashboard Charts:", charts_widget)
 
-        # RIGHT COLUMN
+        # Backup buttons row
+        backup_widget = QWidget()
+        backup_layout = QHBoxLayout(backup_widget)
+        backup_layout.setContentsMargins(0, 0, 0, 0)
+        backup_layout.setSpacing(10)
+
+        make_backup_btn = QPushButton("Make Backup")
+        make_backup_btn.setToolTip("Create a backup of your data in the BackUps folder")
+        make_backup_btn.clicked.connect(self.make_backup)
+        backup_layout.addWidget(make_backup_btn)
+
+        restore_backup_btn = QPushButton("Restore Backup")
+        restore_backup_btn.setToolTip("Restore data from a previous backup")
+        restore_backup_btn.clicked.connect(self.restore_backup)
+        backup_layout.addWidget(restore_backup_btn)
+
+        graph_data_layout.addRow("Backups:", backup_widget)
+
+        graph_data_group.setLayout(graph_data_layout)
+        left_column.addWidget(graph_data_group)
+
+        # --- Appearance Group ---
+        appearance_group = QGroupBox("Appearance")
+        appearance_layout = QFormLayout()
+
+        self.default_theme_combo = QComboBox()
+        self.populate_theme_combo()
+        appearance_layout.addRow("Theme:", self.default_theme_combo)
+
+        appearance_group.setLayout(appearance_layout)
+        left_column.addWidget(appearance_group)
+
+        # Add stretch to push groups to top
+        left_column.addStretch()
+
+        # RIGHT COLUMN - Tab Selection/Sort
         right_column = QVBoxLayout()
         right_column.setSpacing(15)
 
-        # Theme settings group (RIGHT)
-        theme_group = QGroupBox("Theme Settings")
-        theme_layout = QFormLayout()
+        tab_group = QGroupBox("Tab Selection/Sort")
+        tab_layout = QVBoxLayout()
 
-        # Default theme dropdown
-        self.default_theme_combo = QComboBox()
-        self.populate_theme_combo()
-        theme_layout.addRow("Default Theme:", self.default_theme_combo)
+        # Tab order widget with drag-drop
+        self.tab_order_widget = TabOrderWidget()
+        tab_layout.addWidget(self.tab_order_widget)
 
-        theme_group.setLayout(theme_layout)
-        right_column.addWidget(theme_group)
-
-        # Calculator settings group (RIGHT)
-        calculator_group = QGroupBox("Calculator Settings")
-        calculator_layout = QFormLayout()
-
-        # Default hourly rate
-        self.hourly_rate_spin = QDoubleSpinBox()
-        self.hourly_rate_spin.setMinimum(0.01)
-        self.hourly_rate_spin.setMaximum(1000.00)
-        self.hourly_rate_spin.setDecimals(2)
-        self.hourly_rate_spin.setValue(50.00)  # Default value
-        self.hourly_rate_spin.setSuffix(" $/hour")
-        self.hourly_rate_spin.setToolTip("Default hourly rate for the hour calculator")
-        calculator_layout.addRow("Default Hourly Rate:", self.hourly_rate_spin)
-
-        calculator_group.setLayout(calculator_layout)
-        right_column.addWidget(calculator_group)
-
-        # Feature toggles group (RIGHT)
-        features_group = QGroupBox("Features")
-        features_layout = QFormLayout()
-
-        # Tax feature toggle
-        self.tax_feature_checkbox = QCheckBox("Enable Tax Features")
-        self.tax_feature_checkbox.setChecked(False)  # Default to false
-        self.tax_feature_checkbox.setToolTip("Enable the Taxes tab for tax tracking and management")
-        features_layout.addRow("", self.tax_feature_checkbox)
-
-        # Testing mode toggle
-        self.testing_mode_checkbox = QCheckBox("Testing Mode")
-        self.testing_mode_checkbox.setChecked(False)  # Default to false
-        self.testing_mode_checkbox.setToolTip("Enable testing mode for development and debugging")
-        features_layout.addRow("", self.testing_mode_checkbox)
-
-        # Transactions tab toggle
-        self.transactions_tab_checkbox = QCheckBox("Enable Transactions Tab")
-        self.transactions_tab_checkbox.setChecked(False)  # Default to false
-        self.transactions_tab_checkbox.setToolTip("Enable the Transactions tab for advanced data inspection and debugging")
-        features_layout.addRow("", self.transactions_tab_checkbox)
-
-        features_group.setLayout(features_layout)
-        right_column.addWidget(features_group)
+        tab_group.setLayout(tab_layout)
+        right_column.addWidget(tab_group)
 
         # Add columns to main layout
-        columns_layout.addLayout(left_column)
-        columns_layout.addLayout(right_column)
+        columns_layout.addLayout(left_column, 1)  # stretch factor 1
+        columns_layout.addLayout(right_column, 1)  # stretch factor 1
         main_layout.addLayout(columns_layout)
 
-        # Data management group
-        data_group = QGroupBox("Data Management")
-        data_layout = QVBoxLayout()
+        # ============================================
+        # BOTTOM SECTION: Advanced (full width)
+        # ============================================
+        advanced_group = QGroupBox("Advanced")
+        advanced_layout = QVBoxLayout()
 
-        # Create 2x2 grid for buttons
-        button_grid = QGridLayout()
+        # Row 1: Testing mode checkbox
+        row1_widget = QWidget()
+        row1_layout = QHBoxLayout(row1_widget)
+        row1_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Top row - Data management functions
-        import_test_button = QPushButton("📥 Import Data")
-        import_test_button.setStyleSheet("color: blue; font-weight: bold; padding: 8px;")
-        import_test_button.setToolTip("Import data from Excel file (supports Replace, Merge, and Append modes)")
-        import_test_button.clicked.connect(self.import_test_data)
-        button_grid.addWidget(import_test_button, 0, 0)
+        self.testing_mode_checkbox = QCheckBox()
+        self.testing_mode_checkbox.setChecked(False)
+        self.testing_mode_checkbox.setToolTip("Enable testing mode for development and debugging")
+        row1_layout.addWidget(QLabel("Testing Mode:"))
+        row1_layout.addWidget(self.testing_mode_checkbox)
+        row1_layout.addStretch()
 
-        reset_test_button = QPushButton("🧪 Load Test Data")
-        reset_test_button.setStyleSheet("color: orange; font-weight: bold; padding: 8px;")
-        reset_test_button.setToolTip("Delete ALL data and generate fresh test data (accounts, bills, transactions)")
-        reset_test_button.clicked.connect(self.confirm_load_test_data)
-        button_grid.addWidget(reset_test_button, 0, 1)
+        advanced_layout.addWidget(row1_widget)
 
-        # Bottom row - Data management
-        export_data_button = QPushButton("📊 Export Data")
-        export_data_button.setStyleSheet("color: green; font-weight: bold; padding: 8px;")
-        export_data_button.setToolTip("Export all data to Excel file (can be re-imported later)")
-        export_data_button.clicked.connect(self.export_data)
-        button_grid.addWidget(export_data_button, 1, 0)
+        # Row 2: Export/Import buttons
+        row2_widget = QWidget()
+        row2_layout = QHBoxLayout(row2_widget)
+        row2_layout.setContentsMargins(0, 0, 0, 0)
 
-        reset_data_button = QPushButton("🗑️ Reset All Data")
-        reset_data_button.setStyleSheet("color: red; font-weight: bold; padding: 8px;")
-        reset_data_button.setToolTip("Permanently delete all transactions, accounts, bills, and weeks")
-        reset_data_button.clicked.connect(self.confirm_reset_data)
-        button_grid.addWidget(reset_data_button, 1, 1)
+        export_btn = QPushButton("Export Data")
+        export_btn.setToolTip("Export all data to Excel file")
+        export_btn.clicked.connect(self.export_data)
+        row2_layout.addWidget(export_btn)
 
-        # Add grid to layout
-        data_layout.addLayout(button_grid)
+        import_btn = QPushButton("Import Data")
+        import_btn.setToolTip("Import data from Excel file")
+        import_btn.clicked.connect(self.import_test_data)
+        row2_layout.addWidget(import_btn)
 
-        # Warning label
-        warning_label = QLabel("⚠️ Warning: Reset will permanently delete ALL your data!")
-        warning_label.setStyleSheet("color: orange; font-style: italic; padding: 5px;")
-        data_layout.addWidget(warning_label)
+        row2_layout.addStretch()
 
-        data_group.setLayout(data_layout)
-        main_layout.addWidget(data_group)
+        advanced_layout.addWidget(row2_widget)
 
-        # Buttons (Reset left, Cancel/Save right with Save focused)
+        # Row 3: Load Test Data + Reset All Data (dangerous buttons at bottom)
+        row3_widget = QWidget()
+        row3_layout = QHBoxLayout(row3_widget)
+        row3_layout.setContentsMargins(0, 0, 0, 0)
+
+        load_test_btn = QPushButton("Load Test Data")
+        load_test_btn.setToolTip("Delete ALL data and generate fresh test data")
+        load_test_btn.clicked.connect(self.confirm_load_test_data)
+        row3_layout.addWidget(load_test_btn)
+
+        reset_data_btn = QPushButton("Reset All Data")
+        reset_data_btn.setStyleSheet("color: red; font-weight: bold;")
+        reset_data_btn.setToolTip("Permanently delete all transactions, accounts, bills, and weeks")
+        reset_data_btn.clicked.connect(self.confirm_reset_data)
+        row3_layout.addWidget(reset_data_btn)
+
+        row3_layout.addStretch()
+
+        advanced_layout.addWidget(row3_widget)
+
+        advanced_group.setLayout(advanced_layout)
+        main_layout.addWidget(advanced_group)
+
+        # ============================================
+        # DIALOG BUTTONS: Cancel / Save
+        # ============================================
         button_layout = QHBoxLayout()
-
-        self.reset_button = QPushButton("Reset to Defaults")
-        self.reset_button.clicked.connect(self.reset_to_defaults)
-        button_layout.addWidget(self.reset_button)
-
         button_layout.addStretch()
 
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
 
-        self.save_button = QPushButton("Save Changes")
+        self.save_button = QPushButton("Save")
         self.save_button.clicked.connect(self.save_settings)
         self.save_button.setDefault(True)
         button_layout.addWidget(self.save_button)
@@ -226,9 +443,8 @@ class SettingsDialog(QDialog):
         # Apply button theme
         self.apply_button_theme()
 
-        main_layout.addWidget(QGroupBox())  # Spacer
         main_layout.addLayout(button_layout)
-        
+
         self.setLayout(main_layout)
     
     def populate_theme_combo(self):
@@ -287,33 +503,17 @@ class SettingsDialog(QDialog):
         theme_index = self.default_theme_combo.findData(self.current_settings.get("default_theme", "dark"))
         if theme_index >= 0:
             self.default_theme_combo.setCurrentIndex(theme_index)
-        
-        # Set bills sort order
-        bills_sort = self.current_settings.get("bills_sort_order", "Alphabetical")
-        bills_index = self.bills_sort_combo.findText(bills_sort)
-        if bills_index >= 0:
-            self.bills_sort_combo.setCurrentIndex(bills_index)
-        
-        # Set savings sort order
-        savings_sort = self.current_settings.get("savings_sort_order", "Alphabetical")
-        savings_index = self.savings_sort_combo.findText(savings_sort)
-        if savings_index >= 0:
-            self.savings_sort_combo.setCurrentIndex(savings_index)
-        
+
         # Set dashboard chart accounts
         chart1_account = self.current_settings.get("dashboard_chart1_account", "random")
         chart1_index = self.chart1_account_combo.findData(chart1_account)
         if chart1_index >= 0:
             self.chart1_account_combo.setCurrentIndex(chart1_index)
-            
+
         chart2_account = self.current_settings.get("dashboard_chart2_account", "random")
         chart2_index = self.chart2_account_combo.findData(chart2_account)
         if chart2_index >= 0:
             self.chart2_account_combo.setCurrentIndex(chart2_index)
-            
-        # Set default hourly rate
-        hourly_rate = self.current_settings.get("default_hourly_rate", 50.00)
-        self.hourly_rate_spin.setValue(hourly_rate)
 
         # Set default analytics checkbox state
         default_analytics = self.current_settings.get("default_analytics_only", True)
@@ -325,32 +525,35 @@ class SettingsDialog(QDialog):
         if time_frame_index >= 0:
             self.time_frame_combo.setCurrentIndex(time_frame_index)
 
-        # Set tax features checkbox state
-        enable_tax = self.current_settings.get("enable_tax_features", False)
-        self.tax_feature_checkbox.setChecked(enable_tax)
-
         # Set testing mode checkbox state
         testing_mode = self.current_settings.get("testing_mode", False)
         self.testing_mode_checkbox.setChecked(testing_mode)
 
-        # Set transactions tab checkbox state
-        enable_transactions = self.current_settings.get("enable_transactions_tab", False)
-        self.transactions_tab_checkbox.setChecked(enable_transactions)
-    
+        # Load tab order settings
+        tab_order = self.current_settings.get("tab_order", DEFAULT_TAB_ORDER)
+        hidden_tabs = self.current_settings.get("hidden_tabs", DEFAULT_HIDDEN_TABS)
+        self.tab_order_widget.load_tab_settings(tab_order, hidden_tabs)
+
     def get_ui_settings(self):
         """Get current settings from UI controls"""
+        # Get existing settings to preserve values not shown in UI
+        existing = load_app_settings()
+
+        # Update with UI values
         return {
             "default_theme": self.default_theme_combo.currentData(),
-            "bills_sort_order": self.bills_sort_combo.currentText(),
-            "savings_sort_order": self.savings_sort_combo.currentText(),
+            "bills_sort_order": existing.get("bills_sort_order", "Alphabetical"),  # Preserved from local controls
+            "savings_sort_order": existing.get("savings_sort_order", "Alphabetical"),  # Preserved from local controls
             "dashboard_chart1_account": self.chart1_account_combo.currentData(),
             "dashboard_chart2_account": self.chart2_account_combo.currentData(),
-            "default_hourly_rate": self.hourly_rate_spin.value(),
+            "default_hourly_rate": existing.get("default_hourly_rate", 50.00),  # Preserved from hour calculator
             "default_analytics_only": self.default_analytics_checkbox.isChecked(),
             "time_frame_filter": self.time_frame_combo.currentText(),
-            "enable_tax_features": self.tax_feature_checkbox.isChecked(),
+            "enable_tax_features": existing.get("enable_tax_features", False),  # Preserved
             "testing_mode": self.testing_mode_checkbox.isChecked(),
-            "enable_transactions_tab": self.transactions_tab_checkbox.isChecked()
+            "enable_transactions_tab": existing.get("enable_transactions_tab", False),  # Preserved
+            "tab_order": self.tab_order_widget.get_tab_order(),
+            "hidden_tabs": self.tab_order_widget.get_hidden_tabs()
         }
     
     def apply_button_theme(self):
@@ -377,8 +580,7 @@ class SettingsDialog(QDialog):
             }}
         """)
 
-        # Reset and Cancel buttons use default theme styling (cleared)
-        self.reset_button.setStyleSheet("")
+        # Cancel button uses default theme styling (cleared)
         self.cancel_button.setStyleSheet("")
 
     def reset_to_defaults(self):
@@ -637,6 +839,113 @@ class SettingsDialog(QDialog):
             
         except Exception as e:
             print(f"Error applying theme to settings dialog: {e}")
+
+    def make_backup(self):
+        """Create a backup of all data files to BackUps folder"""
+        import shutil
+        from datetime import datetime
+
+        try:
+            # Create BackUps folder if it doesn't exist
+            backup_dir = "BackUps"
+            if not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+
+            # Create dated subfolder
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+            backup_path = os.path.join(backup_dir, timestamp)
+            os.makedirs(backup_path)
+
+            # Files to backup
+            files_to_backup = [
+                "budget.db",
+                "app_settings.json",
+                "scratch_pad_workspace.json"
+            ]
+
+            backed_up = []
+            for filename in files_to_backup:
+                if os.path.exists(filename):
+                    shutil.copy2(filename, backup_path)
+                    backed_up.append(filename)
+
+            if backed_up:
+                QMessageBox.information(
+                    self,
+                    "Backup Complete",
+                    f"Backup created successfully!\n\nLocation: {backup_path}\n\nFiles backed up:\n" + "\n".join(f"  - {f}" for f in backed_up)
+                )
+            else:
+                QMessageBox.warning(self, "Backup", "No files found to backup.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Backup Error", f"Failed to create backup: {str(e)}")
+
+    def restore_backup(self):
+        """Show list of available backups and restore selected one"""
+        import shutil
+
+        try:
+            backup_dir = "BackUps"
+            if not os.path.exists(backup_dir):
+                QMessageBox.information(self, "No Backups", "No backups found. The BackUps folder doesn't exist.")
+                return
+
+            # Get list of backup folders
+            backups = sorted([d for d in os.listdir(backup_dir) if os.path.isdir(os.path.join(backup_dir, d))], reverse=True)
+
+            if not backups:
+                QMessageBox.information(self, "No Backups", "No backup folders found in BackUps directory.")
+                return
+
+            # Show selection dialog
+            from PyQt6.QtWidgets import QInputDialog
+            backup_name, ok = QInputDialog.getItem(
+                self,
+                "Restore Backup",
+                "Select a backup to restore:",
+                backups,
+                0,
+                False
+            )
+
+            if not ok or not backup_name:
+                return
+
+            # Confirm restore
+            reply = QMessageBox.warning(
+                self,
+                "Confirm Restore",
+                f"This will replace your current data with the backup from:\n\n{backup_name}\n\nThis action cannot be undone. Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            backup_path = os.path.join(backup_dir, backup_name)
+            restored = []
+
+            # Files to restore
+            for filename in ["budget.db", "app_settings.json", "scratch_pad_workspace.json"]:
+                backup_file = os.path.join(backup_path, filename)
+                if os.path.exists(backup_file):
+                    shutil.copy2(backup_file, filename)
+                    restored.append(filename)
+
+            if restored:
+                QMessageBox.information(
+                    self,
+                    "Restore Complete",
+                    f"Backup restored successfully!\n\nFiles restored:\n" + "\n".join(f"  - {f}" for f in restored) +
+                    "\n\nPlease restart the application for changes to take effect."
+                )
+            else:
+                QMessageBox.warning(self, "Restore", "No files found in the selected backup.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Restore Error", f"Failed to restore backup: {str(e)}")
 
     def confirm_reset_data(self):
         """Math-based confirmation dialog for data reset"""
@@ -1791,3 +2100,16 @@ def get_setting(key, default=None):
     """Get a specific setting value"""
     settings = load_app_settings()
     return settings.get(key, default)
+
+
+def save_setting(key, value):
+    """Save a specific setting value to app_settings.json"""
+    try:
+        settings = load_app_settings()
+        settings[key] = value
+        with open("app_settings.json", 'w') as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving setting {key}: {e}")
+        return False

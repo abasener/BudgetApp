@@ -359,6 +359,15 @@ class TransactionTableWidget(QTableWidget):
                     return float(value.replace("$", "").replace(",", ""))
                 return float(value)
             except (ValueError, AttributeError):
+                # Check if this is a date column (format: M/D/YYYY or MM/DD/YYYY)
+                if isinstance(value, str) and "/" in value and column_name.lower() in ("date", "earned", "start"):
+                    try:
+                        from datetime import datetime
+                        # Parse M/D/YYYY format and return sortable tuple (year, month, day)
+                        date_obj = datetime.strptime(value, "%m/%d/%Y")
+                        return (date_obj.year, date_obj.month, date_obj.day)
+                    except ValueError:
+                        pass
                 return str(value).lower()
 
         self.filtered_rows.sort(key=get_sort_key, reverse=reverse)

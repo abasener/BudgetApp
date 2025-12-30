@@ -1,6 +1,6 @@
 # 🚀 BudgetApp V2 - Project Roadmap
 
-**Last Updated:** December 22, 2025
+**Last Updated:** December 26, 2025
 **Current Phase:** Phase 4 - Polish & Bug Fixes
 
 ---
@@ -626,23 +626,32 @@ Quality-of-life improvements, edge case handling, and UI refinements before retu
 
 | Category | Issue | Priority | Status |
 |----------|-------|----------|--------|
-| 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | ✅ Complete |
-| 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | ✅ Complete |
-| 🐛 **Critical Bugs** | Transactions tab - Sign display incorrect | 🔴 High | ✅ Refactored |
-| ✨ **Refactoring** | Transactions tab - Sub-tab restructure | 🔴 High | ✅ Complete |
-| 🐛 **Critical Bugs** | Scratch Pad - Refresh removes formatting | 🔴 High | ✅ Complete |
 | 🐛 **Display Issues** | Week tab - Starting/ending amounts display same | 🟡 Medium | 📋 Todo |
 | 🎨 **Theme System** | Theme colors/fonts not updating consistently | 🟡 Medium | 📋 Todo |
-| ✨ **Feature Polish** | Categories tab - Include Abnormal checkbox | 🟡 Medium | ✅ Complete |
-| ✨ **Feature Polish** | Current Week/Paycheck Highlighting | 🟡 Medium | ✅ Complete |
 | ✨ **Feature Polish** | Week tab - Edit transaction dates | 🟡 Medium | 📋 Todo |
-| ✨ **Feature Polish** | Tab reordering system | 🟡 Medium | 💭 Design |
-| ✨ **Feature Polish** | Scratch Pad - Case-insensitive & advanced paste | 🟡 Medium | 📋 Todo |
-| ⚙️ **Settings Overhaul** | Export/Import all data | 🟡 Medium | 💭 Design |
-| ⚙️ **Settings Overhaul** | Tab visibility toggles | 🟡 Medium | 📋 Todo |
 | 🔧 **Low Priority** | Year tab - Better visualizations for bottom plots | 🟢 Low | 💭 Design |
 | 🔧 **Low Priority** | Dashboard dynamic sizing | 🟢 Low | 💭 Design |
 | 🔧 **Low Priority** | Other Income transaction type | 🟢 Low | 💭 Design |
+
+---
+
+### ✅ Completed Bug/Polish Overview
+
+| Category | Issue | Priority | Completed |
+|----------|-------|----------|-----------|
+| 🐛 **Critical Bugs** | Transactions tab - Editing not saving | 🔴 High | Dec 2025 |
+| 🐛 **Critical Bugs** | Tax tab scrollbar disappeared | 🔴 High | Nov 2025 |
+| 🐛 **Critical Bugs** | Transactions tab - Sign display incorrect | 🔴 High | Dec 2025 |
+| ✨ **Refactoring** | Transactions tab - Sub-tab restructure | 🔴 High | Dec 2025 |
+| 🐛 **Critical Bugs** | Scratch Pad - Refresh removes formatting | 🔴 High | Dec 2025 |
+| ✨ **Feature Polish** | Categories tab - Include Abnormal checkbox | 🟡 Medium | Nov 2025 |
+| ✨ **Feature Polish** | Current Week/Paycheck Highlighting | 🟡 Medium | Nov 2025 |
+| ✨ **Feature Polish** | Tab reordering system | 🟡 Medium | Dec 2025 |
+| ⚙️ **Settings Overhaul** | Settings Dialog Reorganization | 🟡 Medium | Dec 2025 |
+| ⚙️ **Settings Overhaul** | Tab visibility & ordering (drag-drop) | 🟡 Medium | Dec 2025 |
+| ⚙️ **Settings Overhaul** | Backup/Restore system | 🟡 Medium | Dec 2025 |
+| ✨ **Feature Polish** | Scratch Pad - Case-insensitive formulas | 🟡 Medium | Dec 2025 |
+| ✨ **Feature Polish** | Scratch Pad - Paste values mode (Ctrl+Shift+V) | 🟡 Medium | Dec 2025 |
 
 ---
 
@@ -1141,131 +1150,76 @@ Add Excel-like paste options for formulas.
 ---
 
 <details>
-<summary><h3>⚙️ Settings Dialog Overhaul</h3></summary>
+<summary><h3>⚙️ Settings Dialog Overhaul (COMPLETE)</h3></summary>
 
-#### ⚙️ **Feature 4.13: Tab Visibility Toggles**
-**Status:** 📋 Todo | **Priority:** 🟡 Medium
+#### ⚙️ **Feature 4.13: Tab Visibility & Ordering**
+**Status:** ✅ Complete (December 2025) | **Priority:** 🟡 Medium
 
-**Purpose:**
-Allow users to hide tabs they don't use for cleaner interface.
+**Implemented:**
+- Drag-drop tab reordering widget (TabOrderWidget)
+- Hide/Show buttons to toggle tab visibility
+- Required tabs (Bills, Savings, Weekly) cannot be hidden (show 🔒 icon)
+- Tab order and hidden tabs saved to `app_settings.json`
+- main.py `rebuild_tabs()` dynamically updates tabs on settings save
 
-**Always Visible (Core Tabs):**
-- Dashboard
-- Weekly
-- Bills
-- Savings
-
-**Optional Tabs (Can Toggle Off):**
-- Reimbursements (default: ON)
-- Categories (default: ON)
-- Year Overview (default: ON)
-- Taxes (default: OFF - already toggleable)
-- Scratch Pad (default: ON)
-- Transactions (default: OFF - already toggleable, admin tool)
-
-**Implementation:**
-- Add checkboxes to Settings dialog
-- Save to `app_settings.json`
-- Show/hide tabs on setting change (or require restart?)
-
-**Files to Modify:**
-- `views/dialogs/settings_dialog.py` - Add toggles
-- `main.py` - Conditional tab creation
+**Files Modified:**
+- `views/dialogs/settings_dialog.py` - TabOrderWidget class, integration
+- `main.py` - tab_widgets dict, rebuild_tabs() method
 
 ---
 
 #### ⚙️ **Feature 4.14: Settings - General Cleanup & Organization**
-**Status:** 📋 Todo | **Priority:** 🟡 Medium
+**Status:** ✅ Complete (December 2025) | **Priority:** 🟡 Medium
 
-**Purpose:**
-Reorganize Settings dialog into logical groups.
+**New Layout Structure:**
 
-**Proposed Structure:**
+```
++---------------------------------------------------------------+
+|                      Budget Settings                          |
++---------------------------------------------------------------+
+| LEFT COLUMN                  | RIGHT COLUMN                   |
+|   Graph and Data             |   Tab Selection/Sort           |
+|   - Normal Only checkbox     |   - Visible tabs (drag reorder)|
+|   - Time Frame Filter        |   - Hide/Show buttons          |
+|   - Dashboard Charts         |   - Hidden tabs list           |
+|   - Backups: Make/Restore    |   - 🔒 Required tab indicator  |
+|                              |                                |
+|   Appearance                 |                                |
+|   - Theme dropdown           |                                |
++---------------------------------------------------------------+
+|   Advanced (FULL WIDTH)                                       |
+|   - Testing Mode checkbox                                     |
+|   - Export Data / Import Data buttons                         |
+|   - Load Test Data / Reset All Data buttons                   |
++---------------------------------------------------------------+
+|                    [Save]  [Cancel]                           |
++---------------------------------------------------------------+
+```
 
-**General:**
-- Default theme (on next launch)
-- Data directory location
-
-**Tab Visibility:**
-- Checkboxes for optional tabs (Feature 4.13)
-
-**Features:**
-- Enable Transactions Tab ✅ (already exists)
-- Enable Taxes Tab ✅ (already exists)
-- Testing/Debug Mode toggle
-- Other feature flags
-
-**Data Management:**
-- Export All Data (Feature 4.15)
-- Import All Data (Feature 4.16)
-
-**Files to Modify:**
-- `views/dialogs/settings_dialog.py` - Reorganize layout
-
----
-
-#### ⚙️ **Feature 4.15: Export All Data**
-**Status:** 💭 Design | **Priority:** 🟡 Medium
-
-**Purpose:**
-Export all app data for backup/sharing.
-
-**Export Options (User Selects):**
-- ☑ Settings (`app_settings.json`)
-- ☑ Database (`.db` file or SQL dump)
-- ☑ Scratch Pad Workspace (`scratch_pad_workspace.json`)
-- ☑ Tax data (part of database?)
-- ☑ Reimbursements (part of database)
-- ☑ Year Overview data (calculated from database, not separate)
-
-**Export Format:**
-- **Option A:** Single ZIP file with all selected items
-  - Pros: Easy to share, single file
-  - Cons: User must unzip (can app auto-unzip on import?)
-
-- **Option B:** Separate files in selected folder
-  - Pros: Direct access to files
-  - Cons: Multiple files to manage
-
-**Decision:** Discuss when implementing (lean toward ZIP with auto-unzip on import)
-
-**Files to Modify:**
-- `views/dialogs/settings_dialog.py` - Export UI
-- New utility: `utils/data_export.py` or similar
+**Files Modified:**
+- `views/dialogs/settings_dialog.py` - Complete layout reorganization
 
 ---
 
-#### ⚙️ **Feature 4.16: Import All Data**
-**Status:** 💭 Design | **Priority:** 🟡 Medium
+#### ⚙️ **Feature 4.15: Backup/Restore System**
+**Status:** ✅ Complete (December 2025) | **Priority:** 🟡 Medium
 
-**Purpose:**
-Import exported data with conflict resolution.
+**Implemented:**
+- Make Backup button creates dated folder in `BackUps/YYYY-MM-DD_HHMMSS/`
+- Backs up: `budget.db`, `app_settings.json`, `scratch_pad_workspace.json`
+- Restore Backup shows dropdown picker of available backups
+- Restore copies files back and prompts for app restart
 
-**Import Conflict Handling:**
+**Files Modified:**
+- `views/dialogs/settings_dialog.py` - `make_backup()` and `restore_backup()` methods
 
-**Database:**
-- Overwrite: Replace entire database
-- Merge: Combine data (requires ID conflict resolution)
-- Cancel: Abort import
+---
 
-**Settings:**
-- Overwrite: Use imported settings
-- Merge: Keep current settings, import only new keys
-- Cancel: Keep current settings
+#### ⚙️ **Feature 4.16: Export/Import Data (Excel)**
+**Status:** ✅ Already Exists | **Priority:** 🟡 Medium
 
-**Scratch Pad:**
-- Overwrite: Replace workspace
-- Merge: Combine (how to handle cell conflicts?)
-- Cancel: Keep current workspace
-
-**Implementation:**
-- Similar to Excel import (reference: `views/dialogs/import_transactions_dialog.py`)
-- Show preview before committing
-- Backup current data before import
-
-**Files to Modify:**
-- `views/dialogs/settings_dialog.py` - Import UI
-- New utility: `utils/data_import.py` or similar
+**Note:** Export and Import buttons in Advanced section handle Excel-based data export/import.
+These were already implemented and remain in the new settings layout.
 
 ---
 

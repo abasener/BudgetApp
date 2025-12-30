@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from datetime import date, timedelta
 from themes import theme_manager
-from views.dialogs.settings_dialog import get_setting
+from views.dialogs.settings_dialog import get_setting, save_setting
 
 
 class HourCalculatorDialog(QDialog):
@@ -42,6 +42,7 @@ class HourCalculatorDialog(QDialog):
         default_rate = get_setting("default_hourly_rate", 50.00)
         self.hourly_rate_spin.setValue(default_rate)
         self.hourly_rate_spin.valueChanged.connect(self.calculate_breakdown)
+        self.hourly_rate_spin.valueChanged.connect(self.save_hourly_rate)
         form_layout.addRow("Hourly Rate ($):", self.hourly_rate_spin)
         
         # Hours worked per 2 weeks
@@ -98,7 +99,11 @@ class HourCalculatorDialog(QDialog):
         
         layout.addLayout(button_layout)
         self.setLayout(layout)
-    
+
+    def save_hourly_rate(self, value):
+        """Save hourly rate to app settings when changed"""
+        save_setting("default_hourly_rate", value)
+
     def calculate_breakdown(self):
         """Calculate and display the income/expense breakdown"""
         try:
