@@ -911,11 +911,9 @@ class ScratchPadView(QWidget):
                 self.on_formula_entered()
                 return True  # Consume event
 
-            # Handle Delete/Backspace - clear cell or edit in formula bar
+            # Handle Delete - clear all selected cells
             if key == QtCore.Key.Key_Delete:
-                if self.current_cell:
-                    self.set_cell_formula(self.current_cell, "")
-                    self.formula_edit.clear()
+                self.delete_selection()
                 return True
 
             if key == QtCore.Key.Key_Backspace:
@@ -954,9 +952,10 @@ class ScratchPadView(QWidget):
         return super().eventFilter(source, event)
 
     def copy_selection(self):
-        """Copy selected cells to clipboard (formulas).
+        """Copy selected cells to clipboard (formulas with format).
 
         Also stores the displayed values internally for Ctrl+Shift+V paste.
+        Format is stored as: formula|format (e.g., "=A1+B2|H1" or "Hello|P")
         """
         selected_ranges = self.table.selectedRanges()
         if not selected_ranges:
@@ -964,7 +963,8 @@ class ScratchPadView(QWidget):
 
         sel_range = selected_ranges[0]
 
-        # Build clipboard data as tab-separated formulas
+        # Build clipboard data as tab-separated formulas with format
+        # Format: formula|format_code (e.g., "=A1+B2|H1")
         # Also build values data for paste-as-values (Ctrl+Shift+V)
         clipboard_data = []
         values_data = []
@@ -975,13 +975,14 @@ class ScratchPadView(QWidget):
                 cell_ref = self.get_cell_ref(row, col)
                 if cell_ref in self.calculator.cells:
                     cell_data = self.calculator.cells[cell_ref]
-                    # Copy the formula
+                    # Copy the formula with format
                     formula = cell_data.get("formula", "")
-                    row_formulas.append(formula)
+                    format_type = cell_data.get("format", "P")
+                    # Store as formula|format (use | as separator since it's unlikely in formulas)
+                    row_formulas.append(f"{formula}|{format_type}")
 
                     # Also capture the displayed value for paste-as-values
                     value = cell_data.get("value", "")
-                    format_type = cell_data.get("format", "P")
                     if value is None or value == "":
                         row_values.append("")
                     elif isinstance(value, (int, float)):
@@ -998,12 +999,12 @@ class ScratchPadView(QWidget):
                     else:
                         row_values.append(str(value))
                 else:
-                    row_formulas.append("")
+                    row_formulas.append("|P")  # Empty cell with default format
                     row_values.append("")
             clipboard_data.append("\t".join(row_formulas))
             values_data.append("\t".join(row_values))
 
-        # Store formulas to clipboard (for Ctrl+V)
+        # Store formulas+format to clipboard (for Ctrl+V)
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
         clipboard.setText("\n".join(clipboard_data))
@@ -1012,7 +1013,11 @@ class ScratchPadView(QWidget):
         self._copied_values = "\n".join(values_data)
 
     def paste_selection(self):
-        """Paste clipboard data to selected cells"""
+        """Paste clipboard data to selected cells (with format if available).
+
+        Clipboard data format: formula|format_code (e.g., "=A1+B2|H1")
+        If no | separator found, assumes plain text with default format.
+        """
         from PyQt6.QtWidgets import QApplication
 
         clipboard = QApplication.clipboard()
@@ -1049,7 +1054,19 @@ class ScratchPadView(QWidget):
                     continue
 
                 target_ref = self.get_cell_ref(target_row, target_col)
-                self.set_cell_formula(target_ref, cell_text)
+
+                # Parse formula and format (format: "formula|format_code")
+                if "|" in cell_text:
+                    # Split from the RIGHT to handle formulas that might contain |
+                    parts = cell_text.rsplit("|", 1)
+                    formula = parts[0]
+                    format_code = parts[1] if len(parts) > 1 and parts[1] in ("P", "H1", "H2", "n", "$", "%") else "P"
+                else:
+                    # Plain text without format (e.g., pasted from external source)
+                    formula = cell_text
+                    format_code = "P"
+
+                self.set_cell_formula(target_ref, formula, format_type=format_code)
 
     def paste_selection_values(self):
         """Paste the displayed values (not formulas) from the last copy operation.
@@ -1096,6 +1113,29 @@ class ScratchPadView(QWidget):
 
                 target_ref = self.get_cell_ref(target_row, target_col)
                 self.set_cell_formula(target_ref, cell_text)
+
+    def delete_selection(self):
+        """Delete/clear all selected cells"""
+        selected_ranges = self.table.selectedRanges()
+        if not selected_ranges:
+            # No selection, clear current cell if any
+            if self.current_cell:
+                self.set_cell_formula(self.current_cell, "")
+                self.formula_edit.clear()
+            return
+
+        # Clear all cells in selection
+        for sel_range in selected_ranges:
+            for row in range(sel_range.topRow(), sel_range.bottomRow() + 1):
+                for col in range(sel_range.leftColumn(), sel_range.rightColumn() + 1):
+                    cell_ref = self.get_cell_ref(row, col)
+                    self.set_cell_formula(cell_ref, "")
+
+        # Clear formula bar
+        self.formula_edit.clear()
+
+        # Save changes
+        self.save_workspace()
 
     def apply_theme(self):
         """Apply current theme to the view"""
