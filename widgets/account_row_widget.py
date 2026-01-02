@@ -2,7 +2,7 @@
 Account Row Widget - Individual savings account display widget with progress bars, buttons, and charts
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar,
                              QPushButton, QFrame, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 from themes import theme_manager
@@ -13,29 +13,31 @@ import math
 
 class AccountRowWidget(QWidget):
     """Widget representing a single savings account with all its components"""
-    
+
     # Signals for popup buttons
     see_more_clicked = pyqtSignal(object)  # Pass account object
     see_history_clicked = pyqtSignal(object)  # Pass account object
-    
-    def __init__(self, account, transaction_manager, parent=None):
+    activation_changed = pyqtSignal(object, bool)  # Pass account object and new active state
+
+    def __init__(self, account, transaction_manager, is_active=True, parent=None):
         super().__init__(parent)
         self.account = account
         self.transaction_manager = transaction_manager
-        
+        self.is_active = is_active  # Track if account is currently active
+
         # Progress bars
         self.goal_progress_bar = None
         self.auto_save_progress_bar = None
-        
+
         # Line chart
         self.balance_chart = None
-        
+
         # Labels for account writeup
         self.writeup_labels = {}
-        
+
         self.init_ui()
         self.update_data()
-        
+
         # Connect to theme changes
         theme_manager.theme_changed.connect(self.on_theme_changed)
     
@@ -66,30 +68,48 @@ class AccountRowWidget(QWidget):
         top_section.setSpacing(15)
         
         # COLUMN 1: Account name (fixed width - only what's needed)
+        # No "(Inactive)" suffix - visual separation via spacer is enough
         self.name_label = QLabel(self.account.name)
         self.name_label.setFont(theme_manager.get_font("subtitle"))
-        
+
         # Use accent color for the default savings account (rollover destination)
+        # Use text_secondary for inactive account headers (not as dim as text_disabled)
         is_default_save = getattr(self.account, 'is_default_save', False)
-        header_color = colors['accent'] if is_default_save else colors['text_primary']
+        if not self.is_active:
+            header_color = colors['text_secondary']  # Header uses text_secondary for inactive
+        elif is_default_save:
+            header_color = colors['accent']  # Accent for default save
+        else:
+            header_color = colors['text_primary']  # Normal for active
         self.name_label.setStyleSheet(f"color: {header_color}; font-weight: bold;")
-        
+
         self.name_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         top_section.addWidget(self.name_label)
         
         # COLUMN 2: Stacked progress bars (flexible - fills remaining space)
         progress_column = QVBoxLayout()
         progress_column.setSpacing(1)
-        
+
+        # For inactive accounts, shift colors: text_secondary -> text_disabled
+        label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+
+        # For inactive accounts, blend progress bar colors with disabled (75% disabled, 25% original)
+        if self.is_active:
+            goal_bar_color = colors['primary']
+            auto_bar_color = colors['accent']
+        else:
+            goal_bar_color = self.blend_colors(colors['primary'], colors['disabled'], 0.25)
+            auto_bar_color = self.blend_colors(colors['accent'], colors['disabled'], 0.25)
+
         # Goal progress bar (top) with label on the left
         goal_bar_layout = QHBoxLayout()
         goal_bar_layout.setSpacing(8)
-        
+
         goal_label = QLabel("Goal:")
         goal_label.setFont(theme_manager.get_font("small"))
-        goal_label.setStyleSheet(f"color: {colors['text_secondary']};")
+        goal_label.setStyleSheet(f"color: {label_color};")
         goal_label.setFixedWidth(60)
-        
+
         self.goal_progress_bar = QProgressBar()
         self.goal_progress_bar.setMaximum(100)
         self.goal_progress_bar.setTextVisible(True)
@@ -101,24 +121,24 @@ class AccountRowWidget(QWidget):
                 height: 20px;
             }}
             QProgressBar::chunk {{
-                background-color: {colors['primary']};
+                background-color: {goal_bar_color};
                 border-radius: 3px;
             }}
         """)
-        
+
         goal_bar_layout.addWidget(goal_label)
         goal_bar_layout.addWidget(self.goal_progress_bar, 1)
         progress_column.addLayout(goal_bar_layout)
-        
+
         # Auto-save progress bar (bottom) with label on the left
         auto_save_bar_layout = QHBoxLayout()
         auto_save_bar_layout.setSpacing(8)
-        
+
         auto_save_label = QLabel("Auto:")
         auto_save_label.setFont(theme_manager.get_font("small"))
-        auto_save_label.setStyleSheet(f"color: {colors['text_secondary']};")
+        auto_save_label.setStyleSheet(f"color: {label_color};")
         auto_save_label.setFixedWidth(60)
-        
+
         self.auto_save_progress_bar = QProgressBar()
         self.auto_save_progress_bar.setMaximum(100)
         self.auto_save_progress_bar.setTextVisible(True)
@@ -130,7 +150,7 @@ class AccountRowWidget(QWidget):
                 height: 20px;
             }}
             QProgressBar::chunk {{
-                background-color: {colors['accent']};
+                background-color: {auto_bar_color};
                 border-radius: 3px;
             }}
         """)
@@ -209,41 +229,120 @@ class AccountRowWidget(QWidget):
         
         writeup_layout = QVBoxLayout(writeup_frame)
         writeup_layout.setSpacing(3)
-        
-        # Account writeup title
+
+        # Account writeup title - use text_secondary for inactive instead of primary
         writeup_title = QLabel("Account Details")
         writeup_title.setFont(theme_manager.get_font("subtitle"))
-        writeup_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold;")
+        title_color = colors['primary'] if self.is_active else colors['text_secondary']
+        writeup_title.setStyleSheet(f"color: {title_color}; font-weight: bold;")
         writeup_layout.addWidget(writeup_title)
-        
-        # Account details
+
+        # Account details - for inactive: all text uses text_disabled
+        # Removed "Name:" since it's redundant with the title
         details = [
-            ("Name:", "name"),
             ("Current Balance:", "current_balance"),
             ("Goal Amount:", "goal_amount"),
             ("Goal Remaining:", "goal_remaining"),
             ("Auto-Save Amount:", "auto_save_amount")
         ]
-        
+
+        # Colors for detail labels and values - all text_disabled for inactive
+        detail_label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+        detail_value_color = colors['text_primary'] if self.is_active else colors['text_disabled']
+
         for label_text, key in details:
             detail_layout = QHBoxLayout()
             detail_layout.setSpacing(5)
-            
+
             label = QLabel(label_text)
             label.setFont(theme_manager.get_font("small"))
-            label.setStyleSheet(f"color: {colors['text_secondary']}; font-weight: bold;")
+            label.setStyleSheet(f"color: {detail_label_color}; font-weight: bold;")
             label.setMinimumWidth(120)
-            
+
             value_label = QLabel("Loading...")
             value_label.setFont(theme_manager.get_font("small"))
-            value_label.setStyleSheet(f"color: {colors['text_primary']};")
-            
+            value_label.setStyleSheet(f"color: {detail_value_color};")
+
             self.writeup_labels[key] = value_label
-            
+
             detail_layout.addWidget(label)
             detail_layout.addWidget(value_label, 1)
             writeup_layout.addLayout(detail_layout)
-        
+
+        # Add activation toggle button at the bottom
+        toggle_layout = QHBoxLayout()
+        toggle_layout.setSpacing(5)
+
+        toggle_label = QLabel("Status:")
+        toggle_label.setFont(theme_manager.get_font("small"))
+        toggle_label.setStyleSheet(f"color: {detail_label_color}; font-weight: bold;")
+        toggle_label.setMinimumWidth(120)
+
+        # Check if this is the default savings account (cannot be deactivated)
+        is_default_save = getattr(self.account, 'is_default_save', False)
+
+        # Create a button that shows current status and toggles on click
+        self.active_toggle = QPushButton("Active" if self.is_active else "Inactive")
+        self.active_toggle.setCheckable(True)
+        self.active_toggle.setChecked(self.is_active)
+        self.active_toggle.setFixedHeight(24)
+        self.active_toggle.setFixedWidth(80)
+
+        # If default savings account, disable the toggle button
+        if is_default_save:
+            self.active_toggle.setEnabled(False)
+            self.active_toggle.setCursor(Qt.CursorShape.ForbiddenCursor)
+            self.active_toggle.setToolTip("Default savings account must always be active")
+            # Locked style - no hover effect, slightly muted appearance
+            self.active_toggle.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['secondary']};
+                    color: {colors['surface']};
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 11px;
+                    opacity: 0.8;
+                }}
+            """)
+        else:
+            self.active_toggle.clicked.connect(self.on_active_toggle_changed)
+            self.active_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+            # Style based on active state
+            if self.is_active:
+                self.active_toggle.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {colors['primary']};
+                        color: {colors['surface']};
+                        border: none;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        font-size: 11px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['primary_dark']};
+                    }}
+                """)
+            else:
+                self.active_toggle.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {colors['disabled']};
+                        color: {colors['text_secondary']};
+                        border: none;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        font-size: 11px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {colors['border']};
+                    }}
+                """)
+
+        toggle_layout.addWidget(toggle_label)
+        toggle_layout.addWidget(self.active_toggle)
+        toggle_layout.addStretch()
+        writeup_layout.addLayout(toggle_layout)
+
         writeup_layout.addStretch()
         writeup_section.addWidget(writeup_frame)
         
@@ -275,6 +374,18 @@ class AccountRowWidget(QWidget):
             return f"#{new_rgb[0]:02x}{new_rgb[1]:02x}{new_rgb[2]:02x}"
         except:
             return color
+
+    def blend_colors(self, color1: str, color2: str, ratio: float = 0.5) -> str:
+        """Blend two hex colors together. ratio=0.5 means 50% of each."""
+        try:
+            c1 = color1.lstrip('#')
+            c2 = color2.lstrip('#')
+            rgb1 = tuple(int(c1[i:i+2], 16) for i in (0, 2, 4))
+            rgb2 = tuple(int(c2[i:i+2], 16) for i in (0, 2, 4))
+            blended = tuple(int(rgb1[i] * ratio + rgb2[i] * (1 - ratio)) for i in range(3))
+            return f"#{blended[0]:02x}{blended[1]:02x}{blended[2]:02x}"
+        except:
+            return color1
     
     def on_theme_changed(self, theme_id):
         """Handle theme change for account row widget"""
@@ -294,15 +405,33 @@ class AccountRowWidget(QWidget):
                     }}
                 """)
             
-            # Update account name label
+            # Update account name label (respect inactive status and default save - headers use text_secondary)
             if hasattr(self, 'name_label'):
-                self.name_label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold;")
-            
+                is_default_save = getattr(self.account, 'is_default_save', False)
+                if not self.is_active:
+                    header_color = colors['text_secondary']  # Header uses text_secondary for inactive
+                elif is_default_save:
+                    header_color = colors['accent']  # Accent for default save
+                else:
+                    header_color = colors['text_primary']  # Normal for active
+                self.name_label.setStyleSheet(f"color: {header_color}; font-weight: bold;")
+
+            # Determine colors based on active status
+            label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+
             # Update progress bar labels
             for child in self.findChildren(QLabel):
-                if child.text() in ["Goal:", "Auto Save:"]:
-                    child.setStyleSheet(f"color: {colors['text_secondary']};")
-            
+                if child.text() in ["Goal:", "Auto:", "Auto Save:"]:
+                    child.setStyleSheet(f"color: {label_color};")
+
+            # Calculate progress bar colors (muted for inactive - 75% disabled, 25% original)
+            if self.is_active:
+                goal_bar_color = colors['primary']
+                auto_bar_color = colors['accent']
+            else:
+                goal_bar_color = self.blend_colors(colors['primary'], colors['disabled'], 0.25)
+                auto_bar_color = self.blend_colors(colors['accent'], colors['disabled'], 0.25)
+
             # Update progress bars
             if hasattr(self, 'goal_progress_bar'):
                 self.goal_progress_bar.setStyleSheet(f"""
@@ -313,11 +442,11 @@ class AccountRowWidget(QWidget):
                         height: 20px;
                     }}
                     QProgressBar::chunk {{
-                        background-color: {colors['primary']};
+                        background-color: {goal_bar_color};
                         border-radius: 3px;
                     }}
                 """)
-            
+
             if hasattr(self, 'auto_save_progress_bar'):
                 self.auto_save_progress_bar.setStyleSheet(f"""
                     QProgressBar {{
@@ -327,7 +456,7 @@ class AccountRowWidget(QWidget):
                         height: 20px;
                     }}
                     QProgressBar::chunk {{
-                        background-color: {colors['secondary']};
+                        background-color: {auto_bar_color};
                         border-radius: 3px;
                     }}
                 """)
@@ -371,13 +500,27 @@ class AccountRowWidget(QWidget):
                         }}
                     """)
             
-            # Update writeup text labels
+            # Update writeup title (Account Details) - find it among children
+            for child in self.findChildren(QLabel):
+                if child.text() == "Account Details":
+                    title_color = colors['primary'] if self.is_active else colors['text_secondary']
+                    child.setStyleSheet(f"color: {title_color}; font-weight: bold;")
+
+            # Update writeup detail labels (the label: and value pairs)
+            # For inactive: all text uses text_disabled
+            detail_label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+            detail_value_color = colors['text_primary'] if self.is_active else colors['text_disabled']
+
+            # Update the value labels we stored
             for label_name, label in self.writeup_labels.items():
-                if ":" in label_name:  # Header labels
-                    label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold;")
-                else:  # Value labels
-                    label.setStyleSheet(f"color: {colors['text_secondary']};")
-            
+                label.setStyleSheet(f"color: {detail_value_color};")
+
+            # Update the static label texts (Name:, Current Balance:, etc.)
+            for child in self.findChildren(QLabel):
+                text = child.text()
+                if text.endswith(":") and text not in ["Goal:", "Auto:", "Auto Save:"]:
+                    child.setStyleSheet(f"color: {detail_label_color}; font-weight: bold;")
+
             # Force line chart to update its theme colors
             if hasattr(self, 'balance_chart') and self.balance_chart:
                 # The LineChartWidget should auto-update via its theme_changed signal,
@@ -483,9 +626,64 @@ class AccountRowWidget(QWidget):
                     continue
                 balance_points.append((entry.transaction_date, entry.running_total))
 
+            # Get activation periods for boundary points and date limiting
+            from datetime import date as date_type
+            activation_periods = []
+            if hasattr(self.account, '_get_periods_list'):
+                activation_periods = self.account._get_periods_list()
+
+            # For inactive accounts, limit the chart to show only up to the last deactivation date
+            # This helps avoid showing long flat lines after the account became inactive
+            if not self.is_active and activation_periods and balance_points:
+                # Find the last end date (most recent deactivation)
+                last_deactivation = None
+                for period in activation_periods:
+                    end_str = period.get('end')
+                    if end_str:
+                        end_date = date_type.fromisoformat(end_str) if isinstance(end_str, str) else end_str
+                        if last_deactivation is None or end_date > last_deactivation:
+                            last_deactivation = end_date
+
+                # Filter balance points to only include those up to last deactivation
+                if last_deactivation:
+                    balance_points = [(d, v) for d, v in balance_points if d <= last_deactivation]
+
+            # Add points at activation/deactivation boundaries for clearer transitions
+            if activation_periods and balance_points:
+                boundary_dates = set()
+                for period in activation_periods:
+                    start_str = period.get('start')
+                    end_str = period.get('end')
+                    if start_str:
+                        start_date = date_type.fromisoformat(start_str) if isinstance(start_str, str) else start_str
+                        boundary_dates.add(start_date)
+                    if end_str:
+                        end_date = date_type.fromisoformat(end_str) if isinstance(end_str, str) else end_str
+                        boundary_dates.add(end_date)
+
+                # For each boundary date not already in balance_points, interpolate the value
+                existing_dates = {d for d, v in balance_points}
+                sorted_points = sorted(balance_points, key=lambda x: x[0])
+
+                for boundary in boundary_dates:
+                    if boundary not in existing_dates and sorted_points:
+                        # Find the balance at this boundary by interpolation
+                        # Use the most recent balance before this date
+                        prev_balance = None
+                        for d, v in sorted_points:
+                            if d <= boundary:
+                                prev_balance = v
+                            else:
+                                break
+                        if prev_balance is not None:
+                            balance_points.append((boundary, prev_balance))
+
+                # Re-sort after adding boundary points
+                balance_points = sorted(balance_points, key=lambda x: x[0])
+
             # Apply time frame filter from settings
             from views.dialogs.settings_dialog import get_setting
-            from datetime import datetime, date as date_type
+            from datetime import datetime
 
             time_frame_filter = get_setting("time_frame_filter", "All Time")
 
@@ -551,8 +749,20 @@ class AccountRowWidget(QWidget):
                 ]
                 chart_data["Goal"] = goal_points
 
+            # For inactive accounts, use muted chart colors (75% disabled, 25% original)
+            custom_colors = None
+            custom_axis_color = None
+            if not self.is_active:
+                colors = theme_manager.get_colors()
+                chart_colors = theme_manager.get_chart_colors()
+                custom_colors = [self.blend_colors(c, colors['disabled'], 0.25) for c in chart_colors]
+                custom_axis_color = colors['text_disabled']  # Muted axis/tick colors
+
             # Update chart with date on X-axis, running total on Y-axis
-            self.balance_chart.update_data(chart_data, "", "")  # No x/y labels for cleaner look
+            # Pass activation_periods for dashed line visualization during inactive periods
+            self.balance_chart.update_data(chart_data, "", "", custom_colors=custom_colors,
+                                           custom_axis_color=custom_axis_color,
+                                           activation_periods=activation_periods)  # No x/y labels for cleaner look
 
         except Exception as e:
             print(f"Error updating line chart for {self.account.name}: {e}")
@@ -564,9 +774,6 @@ class AccountRowWidget(QWidget):
     def update_writeup(self):
         """Update the account writeup section"""
         try:
-            # Name
-            self.writeup_labels["name"].setText(self.account.name)
-            
             # Current Balance
             current_balance = self.account.get_current_balance(self.transaction_manager.db)
             self.writeup_labels["current_balance"].setText(f"${current_balance:.2f}")
@@ -606,3 +813,37 @@ class AccountRowWidget(QWidget):
             print(f"Error updating writeup for {self.account.name}: {e}")
             for key in self.writeup_labels:
                 self.writeup_labels[key].setText("Error")
+
+    def on_active_toggle_changed(self):
+        """Handle activation toggle button click - toggle the current state"""
+        from datetime import date
+
+        # Toggle: if currently active, deactivate; if inactive, activate
+        new_is_active = not self.is_active
+        print(f"[DEBUG] Toggle clicked for {self.account.name}: current={self.is_active}, new={new_is_active}")
+
+        try:
+            if new_is_active:
+                # Activate the account
+                print(f"[DEBUG] Calling activate() for {self.account.name}")
+                self.account.activate(start_date=date.today(), db_session=self.transaction_manager.db)
+            else:
+                # Deactivate the account
+                print(f"[DEBUG] Calling deactivate() for {self.account.name}")
+                self.account.deactivate(end_date=date.today(), db_session=self.transaction_manager.db)
+
+            # Verify the change took effect
+            print(f"[DEBUG] After change: is_currently_active={self.account.is_currently_active}")
+            print(f"[DEBUG] Periods: {self.account._get_periods_list()}")
+
+            # Update local state
+            self.is_active = new_is_active
+
+            # Emit signal so parent view can refresh the entire view
+            print(f"[DEBUG] Emitting activation_changed signal")
+            self.activation_changed.emit(self.account, new_is_active)
+
+        except Exception as e:
+            print(f"Error changing activation for {self.account.name}: {e}")
+            import traceback
+            traceback.print_exc()

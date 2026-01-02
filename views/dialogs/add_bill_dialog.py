@@ -243,7 +243,14 @@ class AddBillDialog(QDialog):
         self.last_payment_edit.setDate(QDate.currentDate().addDays(-30))
         self.last_payment_edit.setCalendarPopup(True)
         form_layout.addRow("Last Payment Date (optional):", self.last_payment_edit)
-        
+
+        # Activation status toggle (defaults to Active)
+        self.active_checkbox = QCheckBox("Start as Active")
+        self.active_checkbox.setChecked(True)  # Default to active
+        self.active_checkbox.setToolTip("Uncheck to create this bill as inactive (won't receive paycheck allocations)")
+        self.active_checkbox.toggled.connect(self.update_preview)
+        form_layout.addRow("Status:", self.active_checkbox)
+
         # Notes field
         self.notes_edit = QLineEdit()
         self.notes_edit.setPlaceholderText("e.g., 'Varies by semester', 'Due around month-end'")
@@ -419,6 +426,10 @@ Planned amount: ${planned_amount:.2f}
         # Calculate difference (positive = over-saving, negative = under-saving)
         savings_difference = actual_bi_weekly - recommended_bi_weekly
 
+        # Get activation status
+        is_active = self.active_checkbox.isChecked()
+        status_text = "Active" if is_active else "Inactive (won't receive allocations)"
+
         preview_text = f"""
 BILL PREVIEW:
 
@@ -427,6 +438,7 @@ Type: {bill_type}
 Payment Frequency: {frequency}
 Typical Amount: ${amount:.2f}
 Variable Amount: {"Yes" if is_variable else "No"}
+Status: {status_text}
 
 EXPECTATION:
 Starting Balance: ${starting_balance:.2f}"""
@@ -529,9 +541,18 @@ Starting Balance: ${starting_balance:.2f}"""
             save_amount = self.save_amount_spin.value()
             starting_balance = self.starting_balance_spin.value()
             is_variable = self.variable_checkbox.isChecked()
+            is_active = self.active_checkbox.isChecked()
             qdate = self.last_payment_edit.date()
             last_payment = date(qdate.year(), qdate.month(), qdate.day())
             notes = self.notes_edit.text().strip()
+
+            # Set activation periods based on checkbox
+            # If active: start today with no end date
+            # If inactive: no activation periods (never been active)
+            if is_active:
+                activation_periods = [{"start": date.today().isoformat(), "end": None}]
+            else:
+                activation_periods = []  # Empty = never active
 
             # Create new bill directly in database
             from models import Bill
@@ -546,7 +567,8 @@ Starting Balance: ${starting_balance:.2f}"""
                 last_payment_date=last_payment,
                 last_payment_amount=0.0,  # Will be set when first payment is made
                 is_variable=is_variable,
-                notes=notes if notes else None
+                notes=notes if notes else None,
+                activation_periods=activation_periods
             )
 
             self.transaction_manager.db.add(new_bill)
@@ -578,6 +600,7 @@ Starting Balance: ${starting_balance:.2f}"""
 
                 if saved_bill:
                     # Build verification details
+                    status_str = "Active" if saved_bill.is_currently_active else "Inactive"
                     details = [
                         "✓ Bill Created Successfully",
                         "",
@@ -590,6 +613,7 @@ Starting Balance: ${starting_balance:.2f}"""
                         f"• Variable Amount: {saved_bill.is_variable}",
                         f"• Amount to Save: {saved_bill.amount_to_save:.3f}",
                         f"• Starting Balance: ${starting_balance:.2f}",
+                        f"• Status: {status_str}",
                     ]
 
                     # Show amount to save with percentage if applicable

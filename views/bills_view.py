@@ -3,7 +3,7 @@ Bills View - Individual bill rows with progress bars, charts, and details
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-                             QScrollArea, QPushButton, QComboBox, QToolButton)
+                             QScrollArea, QPushButton, QComboBox, QToolButton, QCheckBox)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import BillRowWidget
@@ -14,13 +14,14 @@ class BillsView(QWidget):
     def __init__(self, transaction_manager=None):
         super().__init__()
         self.transaction_manager = transaction_manager
-        
+
         # Store bill row widgets
         self.bill_rows = []
-        
-        # Load sort option from settings
+
+        # Load settings
         self.current_sort = get_setting("bills_sort_order", "Alphabetical")
-        
+        self.hide_inactive = get_setting("bills_hide_inactive", False)
+
         self.init_ui()
         
     def init_ui(self):
@@ -176,6 +177,39 @@ class BillsView(QWidget):
         """)
         toolbar_layout.addWidget(self.sort_combo)
 
+        # Separator before hide inactive
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        separator2.setStyleSheet(f"color: {colors['border']};")
+        toolbar_layout.addWidget(separator2)
+
+        # Hide inactive checkbox
+        self.hide_inactive_checkbox = QCheckBox("Hide inactive")
+        self.hide_inactive_checkbox.setChecked(self.hide_inactive)
+        self.hide_inactive_checkbox.stateChanged.connect(self.on_hide_inactive_changed)
+        self.hide_inactive_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {colors['text_primary']};
+                font-size: 12px;
+                spacing: 5px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {colors['border']};
+                border-radius: 3px;
+                background-color: {colors['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border-color: {colors['primary']};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {colors['primary']};
+            }}
+        """)
+        toolbar_layout.addWidget(self.hide_inactive_checkbox)
 
         # Push everything to the left
         toolbar_layout.addStretch()
@@ -239,103 +273,178 @@ class BillsView(QWidget):
         self.current_sort = sort_option
         save_setting("bills_sort_order", sort_option)
         self.refresh()  # Refresh with new sort
+
+    def on_hide_inactive_changed(self, state):
+        """Handle hide inactive checkbox change"""
+        self.hide_inactive = bool(state)
+        save_setting("bills_hide_inactive", self.hide_inactive)
+        self.refresh()  # Refresh with new filter
     
     
     def sort_bills(self, bills):
-        """Sort bills according to current sort option"""
+        """Sort bills according to current sort option, always putting inactive bills at bottom"""
         if not bills:
             return bills
-            
+
         try:
-            if self.current_sort == "Alphabetical":
-                return sorted(bills, key=lambda b: (b.name or "").lower())
-                
-            elif self.current_sort == "Richest":
-                # Highest running_total first, alphabetical tiebreaker
-                return sorted(bills, key=lambda b: (-(b.running_total or 0), (b.name or "").lower()))
-                
-            elif self.current_sort == "Closest":
-                # Most urgent payment due first
-                from datetime import datetime, timedelta
-                today = datetime.now().date()
-                
-                def urgency_score(bill):
-                    if not bill.last_payment_date:
-                        return (999999, (bill.name or "").lower())  # No date = least urgent (end of list)
-                    
-                    # Calculate when next payment is due
-                    frequency = getattr(bill, 'payment_frequency', 'monthly').lower()
-                    if frequency == 'weekly':
-                        cycle_days = 7
-                    elif frequency == 'monthly':
-                        cycle_days = 30
-                    elif frequency == 'quarterly':
-                        cycle_days = 90
-                    elif frequency == 'yearly':
-                        cycle_days = 365
-                    else:
-                        cycle_days = 30
-                    
-                    if isinstance(bill.last_payment_date, str):
-                        last_payment = datetime.strptime(bill.last_payment_date, '%Y-%m-%d').date()
-                    else:
-                        last_payment = bill.last_payment_date
-                    
-                    next_due = last_payment + timedelta(days=cycle_days)
-                    days_until_due = (next_due - today).days
-                    
-                    return (days_until_due, (bill.name or "").lower())
-                
-                return sorted(bills, key=urgency_score)
-                
-            elif self.current_sort == "Payment Size":
-                # Highest typical_amount first, alphabetical tiebreaker
-                return sorted(bills, key=lambda b: (-(b.typical_amount or 0), (b.name or "").lower()))
-                
-            else:
-                # Default to alphabetical
-                return sorted(bills, key=lambda b: (b.name or "").lower())
-                
+            # First, separate active and inactive bills
+            active_bills = [b for b in bills if b.is_currently_active]
+            inactive_bills = [b for b in bills if not b.is_currently_active]
+
+            def sort_group(bill_group):
+                """Apply current sort to a group of bills"""
+                if not bill_group:
+                    return bill_group
+
+                if self.current_sort == "Alphabetical":
+                    return sorted(bill_group, key=lambda b: (b.name or "").lower())
+
+                elif self.current_sort == "Richest":
+                    # Highest running_total first, alphabetical tiebreaker
+                    return sorted(bill_group, key=lambda b: (-(b.running_total or 0), (b.name or "").lower()))
+
+                elif self.current_sort == "Closest":
+                    # Most urgent payment due first
+                    from datetime import datetime, timedelta
+                    today = datetime.now().date()
+
+                    def urgency_score(bill):
+                        if not bill.last_payment_date:
+                            return (999999, (bill.name or "").lower())  # No date = least urgent (end of list)
+
+                        # Calculate when next payment is due
+                        frequency = getattr(bill, 'payment_frequency', 'monthly').lower()
+                        if frequency == 'weekly':
+                            cycle_days = 7
+                        elif frequency == 'monthly':
+                            cycle_days = 30
+                        elif frequency == 'quarterly':
+                            cycle_days = 90
+                        elif frequency == 'yearly':
+                            cycle_days = 365
+                        else:
+                            cycle_days = 30
+
+                        if isinstance(bill.last_payment_date, str):
+                            last_payment = datetime.strptime(bill.last_payment_date, '%Y-%m-%d').date()
+                        else:
+                            last_payment = bill.last_payment_date
+
+                        next_due = last_payment + timedelta(days=cycle_days)
+                        days_until_due = (next_due - today).days
+
+                        return (days_until_due, (bill.name or "").lower())
+
+                    return sorted(bill_group, key=urgency_score)
+
+                elif self.current_sort == "Payment Size":
+                    # Highest typical_amount first, alphabetical tiebreaker
+                    return sorted(bill_group, key=lambda b: (-(b.typical_amount or 0), (b.name or "").lower()))
+
+                else:
+                    # Default to alphabetical
+                    return sorted(bill_group, key=lambda b: (b.name or "").lower())
+
+            # Sort each group separately, then combine with active first
+            sorted_active = sort_group(active_bills)
+            sorted_inactive = sort_group(inactive_bills)
+
+            return sorted_active + sorted_inactive
+
         except Exception as e:
             print(f"Error sorting bills: {e}")
-            # Fall back to alphabetical
-            return sorted(bills, key=lambda b: (b.name or "").lower())
+            # Fall back to alphabetical with inactive at bottom
+            active = [b for b in bills if b.is_currently_active]
+            inactive = [b for b in bills if not b.is_currently_active]
+            return sorted(active, key=lambda b: (b.name or "").lower()) + sorted(inactive, key=lambda b: (b.name or "").lower())
     
     def refresh(self):
         """Refresh bills view with current bill data"""
         if not self.transaction_manager:
             self.show_no_data_message("Transaction manager not available")
             return
-        
+
         try:
-            # Reload sort setting from settings file
+            # Reload settings from settings file
             self.current_sort = get_setting("bills_sort_order", "Alphabetical")
+            self.hide_inactive = get_setting("bills_hide_inactive", False)
+
+            # Update checkbox state without triggering signal
+            if hasattr(self, 'hide_inactive_checkbox'):
+                self.hide_inactive_checkbox.blockSignals(True)
+                self.hide_inactive_checkbox.setChecked(self.hide_inactive)
+                self.hide_inactive_checkbox.blockSignals(False)
+
             # Get all bills
             bills = self.transaction_manager.get_all_bills()
-            
+
             if not bills:
                 self.show_no_data_message("No bills configured")
                 return
-            
+
+            # Filter out inactive bills if hide_inactive is enabled
+            if self.hide_inactive:
+                bills = [b for b in bills if b.is_currently_active]
+
+                if not bills:
+                    self.show_no_data_message("No active bills (inactive bills are hidden)")
+                    return
+
             # Sort bills according to current sort option
             sorted_bills = self.sort_bills(bills)
-            
+
             # Clear existing bill rows
             self.clear_bill_rows()
-            
-            # Create bill row widgets
-            for bill in sorted_bills:
-                bill_row = BillRowWidget(bill, self.transaction_manager)
-                
-                # Connect signals for popup buttons (placeholder for now)
+
+            # Separate active and inactive for adding spacer
+            active_bills = [b for b in sorted_bills if b.is_currently_active]
+            inactive_bills = [b for b in sorted_bills if not b.is_currently_active]
+
+            # Create bill row widgets for active bills
+            for bill in active_bills:
+                bill_row = BillRowWidget(bill, self.transaction_manager, is_active=True)
+
+                # Connect signals for popup buttons
                 bill_row.see_more_clicked.connect(self.on_see_more_clicked)
                 bill_row.see_history_clicked.connect(self.on_see_history_clicked)
-                
+                bill_row.activation_changed.connect(self.on_bill_activation_changed)
+
                 # Add to layout (insert before stretch)
                 self.bills_layout.insertWidget(self.bills_layout.count() - 1, bill_row)
                 self.bill_rows.append(bill_row)
-            
-            
+
+            # Add spacer with divider line between active and inactive sections
+            if active_bills and inactive_bills:
+                colors = theme_manager.get_colors()
+                # Create a container widget with a centered horizontal line
+                spacer_container = QWidget()
+                spacer_layout = QVBoxLayout(spacer_container)
+                spacer_layout.setContentsMargins(20, 10, 20, 10)  # Horizontal margins for the line, vertical for spacing
+                spacer_layout.setSpacing(0)
+
+                # Create the divider line (same style as bill borders)
+                divider = QFrame()
+                divider.setFrameShape(QFrame.Shape.HLine)
+                divider.setFixedHeight(2)  # Thin line like borders
+                divider.setStyleSheet(f"background-color: {colors['border']}; border: none;")
+
+                spacer_layout.addWidget(divider)
+                self.bills_layout.insertWidget(self.bills_layout.count() - 1, spacer_container)
+
+            # Create bill row widgets for inactive bills
+            for bill in inactive_bills:
+                bill_row = BillRowWidget(bill, self.transaction_manager, is_active=False)
+
+                # Connect signals for popup buttons
+                bill_row.see_more_clicked.connect(self.on_see_more_clicked)
+                bill_row.see_history_clicked.connect(self.on_see_history_clicked)
+                bill_row.activation_changed.connect(self.on_bill_activation_changed)
+
+                # Add to layout (insert before stretch)
+                self.bills_layout.insertWidget(self.bills_layout.count() - 1, bill_row)
+                self.bill_rows.append(bill_row)
+
+
         except Exception as e:
             error_msg = f"Error refreshing bills: {str(e)}"
             print(error_msg)
@@ -344,12 +453,21 @@ class BillsView(QWidget):
             self.show_no_data_message(error_msg)
     
     def clear_bill_rows(self):
-        """Clear all existing bill row widgets"""
+        """Clear all existing bill row widgets and dividers"""
+        # Clear tracked bill rows
         for bill_row in self.bill_rows:
             bill_row.setParent(None)
             bill_row.deleteLater()
-        
         self.bill_rows.clear()
+
+        # Also clear any divider/spacer widgets that were added to the layout
+        # We need to remove all widgets except the stretch at the end
+        while self.bills_layout.count() > 1:  # Keep the stretch
+            item = self.bills_layout.takeAt(0)
+            widget = item.widget() if item else None
+            if widget:
+                widget.setParent(None)
+                widget.deleteLater()
     
     def show_no_data_message(self, message: str):
         """Show a message when no bills are available"""
@@ -405,7 +523,16 @@ class BillsView(QWidget):
             traceback.print_exc()
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Error Opening History", f"Failed to open transaction history:\n{str(e)}\n\nCheck console for details.")
-    
+
+    def on_bill_activation_changed(self, bill, is_active):
+        """Handle when a bill's activation status is changed via the toggle"""
+        try:
+            # Refresh the entire view to reflect the new active/inactive status
+            # This will re-sort bills and update visual styling
+            self.refresh()
+        except Exception as e:
+            print(f"Error refreshing after activation change: {e}")
+
     def on_bill_updated(self, updated_bill):
         """Handle when bill data is updated from dialogs"""
         try:
@@ -527,6 +654,30 @@ class BillsView(QWidget):
                     border-radius: 4px;
                     selection-background-color: {colors['primary']};
                     selection-color: {colors['surface']};
+                }}
+            """)
+
+        # Update hide inactive checkbox
+        if hasattr(self, 'hide_inactive_checkbox'):
+            self.hide_inactive_checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {colors['text_primary']};
+                    font-size: 12px;
+                    spacing: 5px;
+                }}
+                QCheckBox::indicator {{
+                    width: 16px;
+                    height: 16px;
+                    border: 1px solid {colors['border']};
+                    border-radius: 3px;
+                    background-color: {colors['surface']};
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {colors['primary']};
+                    border-color: {colors['primary']};
+                }}
+                QCheckBox::indicator:hover {{
+                    border-color: {colors['primary']};
                 }}
             """)
         

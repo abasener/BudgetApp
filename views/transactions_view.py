@@ -1247,6 +1247,17 @@ class TransactionsView(QWidget):
                 current_week2.start_date = new_week2_start
                 current_week2.end_date = new_week2_end
 
+            # Recreate auto-save transactions that were deleted
+            # Uses PaycheckProcessor to ensure activation status is checked
+            try:
+                self._recreate_auto_save_transactions(
+                    original_paycheck.week_number,
+                    new_start_date,
+                    updates.get("amount", original_paycheck.amount)
+                )
+            except Exception as e:
+                print(f"Warning: Auto-save recreation failed: {e}")
+
         # Update paycheck amount and other fields
         simple_updates = {}
         if "date" in updates:
@@ -1381,6 +1392,37 @@ class TransactionsView(QWidget):
 
             # Update the transaction with new amount
             self.transaction_manager.update_transaction(trans.id, {"amount": new_amount})
+
+    def _recreate_auto_save_transactions(self, week_number: int, week_start_date, paycheck_amount: float):
+        """
+        Recreate auto-save transactions after they've been deleted during paycheck rebuild.
+
+        This uses PaycheckProcessor's methods to ensure:
+        1. Activation status is checked (inactive accounts/bills are skipped)
+        2. Percentage-based vs fixed amount logic is applied correctly
+        3. Transactions are created with proper descriptions
+
+        Args:
+            week_number: The week number for the transactions
+            week_start_date: Start date of the pay period (used for activation check)
+            paycheck_amount: The paycheck amount (for percentage-based calculations)
+        """
+        from services.paycheck_processor import PaycheckProcessor
+
+        # Create a temporary processor to use its methods
+        processor = PaycheckProcessor()
+
+        try:
+            # Recreate bill savings allocations
+            # This checks bill.is_active_on(transaction_date) internally
+            processor.update_bill_savings(week_number, week_start_date, paycheck_amount)
+
+            # Recreate account auto-savings allocations
+            # This checks account.is_active_on(transaction_date) internally
+            processor.update_account_auto_savings(week_number, week_start_date, paycheck_amount)
+
+        finally:
+            processor.close()
 
     def _format_changes(self, row_data, updates):
         """Format changes for display in results dialog"""

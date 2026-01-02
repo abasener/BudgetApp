@@ -101,15 +101,18 @@ class BaseChartWidget(QWidget):
     def apply_theme(self):
         """Apply current theme to the chart"""
         colors = theme_manager.get_colors()
-        
+
+        # Check if we have a custom axis color (for inactive/muted charts)
+        axis_color = getattr(self, '_custom_axis_color', None) or colors['text_primary']
+
         # Set matplotlib theme
         self.figure.patch.set_facecolor(colors['surface'])
-        
+
         # Update all axes
         for ax in self.figure.get_axes():
             ax.set_facecolor(colors['surface'])
-            ax.tick_params(colors=colors['text_primary'])
-            
+            ax.tick_params(colors=axis_color)
+
             # Remove borders for savings rate charts
             if hasattr(self, 'title') and "Savings Rate" in self.title:
                 ax.spines['bottom'].set_color('none')
@@ -121,11 +124,17 @@ class BaseChartWidget(QWidget):
                 ax.spines['top'].set_color(colors['border'])
                 ax.spines['right'].set_color(colors['border'])
                 ax.spines['left'].set_color(colors['border'])
-            
-            ax.xaxis.label.set_color(colors['text_primary'])
-            ax.yaxis.label.set_color(colors['text_primary'])
-            ax.title.set_color(colors['text_primary'])
-        
+
+            ax.xaxis.label.set_color(axis_color)
+            ax.yaxis.label.set_color(axis_color)
+            ax.title.set_color(axis_color)
+
+            # Update tick label colors specifically (for x and y axes)
+            for label in ax.get_xticklabels():
+                label.set_color(axis_color)
+            for label in ax.get_yticklabels():
+                label.set_color(axis_color)
+
         self.canvas.draw()
     
     def on_theme_changed(self, theme_id):
@@ -290,22 +299,112 @@ class PieChartWidget(BaseChartWidget):
 
 class LineChartWidget(BaseChartWidget):
     """Line chart widget for trends over time"""
-    
+
     def __init__(self, title: str = "Spending Trends", parent=None):
         super().__init__(title, parent)
-    
-    def update_data(self, data: dict, xlabel: str = "Time", ylabel: str = "Amount ($)"):
+
+    def _is_segment_active(self, start_date, end_date, activation_periods) -> bool:
+        """Check if a line segment between two dates is entirely within an active period.
+
+        A segment is considered inactive (dashed) if there's any gap between the two dates
+        where the account was not active.
+
+        Args:
+            start_date: start date of the segment
+            end_date: end date of the segment
+            activation_periods: list of {start, end} dicts
+
+        Returns:
+            True if the entire segment is within active periods, False otherwise
+        """
+        from datetime import date, timedelta
+
+        # For each activation period, check if the segment is fully contained
+        for period in activation_periods:
+            period_start_str = period.get('start')
+            period_end_str = period.get('end')
+
+            if not period_start_str:
+                continue
+
+            period_start = date.fromisoformat(period_start_str) if isinstance(period_start_str, str) else period_start_str
+
+            if period_end_str:
+                period_end = date.fromisoformat(period_end_str) if isinstance(period_end_str, str) else period_end_str
+            else:
+                period_end = None  # Ongoing period
+
+            # Check if BOTH dates are within this single period
+            # start_date must be >= period_start
+            # end_date must be <= period_end (or period has no end)
+            if start_date >= period_start:
+                if period_end is None or end_date <= period_end:
+                    return True
+
+        return False
+
+    def _plot_with_activity_segments(self, ax, x_vals, y_vals, color, activation_periods,
+                                     linewidth=2, markersize=3, use_markers=False):
+        """Plot line data with dashed segments for inactive periods.
+
+        Solid lines for active periods, dashed lines for inactive periods.
+        Markers are placed on all data points regardless of activity status.
+
+        Args:
+            ax: matplotlib axes
+            x_vals: tuple of x values (dates)
+            y_vals: tuple of y values
+            color: line color
+            activation_periods: list of {start, end} dicts
+            linewidth: line width
+            markersize: marker size
+            use_markers: whether to show markers on data points
+        """
+        if len(x_vals) < 2:
+            # Single point - just plot it
+            if use_markers:
+                ax.plot(x_vals, y_vals, marker='o', linestyle='', color=color, markersize=markersize)
+            return
+
+        # Plot markers for all points first (if using markers)
+        if use_markers:
+            ax.plot(x_vals, y_vals, marker='o', linestyle='', color=color, markersize=markersize, zorder=3)
+
+        # Now plot line segments with appropriate styles
+        # Go through consecutive pairs of points
+        for idx in range(len(x_vals) - 1):
+            x1, x2 = x_vals[idx], x_vals[idx + 1]
+            y1, y2 = y_vals[idx], y_vals[idx + 1]
+
+            # Determine if this segment is entirely within an active period
+            # If the segment crosses an inactive gap, it should be dashed
+            is_active = self._is_segment_active(x1, x2, activation_periods)
+
+            if is_active:
+                # Solid line for active periods
+                ax.plot([x1, x2], [y1, y2], linestyle='-', color=color, linewidth=linewidth, zorder=2)
+            else:
+                # Dashed line for inactive periods
+                ax.plot([x1, x2], [y1, y2], linestyle='--', color=color, linewidth=linewidth, zorder=2)
+
+    def update_data(self, data: dict, xlabel: str = "Time", ylabel: str = "Amount ($)", custom_colors: list = None, custom_axis_color: str = None, activation_periods: list = None):
         """Update line chart with new data
-        
+
         Args:
             data: dict where keys are series names and values are lists of (x, y) tuples
+            custom_colors: optional list of hex colors to use instead of theme colors
+            custom_axis_color: optional color for axis ticks, labels, and grid (for muted inactive charts)
+            activation_periods: optional list of {start, end} dicts for showing active/inactive periods
+                              with dashed lines for inactive periods (end=None means ongoing)
         """
+        self._custom_axis_color = custom_axis_color  # Store for apply_theme
+        self._activation_periods = activation_periods  # Store for segment plotting
         self.figure.clear()
-        
+
         if not data or not any(data.values()):
             # Show "No data" message
             ax = self.figure.add_subplot(111)
-            ax.text(0.5, 0.5, 'No trend data available', 
+            ax.text(0.5, 0.5, 'No trend data available',
                    ha='center', va='center', transform=ax.transAxes,
                    fontsize=14, color=theme_manager.get_color('text_secondary'))
             ax.set_xlim(0, 1)
@@ -313,31 +412,40 @@ class LineChartWidget(BaseChartWidget):
             ax.axis('off')
         else:
             ax = self.figure.add_subplot(111)
-            colors = theme_manager.get_chart_colors()
-            
+            colors = custom_colors if custom_colors else theme_manager.get_chart_colors()
+
             # Plot each series with different styles for secondary lines
             for i, (series_name, series_data) in enumerate(data.items()):
                 if series_data:
                     x_vals, y_vals = zip(*series_data)
                     color = colors[i % len(colors)]
-                    
+
                     # Check if x-axis contains dates (for bill charts)
                     import datetime
                     has_dates = len(x_vals) > 0 and isinstance(x_vals[0], (datetime.date, datetime.datetime))
-                    
+
                     # Main "Running Total" and "Bill Balance" lines get full styling with markers - thicker for bills
+                    # If activation_periods provided, plot segments with dashed lines for inactive periods
                     if series_name == "Running Total" or series_name == "Bill Balance":
-                        ax.plot(x_vals, y_vals, marker='o', label=series_name,
-                               color=color, linewidth=3, markersize=4)
+                        if activation_periods and has_dates:
+                            self._plot_with_activity_segments(ax, x_vals, y_vals, color, activation_periods,
+                                                             linewidth=3, markersize=4, use_markers=True)
+                        else:
+                            ax.plot(x_vals, y_vals, marker='o', label=series_name,
+                                   color=color, linewidth=3, markersize=4)
                     # Account Balance lines (savings accounts) get clean line style without markers
                     elif series_name == "Account Balance":
-                        ax.plot(x_vals, y_vals, marker='', label=series_name, 
-                               color=color, linewidth=2)
+                        if activation_periods and has_dates:
+                            self._plot_with_activity_segments(ax, x_vals, y_vals, color, activation_periods,
+                                                             linewidth=2, markersize=3, use_markers=False)
+                        else:
+                            ax.plot(x_vals, y_vals, marker='', label=series_name,
+                                   color=color, linewidth=2)
                     else:
                         # Secondary lines (Weekly Saved, Weekly Paycheck) get thinner, different colors
                         secondary_colors = [colors[3], colors[4]]  # Use different colors from chart palette
                         secondary_color = secondary_colors[(i-1) % len(secondary_colors)]
-                        ax.plot(x_vals, y_vals, marker='', label=series_name, 
+                        ax.plot(x_vals, y_vals, marker='', label=series_name,
                                color=secondary_color, linewidth=1, alpha=0.7)
                     
                     # Format x-axis for dates (for Running Total, Bill Balance, and Account Balance)

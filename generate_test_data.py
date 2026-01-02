@@ -19,7 +19,7 @@ if sys.platform == "win32":
 
 import random
 import uuid
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 # Database imports
 from models.database import engine, Base, SessionLocal
@@ -63,24 +63,73 @@ def generate_test_data():
         # ================================================================
         print("\n[3/9] Creating savings accounts...")
 
+        # Calculate dates for activation periods
+        current_monday = get_current_week_monday()
+        week1_start = current_monday - timedelta(weeks=7)
+        data_start_date = week1_start - timedelta(days=1)
+
+        # Active since start of data - standard active account
+        active_since_start = [{"start": data_start_date.isoformat(), "end": None}]
+
+        # Inactive account - was active but ended 2 weeks ago (Steam Sale Fund)
+        steam_sale_end = current_monday - timedelta(weeks=2)
+        steam_sale_start = data_start_date
+        inactive_seasonal = [{"start": steam_sale_start.isoformat(), "end": steam_sale_end.isoformat()}]
+
+        # Reactivated account - was inactive, now active again (Conventions Fund)
+        # First period: data start to 4 weeks ago (deactivated)
+        # Second period: 1 week ago to now (reactivated)
+        conventions_first_end = current_monday - timedelta(weeks=4)
+        conventions_second_start = current_monday - timedelta(weeks=1)
+        reactivated_periods = [
+            {"start": data_start_date.isoformat(), "end": conventions_first_end.isoformat()},
+            {"start": conventions_second_start.isoformat(), "end": None}
+        ]
+
+        # Helper to convert date to datetime for created_at
+        def date_to_datetime(d):
+            return datetime.combine(d, datetime.min.time())
+
         accounts = [
             Account(
                 name="Safety Saving",  # Matches Scratch Pad example
                 goal_amount=5000.00,
                 auto_save_amount=50.00,
-                is_default_save=True  # Rollovers go here
+                is_default_save=True,  # Rollovers go here
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
             ),
             Account(
                 name="Vacation",
                 goal_amount=2000.00,
                 auto_save_amount=25.00,
-                is_default_save=False
+                is_default_save=False,
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
             ),
             Account(
                 name="New Home",
                 goal_amount=20000.00,
                 auto_save_amount=100.00,
-                is_default_save=False
+                is_default_save=False,
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
+            ),
+            Account(
+                name="Steam Sale Fund",  # Seasonal - for Summer/Winter sales
+                goal_amount=200.00,
+                auto_save_amount=15.00,
+                is_default_save=False,
+                activation_periods=inactive_seasonal,  # Currently INACTIVE
+                created_at=date_to_datetime(steam_sale_start)
+            ),
+            Account(
+                name="Conventions Fund",  # Was inactive, now reactivated for upcoming con
+                goal_amount=500.00,
+                auto_save_amount=30.00,
+                is_default_save=False,
+                activation_periods=reactivated_periods,  # Gap in middle, now active
+                created_at=date_to_datetime(data_start_date)
             ),
         ]
 
@@ -92,12 +141,23 @@ def generate_test_data():
         for account in accounts:
             db.refresh(account)
 
-        print(f"   Created {len(accounts)} accounts: {[a.name for a in accounts]}")
+        print(f"   Created {len(accounts)} accounts:")
+        for a in accounts:
+            status = "ACTIVE" if a.is_currently_active else "INACTIVE"
+            print(f"      {a.name}: {status} - {a.get_display_date_range()}")
 
         # ================================================================
         # STEP 2: Create Bills
         # ================================================================
         print("\n[4/9] Creating bills...")
+
+        # Inactive bill - cancelled gym membership (ended 3 weeks ago)
+        gym_end = current_monday - timedelta(weeks=3)
+        inactive_gym = [{"start": data_start_date.isoformat(), "end": gym_end.isoformat()}]
+
+        # Recently activated bill - new streaming bundle (started 2 weeks ago)
+        streaming_start = current_monday - timedelta(weeks=2)
+        new_streaming = [{"start": streaming_start.isoformat(), "end": None}]
 
         bills = [
             Bill(
@@ -107,7 +167,9 @@ def generate_test_data():
                 typical_amount=1200.00,
                 amount_to_save=600.00,  # Per paycheck (bi-weekly)
                 is_variable=False,
-                notes="Due on the 1st"
+                notes="Due on the 1st",
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
             ),
             Bill(
                 name="Insurance",
@@ -116,7 +178,9 @@ def generate_test_data():
                 typical_amount=150.00,
                 amount_to_save=75.00,
                 is_variable=False,
-                notes="Auto insurance"
+                notes="Auto insurance",
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
             ),
             Bill(
                 name="Internet",
@@ -125,7 +189,9 @@ def generate_test_data():
                 typical_amount=80.00,
                 amount_to_save=40.00,
                 is_variable=False,
-                notes="Fiber connection for remote work"
+                notes="Fiber connection for remote work",
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
             ),
             Bill(
                 name="Taxes",
@@ -134,7 +200,9 @@ def generate_test_data():
                 typical_amount=500.00,
                 amount_to_save=25.00,  # Small amount per paycheck
                 is_variable=True,
-                notes="Estimated quarterly + year-end"
+                notes="Estimated quarterly + year-end",
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
             ),
             Bill(
                 name="Phone",
@@ -143,7 +211,31 @@ def generate_test_data():
                 typical_amount=45.00,
                 amount_to_save=22.50,
                 is_variable=False,
-                notes="Mobile plan"
+                notes="Mobile plan",
+                activation_periods=active_since_start,
+                created_at=date_to_datetime(data_start_date)
+            ),
+            Bill(
+                name="Gym Membership",  # INACTIVE - cancelled to save money
+                bill_type="Health",
+                payment_frequency="monthly",
+                typical_amount=35.00,
+                amount_to_save=17.50,
+                is_variable=False,
+                notes="Planet Fitness - cancelled, doing home workouts instead",
+                activation_periods=inactive_gym,  # Currently INACTIVE
+                created_at=date_to_datetime(data_start_date)
+            ),
+            Bill(
+                name="Streaming Bundle",  # NEW - just started
+                bill_type="Entertainment",
+                payment_frequency="monthly",
+                typical_amount=25.00,
+                amount_to_save=12.50,
+                is_variable=False,
+                notes="Disney+, Hulu, ESPN combo - because Marvel",
+                activation_periods=new_streaming,  # Recently activated
+                created_at=date_to_datetime(streaming_start)
             ),
         ]
 
@@ -154,7 +246,10 @@ def generate_test_data():
         for bill in bills:
             db.refresh(bill)
 
-        print(f"   Created {len(bills)} bills: {[b.name for b in bills]}")
+        print(f"   Created {len(bills)} bills:")
+        for b in bills:
+            status = "ACTIVE" if b.is_currently_active else "INACTIVE"
+            print(f"      {b.name}: {status} - {b.get_display_date_range()}")
 
         # ================================================================
         # STEP 3: Initialize Account History (Starting Balances)
@@ -163,16 +258,13 @@ def generate_test_data():
 
         history_manager = AccountHistoryManager(db)
 
-        # Calculate start date (8 weeks ago, before first paycheck)
-        current_monday = get_current_week_monday()
-        week1_start = current_monday - timedelta(weeks=7)
-        data_start_date = week1_start - timedelta(days=1)  # Day before week 1
-
         # Set starting balances for accounts
         account_starting_balances = {
             "Safety Saving": 500.00,   # Some existing savings
             "Vacation": 150.00,
             "New Home": 1000.00,
+            "Steam Sale Fund": 85.00,  # Had some saved before deactivating
+            "Conventions Fund": 120.00,  # From previous convention savings
         }
 
         for account in accounts:
@@ -192,6 +284,8 @@ def generate_test_data():
             "Internet": 20.00,
             "Taxes": 75.00,
             "Phone": 10.00,
+            "Gym Membership": 35.00,  # Had one payment saved before cancelling
+            "Streaming Bundle": 0.00,  # New, no history yet
         }
 
         for bill in bills:
@@ -347,6 +441,12 @@ def generate_test_data():
                 ("Sabacc game at Cloud City", 20.00, 45.00),
                 ("Poetry night at Vogon open mic", 8.00, 15.00),
                 ("Watched fireworks from Bag End", 10.00, 20.00),
+                # Steam/Gaming references
+                ("Steam wishlist impulse buy", 15.00, 40.00),
+                ("Indie game from itch.io", 5.00, 15.00),
+                ("Cosmetics in Destiny 2", 10.00, 20.00),
+                ("MTG Arena wildcards", 20.00, 50.00),
+                ("New mount in WoW", 15.00, 25.00),
             ],
             "Misc": [
                 # Normal ones

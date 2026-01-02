@@ -2,7 +2,7 @@
 Account Editor Dialog - Admin controls for editing all savings account fields
 """
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QDoubleSpinBox, QCheckBox, QPushButton,
                              QFormLayout, QMessageBox, QFrame, QGroupBox)
 from PyQt6.QtCore import pyqtSignal
@@ -113,6 +113,11 @@ class AccountEditorDialog(QDialog):
         self.updated_at_label.setStyleSheet("color: gray;")
         fields_layout.addRow("Last Updated:", self.updated_at_label)
 
+        # Activation Status (editable - user can modify activation periods)
+        self.status_edit = QLineEdit()
+        self.status_edit.setPlaceholderText("(start, end), (start, current) - dates as M/D/YYYY")
+        fields_layout.addRow("Status:", self.status_edit)
+
         fields_group.setLayout(fields_layout)
         main_layout.addWidget(fields_group)
         
@@ -163,8 +168,11 @@ class AccountEditorDialog(QDialog):
                 'starting_amount': starting_balance,
                 'goal_amount': getattr(self.account, 'goal_amount', 0.0),
                 'auto_save_amount': getattr(self.account, 'auto_save_amount', 0.0),
-                'is_default_save': getattr(self.account, 'is_default_save', False)
+                'is_default_save': getattr(self.account, 'is_default_save', False),
+                'activation_periods': self.account._get_periods_list() if hasattr(self.account, '_get_periods_list') else []
             }
+            # Store original status text for comparison
+            self.original_status_text = self.format_activation_periods()
 
             # Populate form fields
             self.name_edit.setText(self.original_values['name'])
@@ -188,6 +196,9 @@ class AccountEditorDialog(QDialog):
             else:
                 self.updated_at_label.setText("Unknown")
 
+            # Load activation status
+            self.status_edit.setText(self.format_activation_periods())
+
             # Update progress info
             self.update_progress_info()
 
@@ -196,6 +207,207 @@ class AccountEditorDialog(QDialog):
             import traceback
             traceback.print_exc()
             QMessageBox.warning(self, "Error", f"Failed to load account data: {str(e)}")
+
+    def format_activation_periods(self):
+        """Format activation periods for display as [(start, end), ...]"""
+        try:
+            periods = self.account._get_periods_list() if hasattr(self.account, '_get_periods_list') else []
+
+            if not periods:
+                return "No activation history"
+
+            formatted_periods = []
+            for period in periods:
+                start_str = period.get('start', 'unknown')
+                end_val = period.get('end')
+
+                # Format start date (M/D/YYYY)
+                if start_str and start_str != 'unknown':
+                    try:
+                        from datetime import datetime
+                        start_date = datetime.strptime(start_str, "%Y-%m-%d")
+                        start_formatted = f"{start_date.month}/{start_date.day}/{start_date.year}"
+                    except:
+                        start_formatted = start_str
+                else:
+                    start_formatted = "unknown"
+
+                # Format end date (M/D/YYYY or 'current')
+                if end_val is None:
+                    end_formatted = "current"
+                else:
+                    try:
+                        from datetime import datetime
+                        end_date = datetime.strptime(end_val, "%Y-%m-%d")
+                        end_formatted = f"{end_date.month}/{end_date.day}/{end_date.year}"
+                    except:
+                        end_formatted = end_val
+
+                formatted_periods.append(f"({start_formatted}, {end_formatted})")
+
+            return ", ".join(formatted_periods)
+
+        except Exception as e:
+            print(f"Error formatting activation periods: {e}")
+            return "Error loading status"
+
+    def parse_activation_periods(self, text):
+        """Parse user-entered activation periods text back into list of dicts.
+
+        Expected format: (M/D/YYYY, M/D/YYYY), (M/D/YYYY, current)
+        Returns: (success, result) where result is either list of periods or error message
+        """
+        from datetime import datetime
+
+        text = text.strip()
+        if not text or text == "No activation history":
+            return True, []
+
+        periods = []
+
+        # Split by ), ( to get individual periods
+        period_texts = []
+        current = ""
+        paren_depth = 0
+
+        for char in text:
+            if char == '(':
+                paren_depth += 1
+                current += char
+            elif char == ')':
+                paren_depth -= 1
+                current += char
+                if paren_depth == 0:
+                    period_texts.append(current.strip())
+                    current = ""
+            elif char == ',' and paren_depth == 0:
+                continue
+            else:
+                current += char
+
+        if current.strip():
+            period_texts.append(current.strip())
+
+        for period_text in period_texts:
+            period_text = period_text.strip()
+            if not period_text:
+                continue
+
+            if period_text.startswith('(') and period_text.endswith(')'):
+                period_text = period_text[1:-1]
+
+            parts = [p.strip() for p in period_text.split(',')]
+            if len(parts) != 2:
+                return False, f"Invalid period format: ({period_text}) - expected (start, end)"
+
+            start_str, end_str = parts
+
+            try:
+                start_date = datetime.strptime(start_str, "%m/%d/%Y").date()
+            except ValueError:
+                try:
+                    parts_date = start_str.split('/')
+                    if len(parts_date) == 3:
+                        start_date = datetime(int(parts_date[2]), int(parts_date[0]), int(parts_date[1])).date()
+                    else:
+                        return False, f"Invalid start date format: {start_str} - expected M/D/YYYY"
+                except:
+                    return False, f"Invalid start date format: {start_str} - expected M/D/YYYY"
+
+            if end_str.lower() == "current":
+                end_date = None
+            else:
+                try:
+                    end_date = datetime.strptime(end_str, "%m/%d/%Y").date()
+                except ValueError:
+                    try:
+                        parts_date = end_str.split('/')
+                        if len(parts_date) == 3:
+                            end_date = datetime(int(parts_date[2]), int(parts_date[0]), int(parts_date[1])).date()
+                        else:
+                            return False, f"Invalid end date format: {end_str} - expected M/D/YYYY or 'current'"
+                    except:
+                        return False, f"Invalid end date format: {end_str} - expected M/D/YYYY or 'current'"
+
+            periods.append({
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat() if end_date else None
+            })
+
+        return True, periods
+
+    def validate_activation_periods(self, periods):
+        """Validate activation periods according to rules.
+
+        Rules:
+        1. First start cannot be earlier than account creation date
+        2. end >= start + 1 day (for each period)
+        3. For consecutive periods: start2 >= end1 + 1 day
+        4. Final end must be at most today (or None for 'current')
+        5. If is_default_save, the last period must end with 'current' (cannot be deactivated)
+
+        Returns: (valid, error_message)
+        """
+        from datetime import date, timedelta, datetime
+
+        # Check if this is the default savings account
+        is_default_save = getattr(self.account, 'is_default_save', False)
+
+        # Rule 5: Default savings account must have at least one period ending with 'current'
+        if is_default_save:
+            if not periods:
+                return False, f"Default savings account '{self.account.name}' must always be active. Change the default savings account first if you want to deactivate this one."
+
+            last_period = periods[-1]
+            if last_period.get('end') is not None:
+                return False, f"Default savings account '{self.account.name}' must always be active. Change the default savings account first if you want to deactivate this one."
+
+        if not periods:
+            return True, None
+
+        today = date.today()
+
+        creation_date = None
+        if hasattr(self.account, 'created_at') and self.account.created_at:
+            if isinstance(self.account.created_at, datetime):
+                creation_date = self.account.created_at.date()
+            else:
+                creation_date = self.account.created_at
+
+        if not creation_date and self.original_values.get('activation_periods'):
+            first_period = self.original_values['activation_periods'][0]
+            if first_period.get('start'):
+                creation_date = date.fromisoformat(first_period['start'])
+
+        prev_end = None
+
+        for i, period in enumerate(periods):
+            start_str = period.get('start')
+            end_str = period.get('end')
+
+            if not start_str:
+                return False, f"Period {i+1}: Missing start date"
+
+            start_date = date.fromisoformat(start_str)
+            end_date = date.fromisoformat(end_str) if end_str else None
+
+            if i == 0 and creation_date and start_date < creation_date:
+                return False, f"({start_date.month}/{start_date.day}/{start_date.year}, ...): Start date cannot be earlier than account creation date ({creation_date.month}/{creation_date.day}/{creation_date.year})"
+
+            if end_date is not None:
+                if end_date < start_date + timedelta(days=1):
+                    return False, f"({start_date.month}/{start_date.day}/{start_date.year}, {end_date.month}/{end_date.day}/{end_date.year}): End date must be at least 1 day after start date"
+
+                if i == len(periods) - 1 and end_date > today:
+                    return False, f"({start_date.month}/{start_date.day}/{start_date.year}, {end_date.month}/{end_date.day}/{end_date.year}): End date cannot be in the future"
+
+            if prev_end is not None:
+                if start_date < prev_end + timedelta(days=1):
+                    return False, f"Period {i+1} start ({start_date.month}/{start_date.day}/{start_date.year}) must be at least 1 day after previous period end ({prev_end.month}/{prev_end.day}/{prev_end.year})"
+
+            prev_end = end_date
+
+        return True, None
 
     def get_starting_balance(self):
         """Get the starting balance from AccountHistory"""
@@ -296,6 +508,8 @@ class AccountEditorDialog(QDialog):
     def save_account(self):
         """Save changes to the account"""
         try:
+            from views.dialogs.settings_dialog import get_setting
+
             # Validate inputs
             name = self.name_edit.text().strip()
             if not name:
@@ -308,6 +522,28 @@ class AccountEditorDialog(QDialog):
                 existing_names = [acc.name for acc in existing_account if acc.id != self.account.id]
                 if name in existing_names:
                     QMessageBox.warning(self, "Validation Error", "An account with this name already exists.")
+                    return
+
+            # Check if activation periods were edited
+            current_status_text = self.status_edit.text().strip()
+            status_changed = current_status_text != self.original_status_text
+            new_activation_periods = None
+
+            if status_changed:
+                # Parse the new activation periods
+                parse_success, parse_result = self.parse_activation_periods(current_status_text)
+
+                if not parse_success:
+                    QMessageBox.warning(self, "Invalid Activation Periods", parse_result)
+                    return
+
+                new_activation_periods = parse_result
+
+                # Validate the parsed periods
+                valid, error_msg = self.validate_activation_periods(new_activation_periods)
+
+                if not valid:
+                    QMessageBox.warning(self, "Invalid Activation Periods", error_msg)
                     return
 
             # Get all current values (no more running_total editing)
@@ -339,6 +575,11 @@ class AccountEditorDialog(QDialog):
                         change_summary.append(f"Starting amount: ${old_value:.2f} → ${new_value:.2f}")
                     else:
                         change_summary.append(f"{key.replace('_', ' ').title()}: {old_value} → {new_value}")
+
+            # Add activation periods change to summary
+            if status_changed:
+                changes_made = True
+                change_summary.append(f"Activation periods: {self.original_status_text} → {current_status_text}")
 
             if not changes_made:
                 QMessageBox.information(self, "No Changes", "No changes were made to the account.")
@@ -394,13 +635,35 @@ class AccountEditorDialog(QDialog):
                     chosen_account = next(acc for acc in other_accounts if acc.name == choice)
                     self.transaction_manager.set_default_savings_account(chosen_account.id)
 
+            # Handle activation periods change
+            if status_changed and new_activation_periods is not None:
+                self.account.activation_periods = new_activation_periods
+
             # Save to database
             self.transaction_manager.db.commit()
 
-            QMessageBox.information(self, "Success", "Account updated successfully!")
-
             # Emit signal and close
             self.account_updated.emit(self.account)
+
+            # Show testing mode details if enabled
+            testing_mode = get_setting("testing_mode", False)
+            if testing_mode and status_changed:
+                details = [
+                    "✓ Activation Periods Updated",
+                    "",
+                    "CHANGES:",
+                    f"• Old: {self.original_status_text}",
+                    f"• New: {current_status_text}",
+                    "",
+                    "DATABASE:",
+                    f"• Account: {self.account.name}",
+                    f"• Periods: {new_activation_periods}",
+                    f"• Is Currently Active: {self.account.is_currently_active}",
+                ]
+                QMessageBox.information(self, "Success - Testing Mode", "\n".join(details))
+            else:
+                QMessageBox.information(self, "Success", "Account updated successfully!")
+
             self.accept()
 
         except Exception as e:

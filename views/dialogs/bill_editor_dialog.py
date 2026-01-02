@@ -127,7 +127,12 @@ class BillEditorDialog(QDialog):
         self.notes_edit = QTextEdit()
         self.notes_edit.setMaximumHeight(60)
         fields_layout.addRow("Notes:", self.notes_edit)
-        
+
+        # Activation Status (editable - user can modify activation periods)
+        self.status_edit = QLineEdit()
+        self.status_edit.setPlaceholderText("(start, end), (start, current) - dates as M/D/YYYY")
+        fields_layout.addRow("Status:", self.status_edit)
+
         fields_group.setLayout(fields_layout)
         main_layout.addWidget(fields_group)
         
@@ -211,8 +216,11 @@ class BillEditorDialog(QDialog):
                 'last_payment_date': self.bill.last_payment_date,
                 'last_payment_amount': self.bill.last_payment_amount,
                 'is_variable': self.bill.is_variable,
-                'notes': self.bill.notes
+                'notes': self.bill.notes,
+                'activation_periods': self.bill._get_periods_list() if hasattr(self.bill, '_get_periods_list') else []
             }
+            # Store original status text for comparison
+            self.original_status_text = self.format_activation_periods()
 
             # Load values into form
             self.name_edit.setText(self.bill.name or "")
@@ -242,11 +250,217 @@ class BillEditorDialog(QDialog):
             self.is_variable_checkbox.setChecked(self.bill.is_variable or False)
             self.notes_edit.setPlainText(self.bill.notes or "")
 
+            # Load activation status
+            self.status_edit.setText(self.format_activation_periods())
+
         except Exception as e:
             print(f"Error loading bill data: {e}")
             import traceback
             traceback.print_exc()
             QMessageBox.warning(self, "Error", f"Failed to load bill data: {str(e)}")
+
+    def format_activation_periods(self):
+        """Format activation periods for display as [(start, end), ...]"""
+        try:
+            periods = self.bill._get_periods_list() if hasattr(self.bill, '_get_periods_list') else []
+
+            if not periods:
+                return "No activation history"
+
+            formatted_periods = []
+            for period in periods:
+                start_str = period.get('start', 'unknown')
+                end_val = period.get('end')
+
+                # Format start date (M/D/YYYY)
+                if start_str and start_str != 'unknown':
+                    try:
+                        from datetime import datetime
+                        start_date = datetime.strptime(start_str, "%Y-%m-%d")
+                        start_formatted = start_date.strftime("%-m/%-d/%Y").replace("-", "/")
+                        # Windows doesn't support %-m, so fallback
+                        start_formatted = f"{start_date.month}/{start_date.day}/{start_date.year}"
+                    except:
+                        start_formatted = start_str
+                else:
+                    start_formatted = "unknown"
+
+                # Format end date (M/D/YYYY or 'current')
+                if end_val is None:
+                    end_formatted = "current"
+                else:
+                    try:
+                        from datetime import datetime
+                        end_date = datetime.strptime(end_val, "%Y-%m-%d")
+                        end_formatted = f"{end_date.month}/{end_date.day}/{end_date.year}"
+                    except:
+                        end_formatted = end_val
+
+                formatted_periods.append(f"({start_formatted}, {end_formatted})")
+
+            return ", ".join(formatted_periods)
+
+        except Exception as e:
+            print(f"Error formatting activation periods: {e}")
+            return "Error loading status"
+
+    def parse_activation_periods(self, text):
+        """Parse user-entered activation periods text back into list of dicts.
+
+        Expected format: (M/D/YYYY, M/D/YYYY), (M/D/YYYY, current)
+        Returns: (success, result) where result is either list of periods or error message
+        """
+        from datetime import datetime
+
+        text = text.strip()
+        if not text or text == "No activation history":
+            return True, []
+
+        periods = []
+
+        # Split by ), ( to get individual periods
+        # First remove any leading/trailing whitespace from each period
+        period_texts = []
+        current = ""
+        paren_depth = 0
+
+        for char in text:
+            if char == '(':
+                paren_depth += 1
+                current += char
+            elif char == ')':
+                paren_depth -= 1
+                current += char
+                if paren_depth == 0:
+                    period_texts.append(current.strip())
+                    current = ""
+            elif char == ',' and paren_depth == 0:
+                # Skip commas between periods
+                continue
+            else:
+                current += char
+
+        if current.strip():
+            period_texts.append(current.strip())
+
+        for period_text in period_texts:
+            period_text = period_text.strip()
+            if not period_text:
+                continue
+
+            # Remove outer parentheses
+            if period_text.startswith('(') and period_text.endswith(')'):
+                period_text = period_text[1:-1]
+
+            # Split by comma
+            parts = [p.strip() for p in period_text.split(',')]
+            if len(parts) != 2:
+                return False, f"Invalid period format: ({period_text}) - expected (start, end)"
+
+            start_str, end_str = parts
+
+            # Parse start date
+            try:
+                start_date = datetime.strptime(start_str, "%m/%d/%Y").date()
+            except ValueError:
+                try:
+                    # Try single-digit month/day format
+                    parts_date = start_str.split('/')
+                    if len(parts_date) == 3:
+                        start_date = datetime(int(parts_date[2]), int(parts_date[0]), int(parts_date[1])).date()
+                    else:
+                        return False, f"Invalid start date format: {start_str} - expected M/D/YYYY"
+                except:
+                    return False, f"Invalid start date format: {start_str} - expected M/D/YYYY"
+
+            # Parse end date (could be "current" or a date)
+            if end_str.lower() == "current":
+                end_date = None
+            else:
+                try:
+                    end_date = datetime.strptime(end_str, "%m/%d/%Y").date()
+                except ValueError:
+                    try:
+                        parts_date = end_str.split('/')
+                        if len(parts_date) == 3:
+                            end_date = datetime(int(parts_date[2]), int(parts_date[0]), int(parts_date[1])).date()
+                        else:
+                            return False, f"Invalid end date format: {end_str} - expected M/D/YYYY or 'current'"
+                    except:
+                        return False, f"Invalid end date format: {end_str} - expected M/D/YYYY or 'current'"
+
+            periods.append({
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat() if end_date else None
+            })
+
+        return True, periods
+
+    def validate_activation_periods(self, periods):
+        """Validate activation periods according to rules.
+
+        Rules:
+        1. First start cannot be earlier than bill creation date
+        2. end >= start + 1 day (for each period)
+        3. For consecutive periods: start2 >= end1 + 1 day
+        4. Final end must be at most today (or None for 'current')
+
+        Returns: (valid, error_message)
+        """
+        from datetime import date, timedelta, datetime
+
+        if not periods:
+            return True, None
+
+        today = date.today()
+
+        # Get bill creation date (use created_at if available, otherwise first activation)
+        creation_date = None
+        if hasattr(self.bill, 'created_at') and self.bill.created_at:
+            if isinstance(self.bill.created_at, datetime):
+                creation_date = self.bill.created_at.date()
+            else:
+                creation_date = self.bill.created_at
+
+        # If no creation date, use the original first activation period start
+        if not creation_date and self.original_values.get('activation_periods'):
+            first_period = self.original_values['activation_periods'][0]
+            if first_period.get('start'):
+                creation_date = date.fromisoformat(first_period['start'])
+
+        prev_end = None
+
+        for i, period in enumerate(periods):
+            start_str = period.get('start')
+            end_str = period.get('end')
+
+            if not start_str:
+                return False, f"Period {i+1}: Missing start date"
+
+            start_date = date.fromisoformat(start_str)
+            end_date = date.fromisoformat(end_str) if end_str else None
+
+            # Rule 1: First start cannot be earlier than creation date
+            if i == 0 and creation_date and start_date < creation_date:
+                return False, f"({start_date.month}/{start_date.day}/{start_date.year}, ...): Start date cannot be earlier than bill creation date ({creation_date.month}/{creation_date.day}/{creation_date.year})"
+
+            # Rule 2: end >= start + 1 day
+            if end_date is not None:
+                if end_date < start_date + timedelta(days=1):
+                    return False, f"({start_date.month}/{start_date.day}/{start_date.year}, {end_date.month}/{end_date.day}/{end_date.year}): End date must be at least 1 day after start date"
+
+                # Rule 4: Final end must be at most today
+                if i == len(periods) - 1 and end_date > today:
+                    return False, f"({start_date.month}/{start_date.day}/{start_date.year}, {end_date.month}/{end_date.day}/{end_date.year}): End date cannot be in the future"
+
+            # Rule 3: For consecutive periods, start2 >= end1 + 1 day
+            if prev_end is not None:
+                if start_date < prev_end + timedelta(days=1):
+                    return False, f"Period {i+1} start ({start_date.month}/{start_date.day}/{start_date.year}) must be at least 1 day after previous period end ({prev_end.month}/{prev_end.day}/{prev_end.year})"
+
+            prev_end = end_date
+
+        return True, None
 
     def get_starting_balance(self):
         """Get the starting balance from AccountHistory"""
@@ -407,22 +621,50 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
     def save_changes(self):
         """Save changes with confirmation dialog"""
         try:
+            from views.dialogs.settings_dialog import get_setting
+
             changes, new_values = self.get_changes()
-            
+
+            # Check if activation periods were edited
+            current_status_text = self.status_edit.text().strip()
+            status_changed = current_status_text != self.original_status_text
+            new_activation_periods = None
+
+            if status_changed:
+                # Parse the new activation periods
+                parse_success, parse_result = self.parse_activation_periods(current_status_text)
+
+                if not parse_success:
+                    # Show error popup (always, not just in testing mode)
+                    QMessageBox.warning(self, "Invalid Activation Periods", parse_result)
+                    return
+
+                new_activation_periods = parse_result
+
+                # Validate the parsed periods
+                valid, error_msg = self.validate_activation_periods(new_activation_periods)
+
+                if not valid:
+                    QMessageBox.warning(self, "Invalid Activation Periods", error_msg)
+                    return
+
+                # Add to changes list
+                changes.append(f"activation_periods: {self.original_status_text} → {current_status_text}")
+
             if not changes:
                 QMessageBox.information(self, "No Changes", "No changes were made.")
                 return
-            
+
             # Show confirmation dialog
             change_text = "You are about to change:\n\n" + "\n".join(changes)
             change_text += "\n\nAre you sure you want to continue?"
-            
+
             reply = QMessageBox.question(self, "Confirm Changes", change_text,
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            
+
             if reply != QMessageBox.StandardButton.Yes:
                 return
-            
+
             # Apply changes to bill
             self.bill.name = new_values['name']
             self.bill.bill_type = new_values['bill_type']
@@ -437,16 +679,38 @@ Difference: ${bi_weekly_savings - current_save_amount:+.2f}
             # Handle starting amount change
             if new_values['starting_amount'] != self.original_values['starting_amount']:
                 self.update_starting_balance(new_values['starting_amount'])
-            
+
+            # Handle activation periods change
+            if status_changed and new_activation_periods is not None:
+                self.bill.activation_periods = new_activation_periods
+
             # Save to database
             self.transaction_manager.db.commit()
-            
+
             # Emit signal that bill was updated
             self.bill_updated.emit(self.bill)
-            
-            QMessageBox.information(self, "Success", "Bill updated successfully!")
+
+            # Show testing mode details if enabled
+            testing_mode = get_setting("testing_mode", False)
+            if testing_mode and status_changed:
+                details = [
+                    "✓ Activation Periods Updated",
+                    "",
+                    "CHANGES:",
+                    f"• Old: {self.original_status_text}",
+                    f"• New: {current_status_text}",
+                    "",
+                    "DATABASE:",
+                    f"• Bill: {self.bill.name}",
+                    f"• Periods: {new_activation_periods}",
+                    f"• Is Currently Active: {self.bill.is_currently_active}",
+                ]
+                QMessageBox.information(self, "Success - Testing Mode", "\n".join(details))
+            else:
+                QMessageBox.information(self, "Success", "Bill updated successfully!")
+
             self.accept()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving changes: {str(e)}")
             import traceback

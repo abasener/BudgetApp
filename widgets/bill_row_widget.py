@@ -2,7 +2,7 @@
 Bill Row Widget - Individual bill display widget with progress bars, buttons, and charts
 """
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar,
                              QPushButton, QFrame, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 from themes import theme_manager
@@ -13,29 +13,31 @@ import math
 
 class BillRowWidget(QWidget):
     """Widget representing a single bill with all its components"""
-    
+
     # Signals for popup buttons
     see_more_clicked = pyqtSignal(object)  # Pass bill object
     see_history_clicked = pyqtSignal(object)  # Pass bill object
-    
-    def __init__(self, bill, transaction_manager, parent=None):
+    activation_changed = pyqtSignal(object, bool)  # Pass bill object and new active state
+
+    def __init__(self, bill, transaction_manager, is_active=True, parent=None):
         super().__init__(parent)
         self.bill = bill
         self.transaction_manager = transaction_manager
-        
+        self.is_active = is_active  # Track if bill is currently active
+
         # Progress bars
         self.time_progress_bar = None
         self.savings_progress_bar = None
-        
+
         # Line chart
         self.running_total_chart = None
-        
+
         # Labels for bill writeup
         self.writeup_labels = {}
-        
+
         self.init_ui()
         self.update_data()
-        
+
         # Connect to theme changes
         theme_manager.theme_changed.connect(self.on_theme_changed)
     
@@ -66,9 +68,12 @@ class BillRowWidget(QWidget):
         top_section.setSpacing(15)
         
         # COLUMN 1: Bill name (fixed width - only what's needed)
+        # Grey out inactive bills (no label suffix - visual separation via spacer is enough)
         self.name_label = QLabel(self.bill.name)
         self.name_label.setFont(theme_manager.get_font("subtitle"))  # Smaller font for tighter header
-        self.name_label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold;")
+        # Use text_secondary for inactive bill headers (more muted than primary but not as dim as text_disabled)
+        name_color = colors['text_primary'] if self.is_active else colors['text_secondary']
+        self.name_label.setStyleSheet(f"color: {name_color}; font-weight: bold;")
         self.name_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         top_section.addWidget(self.name_label)  # No stretch factor - takes only needed space
         
@@ -79,12 +84,21 @@ class BillRowWidget(QWidget):
         # Money progress bar (top) with label on the left
         money_bar_layout = QHBoxLayout()
         money_bar_layout.setSpacing(8)
-        
+
+        # For inactive bills, all non-header text uses text_disabled
+        label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+
         money_label = QLabel("Money:")
         money_label.setFont(theme_manager.get_font("small"))
-        money_label.setStyleSheet(f"color: {colors['text_secondary']};")
+        money_label.setStyleSheet(f"color: {label_color};")
         money_label.setFixedWidth(60)
-        
+
+        # For inactive bills, blend progress bar colors with disabled (75% disabled, 25% original)
+        if self.is_active:
+            money_bar_color = colors['primary']
+        else:
+            money_bar_color = self.blend_colors(colors['primary'], colors['disabled'], 0.25)
+
         self.savings_progress_bar = QProgressBar()
         self.savings_progress_bar.setMaximum(100)
         self.savings_progress_bar.setTextVisible(True)
@@ -96,7 +110,7 @@ class BillRowWidget(QWidget):
                 height: 20px;
             }}
             QProgressBar::chunk {{
-                background-color: {colors['primary']};
+                background-color: {money_bar_color};
                 border-radius: 3px;
             }}
         """)
@@ -108,12 +122,18 @@ class BillRowWidget(QWidget):
         # Time progress bar (bottom) with label on the left
         time_bar_layout = QHBoxLayout()
         time_bar_layout.setSpacing(8)
-        
+
         time_label = QLabel("Time:")
         time_label.setFont(theme_manager.get_font("small"))
-        time_label.setStyleSheet(f"color: {colors['text_secondary']};")
+        time_label.setStyleSheet(f"color: {label_color};")
         time_label.setFixedWidth(60)
-        
+
+        # For inactive bills, blend time bar color with disabled (75% disabled, 25% original)
+        if self.is_active:
+            time_bar_color = colors['warning']
+        else:
+            time_bar_color = self.blend_colors(colors['warning'], colors['disabled'], 0.25)
+
         self.time_progress_bar = QProgressBar()
         self.time_progress_bar.setMaximum(100)
         self.time_progress_bar.setTextVisible(True)
@@ -125,7 +145,7 @@ class BillRowWidget(QWidget):
                 height: 20px;
             }}
             QProgressBar::chunk {{
-                background-color: {colors['warning']};
+                background-color: {time_bar_color};
                 border-radius: 3px;
             }}
         """)
@@ -204,41 +224,99 @@ class BillRowWidget(QWidget):
         
         writeup_layout = QVBoxLayout(writeup_frame)
         writeup_layout.setSpacing(3)
-        
-        # Bill writeup title
+
+        # Bill writeup title - use text_secondary for inactive instead of primary
         writeup_title = QLabel("Bill Details")
         writeup_title.setFont(theme_manager.get_font("subtitle"))
-        writeup_title.setStyleSheet(f"color: {colors['primary']}; font-weight: bold;")
+        title_color = colors['primary'] if self.is_active else colors['text_secondary']
+        writeup_title.setStyleSheet(f"color: {title_color}; font-weight: bold;")
         writeup_layout.addWidget(writeup_title)
-        
-        # Bill details
+
+        # Bill details - for inactive: all text uses text_disabled
+        # Removed "Name:" since it's redundant with the title
         details = [
-            ("Name:", "name"),
             ("Current Balance:", "current_balance"),
             ("Expected Payment:", "expected_payment"),
             ("Weekly Savings:", "weekly_savings"),
             ("Bill Type:", "bill_type")
         ]
-        
+
+        # Colors for detail labels and values - all text_disabled for inactive
+        detail_label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+        detail_value_color = colors['text_primary'] if self.is_active else colors['text_disabled']
+
         for label_text, key in details:
             detail_layout = QHBoxLayout()
             detail_layout.setSpacing(5)
-            
+
             label = QLabel(label_text)
             label.setFont(theme_manager.get_font("small"))
-            label.setStyleSheet(f"color: {colors['text_secondary']}; font-weight: bold;")
+            label.setStyleSheet(f"color: {detail_label_color}; font-weight: bold;")
             label.setMinimumWidth(120)
-            
+
             value_label = QLabel("Loading...")
             value_label.setFont(theme_manager.get_font("small"))
-            value_label.setStyleSheet(f"color: {colors['text_primary']};")
-            
+            value_label.setStyleSheet(f"color: {detail_value_color};")
+
             self.writeup_labels[key] = value_label
-            
+
             detail_layout.addWidget(label)
             detail_layout.addWidget(value_label, 1)
             writeup_layout.addLayout(detail_layout)
-        
+
+        # Add activation toggle button at the bottom
+        toggle_layout = QHBoxLayout()
+        toggle_layout.setSpacing(5)
+
+        toggle_label = QLabel("Status:")
+        toggle_label.setFont(theme_manager.get_font("small"))
+        toggle_label.setStyleSheet(f"color: {detail_label_color}; font-weight: bold;")
+        toggle_label.setMinimumWidth(120)
+
+        # Create a button that shows current status and toggles on click
+        self.active_toggle = QPushButton("Active" if self.is_active else "Inactive")
+        self.active_toggle.setCheckable(True)
+        self.active_toggle.setChecked(self.is_active)
+        self.active_toggle.clicked.connect(self.on_active_toggle_changed)
+        self.active_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.active_toggle.setFixedHeight(24)
+        self.active_toggle.setFixedWidth(80)
+
+        # Style based on active state
+        if self.is_active:
+            self.active_toggle.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['primary']};
+                    color: {colors['surface']};
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 11px;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['primary_dark']};
+                }}
+            """)
+        else:
+            self.active_toggle.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['disabled']};
+                    color: {colors['text_secondary']};
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 11px;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['border']};
+                }}
+            """)
+
+        toggle_layout.addWidget(toggle_label)
+        toggle_layout.addWidget(self.active_toggle)
+        toggle_layout.addStretch()
+        writeup_layout.addLayout(toggle_layout)
+
         writeup_layout.addStretch()
         writeup_section.addWidget(writeup_frame)
         
@@ -270,6 +348,18 @@ class BillRowWidget(QWidget):
             return f"#{new_rgb[0]:02x}{new_rgb[1]:02x}{new_rgb[2]:02x}"
         except:
             return color
+
+    def blend_colors(self, color1: str, color2: str, ratio: float = 0.5) -> str:
+        """Blend two hex colors together. ratio=0.5 means 50% of each."""
+        try:
+            c1 = color1.lstrip('#')
+            c2 = color2.lstrip('#')
+            rgb1 = tuple(int(c1[i:i+2], 16) for i in (0, 2, 4))
+            rgb2 = tuple(int(c2[i:i+2], 16) for i in (0, 2, 4))
+            blended = tuple(int(rgb1[i] * ratio + rgb2[i] * (1 - ratio)) for i in range(3))
+            return f"#{blended[0]:02x}{blended[1]:02x}{blended[2]:02x}"
+        except:
+            return color1
     
     def on_theme_changed(self, theme_id):
         """Handle theme change for bill row widget"""
@@ -289,15 +379,27 @@ class BillRowWidget(QWidget):
                     }}
                 """)
             
-            # Update name label
+            # Update name label (respect inactive status - headers use text_secondary)
             if hasattr(self, 'name_label'):
-                self.name_label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold;")
-            
+                name_color = colors['text_primary'] if self.is_active else colors['text_secondary']
+                self.name_label.setStyleSheet(f"color: {name_color}; font-weight: bold;")
+
+            # Determine colors based on active status
+            label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+
             # Update progress bar labels
             for child in self.findChildren(QLabel):
                 if child.text() in ["Money:", "Time:"]:
-                    child.setStyleSheet(f"color: {colors['text_secondary']};")
-            
+                    child.setStyleSheet(f"color: {label_color};")
+
+            # Calculate progress bar colors (muted for inactive - 75% disabled, 25% original)
+            if self.is_active:
+                money_bar_color = colors['primary']
+                time_bar_color = colors['warning']
+            else:
+                money_bar_color = self.blend_colors(colors['primary'], colors['disabled'], 0.25)
+                time_bar_color = self.blend_colors(colors['warning'], colors['disabled'], 0.25)
+
             # Update progress bars
             if hasattr(self, 'savings_progress_bar'):
                 self.savings_progress_bar.setStyleSheet(f"""
@@ -308,11 +410,11 @@ class BillRowWidget(QWidget):
                         height: 20px;
                     }}
                     QProgressBar::chunk {{
-                        background-color: {colors['primary']};
+                        background-color: {money_bar_color};
                         border-radius: 3px;
                     }}
                 """)
-            
+
             if hasattr(self, 'time_progress_bar'):
                 self.time_progress_bar.setStyleSheet(f"""
                     QProgressBar {{
@@ -322,7 +424,7 @@ class BillRowWidget(QWidget):
                         height: 20px;
                     }}
                     QProgressBar::chunk {{
-                        background-color: {colors['warning']};
+                        background-color: {time_bar_color};
                         border-radius: 3px;
                     }}
                 """)
@@ -366,12 +468,26 @@ class BillRowWidget(QWidget):
                         }}
                     """)
             
-            # Update writeup text labels
+            # Update writeup title (Bill Details) - find it among children
+            for child in self.findChildren(QLabel):
+                if child.text() == "Bill Details":
+                    title_color = colors['primary'] if self.is_active else colors['text_secondary']
+                    child.setStyleSheet(f"color: {title_color}; font-weight: bold;")
+
+            # Update writeup detail labels (the label: and value pairs)
+            # For inactive: all text uses text_disabled
+            detail_label_color = colors['text_secondary'] if self.is_active else colors['text_disabled']
+            detail_value_color = colors['text_primary'] if self.is_active else colors['text_disabled']
+
+            # Update the value labels we stored
             for label_name, label in self.writeup_labels.items():
-                if ":" in label_name:  # Header labels
-                    label.setStyleSheet(f"color: {colors['text_primary']}; font-weight: bold;")
-                else:  # Value labels
-                    label.setStyleSheet(f"color: {colors['text_secondary']};")
+                label.setStyleSheet(f"color: {detail_value_color};")
+
+            # Update the static label texts (Name:, Current Balance:, etc.)
+            for child in self.findChildren(QLabel):
+                text = child.text()
+                if text.endswith(":") and text not in ["Money:", "Time:"]:
+                    child.setStyleSheet(f"color: {detail_label_color}; font-weight: bold;")
             
             # Force line chart to update its theme colors
             if hasattr(self, 'running_total_chart') and self.running_total_chart:
@@ -490,9 +606,64 @@ class BillRowWidget(QWidget):
                     continue
                 balance_points.append((entry.transaction_date, entry.running_total))
 
+            # Get activation periods for boundary points and date limiting
+            from datetime import date as date_type
+            activation_periods = []
+            if hasattr(self.bill, '_get_periods_list'):
+                activation_periods = self.bill._get_periods_list()
+
+            # For inactive bills, limit the chart to show only up to the last deactivation date
+            # This helps avoid showing long flat lines after the bill became inactive
+            if not self.is_active and activation_periods and balance_points:
+                # Find the last end date (most recent deactivation)
+                last_deactivation = None
+                for period in activation_periods:
+                    end_str = period.get('end')
+                    if end_str:
+                        end_date = date_type.fromisoformat(end_str) if isinstance(end_str, str) else end_str
+                        if last_deactivation is None or end_date > last_deactivation:
+                            last_deactivation = end_date
+
+                # Filter balance points to only include those up to last deactivation
+                if last_deactivation:
+                    balance_points = [(d, v) for d, v in balance_points if d <= last_deactivation]
+
+            # Add points at activation/deactivation boundaries for clearer transitions
+            if activation_periods and balance_points:
+                boundary_dates = set()
+                for period in activation_periods:
+                    start_str = period.get('start')
+                    end_str = period.get('end')
+                    if start_str:
+                        start_date = date_type.fromisoformat(start_str) if isinstance(start_str, str) else start_str
+                        boundary_dates.add(start_date)
+                    if end_str:
+                        end_date = date_type.fromisoformat(end_str) if isinstance(end_str, str) else end_str
+                        boundary_dates.add(end_date)
+
+                # For each boundary date not already in balance_points, interpolate the value
+                existing_dates = {d for d, v in balance_points}
+                sorted_points = sorted(balance_points, key=lambda x: x[0])
+
+                for boundary in boundary_dates:
+                    if boundary not in existing_dates and sorted_points:
+                        # Find the balance at this boundary by interpolation
+                        # Use the most recent balance before this date
+                        prev_balance = None
+                        for d, v in sorted_points:
+                            if d <= boundary:
+                                prev_balance = v
+                            else:
+                                break
+                        if prev_balance is not None:
+                            balance_points.append((boundary, prev_balance))
+
+                # Re-sort after adding boundary points
+                balance_points = sorted(balance_points, key=lambda x: x[0])
+
             # Apply time frame filter from settings
             from views.dialogs.settings_dialog import get_setting
-            from datetime import datetime, date as date_type
+            from datetime import datetime
 
             time_frame_filter = get_setting("time_frame_filter", "All Time")
 
@@ -558,8 +729,24 @@ class BillRowWidget(QWidget):
                 ]
                 chart_data["Payment Goal"] = goal_points
 
+            # For inactive bills, use muted chart colors (75% disabled, 25% original)
+            custom_colors = None
+            custom_axis_color = None
+            if not self.is_active:
+                colors = theme_manager.get_colors()
+                chart_colors = theme_manager.get_chart_colors()
+                custom_colors = [self.blend_colors(c, colors['disabled'], 0.25) for c in chart_colors]
+                custom_axis_color = colors['text_disabled']  # Muted axis/tick colors
+
+            # Get activation periods for dashed line visualization
+            activation_periods = None
+            if hasattr(self.bill, '_get_periods_list'):
+                activation_periods = self.bill._get_periods_list()
+
             # Update chart with date on X-axis, running total on Y-axis (with dots like bills should have)
-            self.running_total_chart.update_data(chart_data, "", "")
+            self.running_total_chart.update_data(chart_data, "", "", custom_colors=custom_colors,
+                                                  custom_axis_color=custom_axis_color,
+                                                  activation_periods=activation_periods)
 
         except Exception as e:
             print(f"Error updating line chart for {self.bill.name}: {e}")
@@ -573,10 +760,7 @@ class BillRowWidget(QWidget):
         try:
             # Check if this is a percentage-based bill
             is_percentage_bill = getattr(self.bill, 'amount_to_save', 0) < 1.0 and getattr(self.bill, 'amount_to_save', 0) > 0
-            
-            # Name
-            self.writeup_labels["name"].setText(self.bill.name)
-            
+
             # Current Balance
             current_balance = self.bill.get_current_balance(self.transaction_manager.db)
             self.writeup_labels["current_balance"].setText(f"${current_balance:.2f}")
@@ -613,3 +797,29 @@ class BillRowWidget(QWidget):
             print(f"Error updating writeup for {self.bill.name}: {e}")
             for key in self.writeup_labels:
                 self.writeup_labels[key].setText("Error")
+
+    def on_active_toggle_changed(self):
+        """Handle activation toggle button click - toggle the current state"""
+        from datetime import date
+
+        # Toggle: if currently active, deactivate; if inactive, activate
+        new_is_active = not self.is_active
+
+        try:
+            if new_is_active:
+                # Activate: Add new period starting today
+                self.bill.activate(start_date=date.today(), db_session=self.transaction_manager.db)
+            else:
+                # Deactivate: End current period today
+                self.bill.deactivate(end_date=date.today(), db_session=self.transaction_manager.db)
+
+            # Update internal state
+            self.is_active = new_is_active
+
+            # Emit signal so parent view can refresh the entire view
+            self.activation_changed.emit(self.bill, new_is_active)
+
+        except Exception as e:
+            print(f"Error changing activation for {self.bill.name}: {e}")
+            import traceback
+            traceback.print_exc()

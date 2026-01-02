@@ -69,8 +69,16 @@ class AddAccountDialog(QDialog):
         # Default savings checkbox (with tooltip)
         self.default_save_checkbox = QCheckBox("Make this the default savings account")
         self.default_save_checkbox.setToolTip("Default savings account receives automatic savings from paychecks")
+        self.default_save_checkbox.toggled.connect(self.on_default_save_toggled)
         form_layout.addRow("", self.default_save_checkbox)
-        
+
+        # Activation status toggle (defaults to Active)
+        self.active_checkbox = QCheckBox("Start as Active")
+        self.active_checkbox.setChecked(True)  # Default to active
+        self.active_checkbox.setToolTip("Uncheck to create this account as inactive (won't receive paycheck allocations)")
+        self.active_checkbox.toggled.connect(self.update_preview)
+        form_layout.addRow("Status:", self.active_checkbox)
+
         layout.addLayout(form_layout)
         
         # Preview section
@@ -112,6 +120,19 @@ class AddAccountDialog(QDialog):
         name = self.name_edit.text().strip()
         self.create_button.setEnabled(bool(name))
 
+    def on_default_save_toggled(self, checked):
+        """Handle default savings checkbox toggle - lock activation if default"""
+        if checked:
+            # Default savings account must be active - lock the toggle
+            self.active_checkbox.setChecked(True)
+            self.active_checkbox.setEnabled(False)
+            self.active_checkbox.setToolTip("Default savings account must always be active")
+        else:
+            # Allow user to toggle activation
+            self.active_checkbox.setEnabled(True)
+            self.active_checkbox.setToolTip("Uncheck to create this account as inactive (won't receive paycheck allocations)")
+        self.update_preview()
+
     def update_preview(self):
         """Update the preview of the account to be created"""
         name = self.name_edit.text().strip() or "[Account Name]"
@@ -119,10 +140,15 @@ class AddAccountDialog(QDialog):
         goal = self.goal_spin.value()
         auto_save = self.auto_save_spin.value()
         is_default = self.default_save_checkbox.isChecked()
-        
+        is_active = self.active_checkbox.isChecked()
+
+        # Status text
+        status_text = "Active" if is_active else "Inactive (won't receive allocations)"
+
         preview_text = f"Preview: {name}\n"
         preview_text += f"Starting Balance: ${balance:.2f}\n"
-        
+        preview_text += f"Status: {status_text}\n"
+
         if goal > 0:
             if balance > 0:
                 progress = min(100, (balance / goal) * 100)
@@ -132,7 +158,7 @@ class AddAccountDialog(QDialog):
                 preview_text += f"Savings Goal: ${goal:.2f}\n"
         else:
             preview_text += "No specific savings goal\n"
-        
+
         if auto_save > 0:
             # Check if this is a percentage-based auto-save
             if auto_save < 1.0 and auto_save > 0:
@@ -141,10 +167,10 @@ class AddAccountDialog(QDialog):
                 preview_text += f"Auto-Save: ${auto_save:.2f} per paycheck (after bills)\n"
         else:
             preview_text += "No automatic savings\n"
-        
+
         if is_default:
             preview_text += "Default savings account (will receive automatic paycheck savings)"
-        
+
         self.preview_label.setText(preview_text)
     
     def validate_form(self):
@@ -206,12 +232,14 @@ class AddAccountDialog(QDialog):
 
         try:
             from views.dialogs.settings_dialog import get_setting
+            from datetime import date
 
             name = self.name_edit.text().strip()
             balance = self.balance_spin.value()
             goal = self.goal_spin.value()
             auto_save = self.auto_save_spin.value()
             is_default = self.default_save_checkbox.isChecked()
+            is_active = self.active_checkbox.isChecked()
 
             # Create new account using transaction manager (handles defaults and balance history)
             new_account = self.transaction_manager.add_account(
@@ -221,6 +249,15 @@ class AddAccountDialog(QDialog):
                 is_default_save=is_default,
                 initial_balance=balance
             )
+
+            # Set activation periods based on checkbox
+            # If active: start today with no end date
+            # If inactive: no activation periods (never been active)
+            if is_active:
+                new_account.activation_periods = [{"start": date.today().isoformat(), "end": None}]
+            else:
+                new_account.activation_periods = []  # Empty = never active
+            self.transaction_manager.db.commit()
 
             # Check if testing mode is enabled
             testing_mode = get_setting("testing_mode", False)
@@ -236,6 +273,7 @@ class AddAccountDialog(QDialog):
 
                 if saved_account:
                     # Build verification details
+                    status_str = "Active" if saved_account.is_currently_active else "Inactive"
                     details = [
                         "✓ Account Created Successfully",
                         "",
@@ -246,6 +284,7 @@ class AddAccountDialog(QDialog):
                         f"• Goal Amount: ${saved_account.goal_amount:.2f}",
                         f"• Auto-Save Amount: {saved_account.auto_save_amount:.3f}",
                         f"• Is Default Save: {saved_account.is_default_save}",
+                        f"• Status: {status_str}",
                     ]
 
                     # Show auto-save with percentage if applicable

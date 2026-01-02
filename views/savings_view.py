@@ -3,7 +3,7 @@ Savings View - Individual savings account rows with progress bars, charts, and d
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-                             QScrollArea, QPushButton, QComboBox, QToolButton)
+                             QScrollArea, QPushButton, QComboBox, QToolButton, QCheckBox)
 from PyQt6.QtCore import Qt
 from themes import theme_manager
 from widgets import AccountRowWidget
@@ -14,13 +14,14 @@ class SavingsView(QWidget):
     def __init__(self, transaction_manager=None):
         super().__init__()
         self.transaction_manager = transaction_manager
-        
+
         # Store account row widgets
         self.account_rows = []
-        
-        # Load sort option from settings
+
+        # Load settings
         self.current_sort = get_setting("savings_sort_order", "Alphabetical")
-        
+        self.hide_inactive = get_setting("savings_hide_inactive", False)
+
         self.init_ui()
         
     def init_ui(self):
@@ -176,6 +177,40 @@ class SavingsView(QWidget):
         """)
         toolbar_layout.addWidget(self.sort_combo)
 
+        # Separator before hide inactive
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        separator2.setStyleSheet(f"color: {colors['border']};")
+        toolbar_layout.addWidget(separator2)
+
+        # Hide inactive checkbox
+        self.hide_inactive_checkbox = QCheckBox("Hide inactive")
+        self.hide_inactive_checkbox.setChecked(self.hide_inactive)
+        self.hide_inactive_checkbox.stateChanged.connect(self.on_hide_inactive_changed)
+        self.hide_inactive_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {colors['text_primary']};
+                font-size: 12px;
+                spacing: 5px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {colors['border']};
+                border-radius: 3px;
+                background-color: {colors['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {colors['primary']};
+                border-color: {colors['primary']};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {colors['primary']};
+            }}
+        """)
+        toolbar_layout.addWidget(self.hide_inactive_checkbox)
+
         # Push everything to the left
         toolbar_layout.addStretch()
     
@@ -238,78 +273,153 @@ class SavingsView(QWidget):
         self.current_sort = sort_option
         save_setting("savings_sort_order", sort_option)
         self.refresh()  # Refresh with new sort
-    
+
+    def on_hide_inactive_changed(self, state):
+        """Handle hide inactive checkbox change"""
+        self.hide_inactive = bool(state)
+        save_setting("savings_hide_inactive", self.hide_inactive)
+        self.refresh()  # Refresh with new filter
+
     def sort_accounts(self, accounts):
-        """Sort accounts according to current sort option"""
+        """Sort accounts according to current sort option, always putting inactive accounts at bottom"""
         if not accounts:
             return accounts
-            
+
         try:
-            if self.current_sort == "Alphabetical":
-                return sorted(accounts, key=lambda a: (a.name or "").lower())
-                
-            elif self.current_sort == "Highest Balance":
-                # Highest running_total first, alphabetical tiebreaker
-                return sorted(accounts, key=lambda a: (-(a.running_total or 0), (a.name or "").lower()))
-                
-            elif self.current_sort == "Goal Progress":
-                # Highest goal progress percentage first
-                def progress_score(account):
-                    if not account.goal_amount or account.goal_amount <= 0:
-                        return (-1, (account.name or "").lower())  # No goal = lowest priority
-                    progress = min(100, (account.running_total / account.goal_amount) * 100)
-                    return (-progress, (account.name or "").lower())
-                
-                return sorted(accounts, key=progress_score)
-                
-            elif self.current_sort == "Goal Amount":
-                # Highest goal amount first, alphabetical tiebreaker
-                return sorted(accounts, key=lambda a: (-(a.goal_amount or 0), (a.name or "").lower()))
-                
-            else:
-                # Default to alphabetical
-                return sorted(accounts, key=lambda a: (a.name or "").lower())
-                
+            # First, separate active and inactive accounts
+            active_accounts = [a for a in accounts if a.is_currently_active]
+            inactive_accounts = [a for a in accounts if not a.is_currently_active]
+
+            def sort_group(account_group):
+                """Apply current sort to a group of accounts"""
+                if not account_group:
+                    return account_group
+
+                if self.current_sort == "Alphabetical":
+                    return sorted(account_group, key=lambda a: (a.name or "").lower())
+
+                elif self.current_sort == "Highest Balance":
+                    # Highest running_total first, alphabetical tiebreaker
+                    return sorted(account_group, key=lambda a: (-(a.running_total or 0), (a.name or "").lower()))
+
+                elif self.current_sort == "Goal Progress":
+                    # Highest goal progress percentage first
+                    def progress_score(account):
+                        if not account.goal_amount or account.goal_amount <= 0:
+                            return (-1, (account.name or "").lower())  # No goal = lowest priority
+                        progress = min(100, (account.running_total / account.goal_amount) * 100)
+                        return (-progress, (account.name or "").lower())
+
+                    return sorted(account_group, key=progress_score)
+
+                elif self.current_sort == "Goal Amount":
+                    # Highest goal amount first, alphabetical tiebreaker
+                    return sorted(account_group, key=lambda a: (-(a.goal_amount or 0), (a.name or "").lower()))
+
+                else:
+                    # Default to alphabetical
+                    return sorted(account_group, key=lambda a: (a.name or "").lower())
+
+            # Sort each group separately, then combine with active first
+            sorted_active = sort_group(active_accounts)
+            sorted_inactive = sort_group(inactive_accounts)
+
+            return sorted_active + sorted_inactive
+
         except Exception as e:
             print(f"Error sorting accounts: {e}")
-            # Fall back to alphabetical
-            return sorted(accounts, key=lambda a: (a.name or "").lower())
+            # Fall back to alphabetical with inactive at bottom
+            active = [a for a in accounts if a.is_currently_active]
+            inactive = [a for a in accounts if not a.is_currently_active]
+            return sorted(active, key=lambda a: (a.name or "").lower()) + sorted(inactive, key=lambda a: (a.name or "").lower())
     
     def refresh(self):
         """Refresh savings view with current account data"""
         if not self.transaction_manager:
             self.show_no_data_message("Transaction manager not available")
             return
-        
+
         try:
-            # Reload sort setting from settings file
+            # Reload settings from settings file
             self.current_sort = get_setting("savings_sort_order", "Alphabetical")
+            self.hide_inactive = get_setting("savings_hide_inactive", False)
+
+            # Update checkbox state without triggering signal
+            if hasattr(self, 'hide_inactive_checkbox'):
+                self.hide_inactive_checkbox.blockSignals(True)
+                self.hide_inactive_checkbox.setChecked(self.hide_inactive)
+                self.hide_inactive_checkbox.blockSignals(False)
+
             # Get all accounts
             accounts = self.transaction_manager.get_all_accounts()
-            
+
             if not accounts:
                 self.show_no_data_message("No savings accounts configured")
                 return
-            
+
+            # Filter out inactive accounts if hide_inactive is enabled
+            if self.hide_inactive:
+                accounts = [a for a in accounts if a.is_currently_active]
+
+                if not accounts:
+                    self.show_no_data_message("No active accounts (inactive accounts are hidden)")
+                    return
+
             # Sort accounts according to current sort option
             sorted_accounts = self.sort_accounts(accounts)
-            
+
             # Clear existing account rows
             self.clear_account_rows()
-            
-            # Create account row widgets
-            for account in sorted_accounts:
-                account_row = AccountRowWidget(account, self.transaction_manager)
-                
+
+            # Separate active and inactive for adding spacer
+            active_accounts = [a for a in sorted_accounts if a.is_currently_active]
+            inactive_accounts = [a for a in sorted_accounts if not a.is_currently_active]
+
+            # Create account row widgets for active accounts
+            for account in active_accounts:
+                account_row = AccountRowWidget(account, self.transaction_manager, is_active=True)
+
                 # Connect signals for popup buttons
                 account_row.see_more_clicked.connect(self.on_see_more_clicked)
                 account_row.see_history_clicked.connect(self.on_see_history_clicked)
-                
+                account_row.activation_changed.connect(self.on_account_activation_changed)
+
                 # Add to layout (insert before stretch)
                 self.accounts_layout.insertWidget(self.accounts_layout.count() - 1, account_row)
                 self.account_rows.append(account_row)
-            
-            
+
+            # Add spacer with divider line between active and inactive sections
+            if active_accounts and inactive_accounts:
+                colors = theme_manager.get_colors()
+                # Create a container widget with a centered horizontal line
+                spacer_container = QWidget()
+                spacer_layout = QVBoxLayout(spacer_container)
+                spacer_layout.setContentsMargins(20, 10, 20, 10)  # Horizontal margins for the line, vertical for spacing
+                spacer_layout.setSpacing(0)
+
+                # Create the divider line (same style as account borders)
+                divider = QFrame()
+                divider.setFrameShape(QFrame.Shape.HLine)
+                divider.setFixedHeight(2)  # Thin line like borders
+                divider.setStyleSheet(f"background-color: {colors['border']}; border: none;")
+
+                spacer_layout.addWidget(divider)
+                self.accounts_layout.insertWidget(self.accounts_layout.count() - 1, spacer_container)
+
+            # Create account row widgets for inactive accounts
+            for account in inactive_accounts:
+                account_row = AccountRowWidget(account, self.transaction_manager, is_active=False)
+
+                # Connect signals for popup buttons
+                account_row.see_more_clicked.connect(self.on_see_more_clicked)
+                account_row.see_history_clicked.connect(self.on_see_history_clicked)
+                account_row.activation_changed.connect(self.on_account_activation_changed)
+
+                # Add to layout (insert before stretch)
+                self.accounts_layout.insertWidget(self.accounts_layout.count() - 1, account_row)
+                self.account_rows.append(account_row)
+
+
         except Exception as e:
             error_msg = f"Error refreshing savings accounts: {str(e)}"
             print(error_msg)
@@ -318,12 +428,21 @@ class SavingsView(QWidget):
             self.show_no_data_message(error_msg)
     
     def clear_account_rows(self):
-        """Clear all existing account row widgets"""
+        """Clear all existing account row widgets and dividers"""
+        # Clear tracked account rows
         for account_row in self.account_rows:
             account_row.setParent(None)
             account_row.deleteLater()
-        
         self.account_rows.clear()
+
+        # Also clear any divider/spacer widgets that were added to the layout
+        # We need to remove all widgets except the stretch at the end
+        while self.accounts_layout.count() > 1:  # Keep the stretch
+            item = self.accounts_layout.takeAt(0)
+            widget = item.widget() if item else None
+            if widget:
+                widget.setParent(None)
+                widget.deleteLater()
     
     def show_no_data_message(self, message: str):
         """Show a message when no accounts are available"""
@@ -373,7 +492,18 @@ class SavingsView(QWidget):
             print(f"Error opening account transaction history: {e}")
             import traceback
             traceback.print_exc()
-    
+
+    def on_account_activation_changed(self, account, is_active):
+        """Handle when an account's activation status is changed via the toggle"""
+        print(f"[DEBUG] on_account_activation_changed called: {account.name}, is_active={is_active}")
+        print(f"[DEBUG] account.is_currently_active = {account.is_currently_active}")
+        try:
+            # Refresh the entire view to reflect the new active/inactive status
+            # This will re-sort accounts and update visual styling
+            self.refresh()
+        except Exception as e:
+            print(f"Error refreshing after activation change: {e}")
+
     def on_account_updated(self, updated_account):
         """Handle when account data is updated from dialogs"""
         try:
@@ -497,7 +627,31 @@ class SavingsView(QWidget):
                     selection-color: {colors['surface']};
                 }}
             """)
-        
+
+        # Update hide inactive checkbox
+        if hasattr(self, 'hide_inactive_checkbox'):
+            self.hide_inactive_checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {colors['text_primary']};
+                    font-size: 12px;
+                    spacing: 5px;
+                }}
+                QCheckBox::indicator {{
+                    width: 16px;
+                    height: 16px;
+                    border: 1px solid {colors['border']};
+                    border-radius: 3px;
+                    background-color: {colors['surface']};
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {colors['primary']};
+                    border-color: {colors['primary']};
+                }}
+                QCheckBox::indicator:hover {{
+                    border-color: {colors['primary']};
+                }}
+            """)
+
         # Update scroll area and its content widget
         if hasattr(self, 'scroll_area'):
             self.scroll_area.setStyleSheet(f"""

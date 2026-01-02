@@ -92,13 +92,15 @@ class PaycheckProcessor:
         """
         
         # Step 1: Calculate bills to deduct (bi-weekly portion, including percentage-based)
-        bills_deducted = self.calculate_bills_deduction(paycheck_amount)
-        
+        # Only active bills on week_start_date are included
+        bills_deducted = self.calculate_bills_deduction(paycheck_amount, week_start_date)
+
         # Step 2: Calculate automatic savings (fixed percentage or amount)
         automatic_savings = self.calculate_automatic_savings(paycheck_amount)
-        
+
         # Step 3: Calculate account auto-savings (happens after bills)
-        account_auto_savings = self.calculate_account_auto_savings(paycheck_amount)
+        # Only active accounts on week_start_date are included
+        account_auto_savings = self.calculate_account_auto_savings(paycheck_amount, week_start_date)
         
         # Step 4: Calculate remaining for weeks
         remaining_for_weeks = paycheck_amount - bills_deducted - automatic_savings - account_auto_savings
@@ -132,12 +134,29 @@ class PaycheckProcessor:
 
         return split
     
-    def calculate_bills_deduction(self, paycheck_amount: float = 0.0) -> float:
-        """Calculate how much to deduct for bills in this bi-weekly period"""
+    def calculate_bills_deduction(self, paycheck_amount: float = 0.0, week_start_date: date = None) -> float:
+        """
+        Calculate how much to deduct for bills in this bi-weekly period.
+
+        Only includes bills that are ACTIVE on the week_start_date.
+        Inactive bills are skipped - no auto-allocation happens for them.
+
+        Args:
+            paycheck_amount: The gross paycheck amount (for percentage-based savings)
+            week_start_date: The start date of the pay period (for activation check)
+                            If None, uses today's date
+        """
+        if week_start_date is None:
+            week_start_date = date.today()
+
         bills = self.transaction_manager.get_all_bills()
         total_deduction = 0.0
-        
+
         for bill in bills:
+            # Skip inactive bills - they don't receive auto-allocations
+            if not bill.is_active_on(week_start_date):
+                continue
+
             # Handle percentage-based vs fixed amount savings
             if bill.amount_to_save < 1.0 and bill.amount_to_save > 0:
                 # Percentage-based saving (e.g., 0.1 = 10% of paycheck)
@@ -145,17 +164,34 @@ class PaycheckProcessor:
             else:
                 # Fixed dollar amount saving
                 bi_weekly_savings = bill.amount_to_save
-            
+
             total_deduction += bi_weekly_savings
-            
+
         return total_deduction
     
-    def calculate_account_auto_savings(self, paycheck_amount: float = 0) -> float:
-        """Calculate auto-savings for accounts (happens after bills)"""
+    def calculate_account_auto_savings(self, paycheck_amount: float = 0, week_start_date: date = None) -> float:
+        """
+        Calculate auto-savings for accounts (happens after bills).
+
+        Only includes accounts that are ACTIVE on the week_start_date.
+        Inactive accounts are skipped - no auto-allocation happens for them.
+
+        Args:
+            paycheck_amount: The gross paycheck amount (for percentage-based savings)
+            week_start_date: The start date of the pay period (for activation check)
+                            If None, uses today's date
+        """
+        if week_start_date is None:
+            week_start_date = date.today()
+
         accounts = self.transaction_manager.get_all_accounts()
         total_auto_savings = 0.0
 
         for account in accounts:
+            # Skip inactive accounts - they don't receive auto-allocations
+            if not account.is_active_on(week_start_date):
+                continue
+
             if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
                 # Handle percentage-based vs fixed amount auto-saves
                 if account.auto_save_amount < 1.0 and account.auto_save_amount > 0:
@@ -240,10 +276,21 @@ class PaycheckProcessor:
         print("=" * 60)
     
     def update_bill_savings(self, week_number: int, transaction_date: date, paycheck_amount: float):
-        """Update bill savings accounts based on bi-weekly deductions"""
+        """
+        Update bill savings accounts based on bi-weekly deductions.
+
+        Only creates allocations for bills that are ACTIVE on the transaction_date.
+        Inactive bills are skipped - no auto-allocation transaction is created.
+        Manual bill payments can still be made to inactive bills via the UI.
+        """
         bills = self.transaction_manager.get_all_bills()
 
         for bill in bills:
+            # Skip inactive bills - they don't receive auto-allocations
+            # (User can still manually pay bills or transfer money to inactive bill accounts)
+            if not bill.is_active_on(transaction_date):
+                continue
+
             if bill.amount_to_save > 0:
                 # Calculate actual amount using same logic as calculate_bills_deduction
                 if bill.amount_to_save < 1.0 and bill.amount_to_save > 0:
@@ -269,10 +316,21 @@ class PaycheckProcessor:
                 self.transaction_manager.add_transaction(bill_saving_transaction)
 
     def update_account_auto_savings(self, week_number: int, transaction_date: date, paycheck_amount: float = 0):
-        """Update account auto-savings based on each account's auto_save_amount"""
+        """
+        Update account auto-savings based on each account's auto_save_amount.
+
+        Only creates allocations for accounts that are ACTIVE on the transaction_date.
+        Inactive accounts are skipped - no auto-allocation transaction is created.
+        Manual transfers can still be made to/from inactive accounts via the UI.
+        """
         accounts = self.transaction_manager.get_all_accounts()
 
         for account in accounts:
+            # Skip inactive accounts - they don't receive auto-allocations
+            # (User can still manually transfer money to/from inactive accounts)
+            if not account.is_active_on(transaction_date):
+                continue
+
             # Check if account has auto_save_amount attribute and it's > 0
             if hasattr(account, 'auto_save_amount') and account.auto_save_amount > 0:
                 # Calculate actual amount using same logic as calculate_account_auto_savings
